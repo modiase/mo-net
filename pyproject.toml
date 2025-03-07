@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "handwriting-from-scratch"
+version = "0.1.0"
+description = ""
+authors = ["Moye <moyeodiase@outlook.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^2.2.3"
+more-itertools = "^10.6.0"
+pandas = "^2.2.3"
+matplotlib = "^3.10.1"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.9.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
