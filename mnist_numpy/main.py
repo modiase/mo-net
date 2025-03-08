@@ -11,10 +11,10 @@ from more_itertools import sample
 from tqdm import tqdm
 
 DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
-MODEL_PATH: Final[Path] = DATA_DIR / "model.pkl"
 MAX_PIXEL_VALUE: Final[int] = 256
 N_DIGITS: Final[int] = 10
 DEFAULT_NUM_ITERATIONS: Final[int] = 10000
+DEFAULT_LEARNING_RATE: Final[float] = 0.001
 
 
 def prepare_data(
@@ -58,7 +58,11 @@ def backward_prop(
 
 
 def train(
-    X: np.ndarray, Y: np.ndarray, learning_rate: float, n_iterations: int
+    X: np.ndarray,
+    Y: np.ndarray,
+    learning_rate: float,
+    n_iterations: int,
+    model_path: Path,
 ) -> tuple[np.ndarray, np.ndarray]:
     W = np.random.random((X.shape[1], Y.shape[1]))
     b = np.random.random((1, Y.shape[1]))
@@ -71,6 +75,7 @@ def train(
         if i % 1000 == 0 and (time.time() - last_update_time) > 30:
             tqdm.write(f"Iteration {i}: Loss = {cross_entropy(A, Y)}")
             last_update_time = time.time()
+            pickle.dump((W, b), open(model_path, "wb"))
         W -= learning_rate * dW
         b -= learning_rate * db
 
@@ -78,6 +83,20 @@ def train(
 
 
 @click.command()
+@click.option(
+    "-a",
+    "--learning-rate",
+    help="Set the learning rate",
+    type=float,
+    default=DEFAULT_LEARNING_RATE,
+)
+@click.option(
+    "-m",
+    "--model-path",
+    help="Set the path to the model file",
+    type=Path,
+    default=None,
+)
 @click.option(
     "-f", "--force-retrain", is_flag=True, help="Force retraining of the model"
 )
@@ -88,17 +107,44 @@ def train(
     type=int,
     default=DEFAULT_NUM_ITERATIONS,
 )
-def main(force_retrain, num_iterations):
+def main(
+    *,
+    model_path: Path | None,
+    force_retrain: bool = False,
+    num_iterations: int,
+    learning_rate: float,
+) -> None:
     X_train, Y_train, X_test, Y_test = prepare_data(
         pd.read_csv(DATA_DIR / "mnist_test.csv")
     )
-    if not MODEL_PATH.exists() or force_retrain:
-        alpha: float = 0.001
-        W, b = train(X_train, Y_train, alpha, num_iterations)
+    seed = int(time.time())
+    np.random.seed(seed)
 
-        pickle.dump((W, b), open(MODEL_PATH, "wb"))
+    if model_path is None:
+        model_path = DATA_DIR / f"model_{seed=}_{num_iterations=}_{learning_rate=}.pkl"
+
+    if not model_path.exists() or force_retrain:
+        W, b = train(
+            X_train,
+            Y_train,
+            learning_rate,
+            num_iterations,
+            model_path,
+        )
+
+        pickle.dump((W, b), open(model_path, "wb"))
     else:
-        W, b = pickle.load(open(MODEL_PATH, "rb"))
+        W, b = pickle.load(open(model_path, "rb"))
+        W = W.reshape(28, 28, 10)
+        avg = np.average(X_train, axis=0).reshape(28, 28)
+        idx = list(range(10))
+
+        for i in range(10):
+            plt.subplot(2, 5, i + 1)
+            plt.imshow(np.multiply(W[:, :, i], avg), cmap="gray")
+            plt.title(str(i))
+            plt.axis("off")
+        plt.show()
 
     Y_pred = np.argmax(softmax(forward_prop(X_train, W, b)), axis=1)
     Y_true = np.argmax(Y_train, axis=1)
