@@ -1,4 +1,9 @@
 .vscode/
 .env
+.envrc
+
 **/*.local*
 tmp/
+data/
+!data/mnist_test.csv	
+
