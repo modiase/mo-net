@@ -1,12 +1,15 @@
 import pickle
-import re
+import tempfile
 import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import IO, ClassVar, Final, Self
 
 import click
 import numpy as np
 import pandas as pd
+from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
 from tqdm import tqdm
@@ -16,6 +19,127 @@ DEFAULT_NUM_ITERATIONS: Final[int] = 10000
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 MAX_PIXEL_VALUE: Final[int] = 256
 N_DIGITS: Final[int] = 10
+
+
+def softmax(x: np.ndarray) -> np.ndarray:
+    return np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
+
+
+def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
+    Y_pred = np.clip(Y_pred, 1e-15, 1 - 1e-15)
+    return -np.sum(Y_true * np.log(Y_pred))
+
+
+class ModelBase(ABC):
+    @abstractmethod
+    def predict(self, X: np.ndarray) -> np.ndarray: ...
+
+    @abstractmethod
+    def dump(self, io: IO[bytes]) -> None: ...
+
+    @classmethod
+    @abstractmethod
+    def load(cls, io: IO[bytes]) -> Self: ...
+
+    def train(
+        self,
+        learning_rate: float,
+        num_iterations: int,
+        X_train: np.ndarray,
+        Y_train: np.ndarray,
+        X_test: np.ndarray,
+        Y_test: np.ndarray,
+        training_log_path: Path,
+    ) -> None:
+        M = X_train.shape[0]
+        scaling_factor = 1 / M
+        last_update_time = time.time()
+
+        if not training_log_path.exists():
+            training_log = pd.DataFrame(
+                columns=["iteration", "training_loss", "test_loss"]
+            )
+            training_log.to_csv(training_log_path, index=False)
+        logger.info(
+            f"Training model {self.__class__.__name__} for {num_iterations=} iterations with {learning_rate=}."
+        )
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            for i in tqdm(range(num_iterations)):
+                Z_train = self._forward_prop(X_train)
+                self._backward_prop_and_update(
+                    X_train, softmax(Z_train), Y_train, learning_rate
+                )
+
+                if i % 1024 == 0 and (time.time() - last_update_time) > 30:
+                    Z_test = self._forward_prop(X_test)
+                    L_train = scaling_factor * cross_entropy(softmax(Z_train), Y_train)
+                    L_test = scaling_factor * cross_entropy(softmax(Z_test), Y_test)
+                    tqdm.write(
+                        f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                    )
+                    pd.DataFrame(
+                        [[i, L_train, L_test]], columns=training_log.columns
+                    ).to_csv(training_log_path, mode="a", header=False, index=False)
+                    self.dump(open(f.name, "wb"))
+                    last_update_time = time.time()
+
+
+class LinearModel(ModelBase):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        _tag: ClassVar[str] = "linear"
+        W: np.ndarray
+        b: np.ndarray
+
+    def __init__(
+        self,
+        W: np.ndarray | None = None,
+        b: np.ndarray | None = None,
+    ):
+        self._W = W
+        self._b = b
+
+    def _forward_prop(self, X: np.ndarray) -> np.ndarray:
+        return X @ self._W + self._b
+
+    def _backward_prop_and_update(
+        self,
+        X: np.ndarray,
+        Y_pred: np.ndarray,
+        Y_true: np.ndarray,
+        learning_rate: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        dZ = Y_pred - Y_true
+        dW = X.T @ dZ
+        db = np.sum(dZ)
+        self._W -= learning_rate * dW
+        self._b -= learning_rate * db
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return np.argmax(self._forward_prop(X), axis=1)
+
+    def dump(self, io: IO[bytes]) -> None:
+        pickle.dump(self.Serialized(W=self._W, b=self._b), io)
+
+    @classmethod
+    def load(cls, io: IO[bytes] | Serialized) -> Self:
+        if isinstance(io, cls.Serialized):
+            return cls(W=io.W, b=io.b)
+        data = pickle.load(io)
+        if data._tag != cls.Serialized._tag:
+            raise ValueError(f"Invalid model type: {data._tag}")
+        return cls(W=data.W, b=data.b)
+
+
+def load_model(model_path: Path) -> ModelBase:
+    serialized = pickle.load(open(model_path, "rb"))
+    match serialized._tag:
+        case LinearModel.Serialized._tag:
+            logger.info(f"Loading linear model from {model_path}.")
+            return LinearModel.load(serialized)
+        case _:
+            raise ValueError(f"Invalid model type: {serialized._tag}")
 
 
 def load_data() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -30,85 +154,6 @@ def load_data() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     X_train = np.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
     X_test = np.array(test_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
     return X_train, Y_train, X_test, Y_test
-
-
-def softmax(x: np.ndarray) -> np.ndarray:
-    return np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
-
-
-def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
-    Y_pred = np.clip(Y_pred, 1e-15, 1 - 1e-15)
-    return -np.sum(Y_true * np.log(Y_pred))
-
-
-def forward_prop(X: np.ndarray, W: np.ndarray, b: np.ndarray) -> np.ndarray:
-    return X @ W + b
-
-
-def backward_prop(
-    X: np.ndarray,
-    Y_pred: np.ndarray,
-    Y_true: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    dZ = Y_pred - Y_true
-    dW = X.T @ dZ
-    db = np.sum(dZ)
-    return dW, db
-
-
-def train_model(
-    *,
-    X_train: np.ndarray,
-    X_test: np.ndarray,
-    Y_train: np.ndarray,
-    Y_test: np.ndarray,
-    learning_rate: float,
-    n_iterations: int,
-    model_path: Path,
-    W: np.ndarray | None = None,
-    b: np.ndarray | None = None,
-    start_iteration: int = 0,
-    training_log_path: Path | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    if W is None:
-        W = np.random.random((X_train.shape[1], Y_train.shape[1]))
-    if b is None:
-        b = np.random.random((1, Y_train.shape[1]))
-
-    last_update_time = time.time()
-    if training_log_path is None:
-        training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
-        training_log = pd.DataFrame(columns=["iteration", "training_loss", "test_loss"])
-        training_log.to_csv(training_log_path, index=False)
-    else:
-        training_log = pd.read_csv(training_log_path)
-
-    for i in tqdm(range(start_iteration, n_iterations)):
-        Z_train = X_train @ W + b
-        L_train = (1 / X_train.shape[0]) * cross_entropy(softmax(Z_train), Y_train)
-        dW, db = backward_prop(X_train, softmax(Z_train), Y_train)
-        if i % 1000 == 0 and (time.time() - last_update_time) > 30:
-            Z_test = X_test @ W + b
-            L_test = (1 / X_test.shape[0]) * cross_entropy(softmax(Z_test), Y_test)
-            tqdm.write(
-                f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
-            )
-            pd.DataFrame([[i, L_train, L_test]], columns=training_log.columns).to_csv(
-                training_log_path, mode="a", header=False, index=False
-            )
-            pickle.dump(
-                (W, b),
-                open(
-                    model_path.with_name(f"{model_path.stem}_part.pkl"),
-                    "wb",
-                ),
-            )
-            last_update_time = time.time()
-
-        W -= learning_rate * dW
-        b -= learning_rate * db
-
-    return W, b
 
 
 @click.group()
@@ -147,52 +192,31 @@ def train(
 
     seed = int(time.time())
     np.random.seed(seed)
+    logger.info(f"Training model with {seed=}.")
 
     if training_log_path is None:
         model_path = DATA_DIR / f"model_{seed=}_{num_iterations=}_{learning_rate=}.pkl"
+        training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
     else:
         model_path = training_log_path.with_name(
             f"{training_log_path.stem.replace('_training_log', '')}.pkl"
         )
 
-    W, b = train_model(
-        X_train=X_train,
-        X_test=X_test,
-        Y_train=Y_train,
-        Y_test=Y_test,
+    model = LinearModel(
+        W=np.random.randn(X_train.shape[1], Y_train.shape[1]),
+        b=np.random.randn(Y_train.shape[1]),
+    )
+    model.train(
         learning_rate=learning_rate,
-        n_iterations=num_iterations
-        if training_log_path is None
-        else int(re.search(r"num_iterations=(\d+)", str(training_log_path)).group(1)),
-        model_path=model_path,
-        **(
-            dict(
-                zip(
-                    ("W", "b"),
-                    pickle.load(
-                        open(
-                            model_path.with_name(
-                                f"{training_log_path.stem.replace('_training_log', '_part')}.pkl"
-                            ),
-                            "rb",
-                        )
-                    ),
-                )
-            )
-            if training_log_path is not None
-            else {"W": None, "b": None}
-        ),
+        num_iterations=num_iterations,
+        X_train=X_train,
+        Y_train=Y_train,
+        X_test=X_test,
+        Y_test=Y_test,
         training_log_path=training_log_path,
-        start_iteration=0
-        if training_log_path is None
-        else pd.read_csv(training_log_path).iloc[-1, 0],
     )
 
-    pickle.dump((W, b), open(model_path, "wb"))
-
-    model_path.with_name(
-        f"{training_log_path.stem.replace('_training_log', '_part')}.pkl"
-    ).unlink(missing_ok=True)
+    model.dump(open(model_path, "wb"))
 
 
 @cli.command(help="Run inference using the model")
@@ -205,15 +229,15 @@ def train(
 )
 def infer(model_path: Path):
     X_train, Y_train, X_test, Y_test = load_data()
-    W, b = pickle.load(open(model_path, "rb"))
+    model = load_model(model_path)
 
-    Y_pred = np.argmax(softmax(forward_prop(X_train, W, b)), axis=1)
+    Y_pred = model.predict(X_train)
     Y_true = np.argmax(Y_train, axis=1)
-    print(f"Training Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
+    logger.info(f"Training Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
 
-    Y_pred = np.argmax(softmax(forward_prop(X_test, W, b)), axis=1)
+    Y_pred = model.predict(X_test)
     Y_true = np.argmax(Y_test, axis=1)
-    print(f"Test Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
+    logger.info(f"Test Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
 
     plt.figure(figsize=(15, 8))
     sample_indices = sample(range(len(X_test)), 25)
@@ -236,8 +260,8 @@ def infer(model_path: Path):
 )
 def explain(*, model_path: Path):
     X_train = load_data()[0]
-    W, b = pickle.load(open(model_path, "rb"))
-    W = W.reshape(28, 28, 10)
+    model = load_model(model_path)
+    W = model._W.reshape(28, 28, 10)
     avg = np.average(X_train, axis=0).reshape(28, 28)
 
     for i in range(10):
