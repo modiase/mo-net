@@ -14,10 +14,15 @@ dependencies = [
   "tqdm<5.0.0,>=4.67.1",
   "click<9.0.0,>=8.1.8",
   "loguru<1.0.0,>=0.7.3",
+  "mypy>=1.15.0",
 ]
 
 [dependency-groups]
-dev = ["ruff<1.0.0,>=0.9.7"]
+dev = [
+    "pandas-stubs>=2.2.3.250308",
+    "ruff<1.0.0,>=0.9.7",
+    "types-tqdm>=4.67.0.20250301",
+]
 
 [uv.tool]
 default-groups = []

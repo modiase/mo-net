@@ -5,5 +5,14 @@
 **/*.local*
 tmp/
 data/
-!data/mnist_test.csv	
 
+*.pkl
+*.csv
+*.png
+*.pdf
+*.html
+*.json
+*.yaml
+__pycache__/
+
+!data/mnist_test.csv	
