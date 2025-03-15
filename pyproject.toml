@@ -1,24 +1,23 @@
-[tool.poetry]
+[project]
+authors = [{ name = "Moye", email = "moyeodiase@outlook.com" }]
+
 name = "mnist-numpy"
 version = "0.1.0"
 description = ""
-authors = ["Moye <moyeodiase@outlook.com>"]
 readme = "README.md"
+requires-python = "<4.0,>=3.11"
+dependencies = [
+  "numpy<3.0.0,>=2.2.3",
+  "more-itertools<11.0.0,>=10.6.0",
+  "pandas<3.0.0,>=2.2.3",
+  "matplotlib<4.0.0,>=3.10.1",
+  "tqdm<5.0.0,>=4.67.1",
+  "click<9.0.0,>=8.1.8",
+  "loguru<1.0.0,>=0.7.3",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-numpy = "^2.2.3"
-more-itertools = "^10.6.0"
-pandas = "^2.2.3"
-matplotlib = "^3.10.1"
-tqdm = "^4.67.1"
-click = "^8.1.8"
-loguru = "^0.7.3"
+[dependency-groups]
+dev = ["ruff<1.0.0,>=0.9.7"]
 
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.9.7"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[uv.tool]
+default-groups = []
