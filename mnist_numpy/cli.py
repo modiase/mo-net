@@ -83,7 +83,7 @@ def train(
         case LinearRegressionModel.Serialized._tag:
             model = LinearRegressionModel.initialize(X_train.shape[1], Y_train.shape[1])
         case MultilayerPerceptron.Serialized._tag:
-            model = MultilayerPerceptron.initialize(X_train.shape[1], *dims)
+            model = MultilayerPerceptron.initialize(X_train.shape[1], *dims, 10)
         case _:
             raise ValueError(f"Invalid model type: {model_type}")
 
