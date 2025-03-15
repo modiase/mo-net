@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import re
 import time
 from pathlib import Path
@@ -56,12 +57,20 @@ def cli(): ...
     ),
     help="The type of model to train",
 )
+@click.option(
+    "-d",
+    "--dims",
+    type=int,
+    multiple=True,
+    default=(10, 10),
+)
 def train(
     *,
     training_log_path: Path | None,
     num_iterations: int,
     learning_rate: float,
     model_type: str,
+    dims: Sequence[int],
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data()
 
@@ -74,7 +83,7 @@ def train(
         case LinearRegressionModel.Serialized._tag:
             model = LinearRegressionModel.initialize(X_train.shape[1], Y_train.shape[1])
         case MultilayerPerceptron.Serialized._tag:
-            model = MultilayerPerceptron.initialize(X_train.shape[1], 10, 10)
+            model = MultilayerPerceptron.initialize(X_train.shape[1], *dims)
         case _:
             raise ValueError(f"Invalid model type: {model_type}")
 
