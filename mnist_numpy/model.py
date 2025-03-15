@@ -255,7 +255,7 @@ class MultilayerPerceptron(ModelBase):
             self._W[idx] -= learning_rate * dW
             self._b[idx] -= learning_rate * db
             if idx > 0:
-                dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx])
+                dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx - 1])
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)
