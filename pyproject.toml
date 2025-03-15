@@ -26,3 +26,7 @@ dev = [
 
 [uv.tool]
 default-groups = []
+
+
+[tool.setuptools]
+packages = ["mnist_numpy"]

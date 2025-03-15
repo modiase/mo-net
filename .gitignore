@@ -16,3 +16,6 @@ data/
 __pycache__/
 
 !data/mnist_test.csv	
+build/
+*.egg
+*.egg-info
