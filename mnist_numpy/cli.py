@@ -1,14 +1,17 @@
+import re
 import time
 from pathlib import Path
 
 import click
-from loguru import logger
 import numpy as np
+import pandas as pd
+from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
 from mnist_numpy.data import DATA_DIR, load_data
 from mnist_numpy.model import (
     LinearRegressionModel,
+    ModelBase,
     MultilayerPerceptron,
     DEFAULT_LEARNING_RATE,
     DEFAULT_NUM_ITERATIONS,
@@ -66,6 +69,7 @@ def train(
     np.random.seed(seed)
     logger.info(f"Training model with {seed=}.")
 
+    model: ModelBase
     match model_type:
         case LinearRegressionModel.Serialized._tag:
             model = LinearRegressionModel.initialize(X_train.shape[1], Y_train.shape[1])
@@ -88,6 +92,7 @@ def train(
     model.train(
         learning_rate=learning_rate,
         num_iterations=num_iterations,
+        total_iterations=num_iterations,
         X_train=X_train,
         Y_train=Y_train,
         X_test=X_test,
@@ -96,6 +101,64 @@ def train(
     )
 
     model.dump(open(model_path, "wb"))
+
+
+@cli.command(help="Resume training the model")
+@click.option(
+    "-m",
+    "--model-path",
+    help="Set the path to the model file",
+    type=Path,
+    required=True,
+)
+@click.option(
+    "-l",
+    "--training-log-path",
+    type=Path,
+    help="Set the path to the training log file",
+)
+@click.option(
+    "-a",
+    "--learning-rate",
+    type=float,
+    help="Set the learning rate",
+    default=DEFAULT_LEARNING_RATE,
+)
+@click.option(
+    "-n",
+    "--num-iterations",
+    type=int,
+    help="Set number of iterations",
+    default=None,
+)
+def resume(
+    model_path: Path,
+    training_log_path: Path,
+    learning_rate: float,
+    num_iterations: int | None,
+):
+    X_train, Y_train, X_test, Y_test = load_data()
+
+    if num_iterations is None:
+        if (mo := re.search(r"num_iterations=(\d+)", training_log_path.name)) is None:
+            raise ValueError(f"Invalid training log path: {training_log_path}")
+        total_iterations = int(mo.group(1))
+        num_iterations = total_iterations
+
+    if not (training_log := pd.read_csv(training_log_path)).empty:
+        num_iterations = total_iterations - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
+
+    model = load_model(model_path)
+    model.train(
+        learning_rate=learning_rate,
+        num_iterations=num_iterations,
+        total_iterations=total_iterations,
+        X_train=X_train,
+        Y_train=Y_train,
+        X_test=X_test,
+        Y_test=Y_test,
+        training_log_path=training_log_path,
+    )
 
 
 @cli.command(help="Run inference using the model")
@@ -140,7 +203,7 @@ def infer(model_path: Path):
 def explain(*, model_path: Path):
     X_train = load_data()[0]
     model = load_model(model_path)
-    W = model._W.reshape(28, 28, 10)
+    W = model._W[0].reshape(28, 28, 10)
     avg = np.average(X_train, axis=0).reshape(28, 28)
 
     for i in range(10):

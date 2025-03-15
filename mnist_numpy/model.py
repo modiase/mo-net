@@ -34,6 +34,9 @@ def deriv_ReLU(x: np.ndarray) -> np.ndarray:
 
 
 class ModelBase(ABC):
+    _W: Sequence[np.ndarray]
+    _b: Sequence[np.ndarray]
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         return np.argmax(softmax(self._forward_prop(X)[1][-1]), axis=1)
 
@@ -52,16 +55,14 @@ class ModelBase(ABC):
     @abstractmethod
     def load(cls, io: IO[bytes]) -> Self: ...
 
-    @classmethod
     @abstractmethod
     def _forward_prop(
-        cls, X: np.ndarray
+        self, X: np.ndarray
     ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]: ...
 
-    @classmethod
     @abstractmethod
     def _backward_prop_and_update(
-        cls,
+        self,
         X: np.ndarray,
         Y_true: np.ndarray,
         Z: tuple[np.ndarray, ...],
@@ -71,8 +72,10 @@ class ModelBase(ABC):
 
     def train(
         self,
+        *,
         learning_rate: float,
         num_iterations: int,
+        total_iterations: int,
         X_train: np.ndarray,
         Y_train: np.ndarray,
         X_test: np.ndarray,
@@ -87,13 +90,23 @@ class ModelBase(ABC):
                 columns=["iteration", "training_loss", "test_loss"]
             )
             training_log.to_csv(training_log_path, index=False)
+        else:
+            training_log = pd.read_csv(training_log_path)
+
         logger.info(
             f"Training model {self.__class__.__name__} for {num_iterations=} iterations with {learning_rate=}."
         )
 
         with tempfile.NamedTemporaryFile(delete=False) as f:
             logger.info(f"Training model..\nSaving partial results to: {f.name}.")
-            for i in tqdm(range(num_iterations)):
+            logger.info(f"\n{training_log_path=}.")
+            self.dump(open(f.name, "wb"))
+            start_iteration = total_iterations - num_iterations
+            for i in tqdm(
+                range(start_iteration, total_iterations),
+                initial=start_iteration,
+                total=num_iterations,
+            ):
                 Z_train, A_train = self._forward_prop(X_train)
                 self._backward_prop_and_update(
                     X_train,
@@ -146,15 +159,17 @@ class LinearRegressionModel(ModelBase):
 
     def __init__(
         self,
-        W: np.ndarray | None = None,
-        b: np.ndarray | None = None,
+        W: np.ndarray,
+        b: np.ndarray,
     ):
-        self._W = W
+        self._W = (W,)
         self._k = 1 / W.shape[0]
-        self._b = b
+        self._b = (b,)
 
-    def _forward_prop(self, X: np.ndarray) -> tuple[np.ndarray, ...]:
-        Z = X @ self._W + self._b
+    def _forward_prop(
+        self, X: np.ndarray
+    ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]:
+        Z = X @ self._W[0] + self._b[0]
         return ((Z,), (Z,))
 
     def _backward_prop_and_update(
@@ -170,11 +185,11 @@ class LinearRegressionModel(ModelBase):
         dZ = Y_pred - Y_true
         dW = X.T @ dZ
         db = np.sum(dZ)
-        self._W -= learning_rate * dW
-        self._b -= learning_rate * db
+        self._W[0] -= learning_rate * dW
+        self._b[0] -= learning_rate * db
 
     def dump(self, io: IO[bytes]) -> None:
-        pickle.dump(self.Serialized(W=self._W, b=self._b), io)
+        pickle.dump(self.Serialized(W=self._W[0], b=self._b[0]), io)
 
     @classmethod
     def load(cls, source: IO[bytes] | Serialized) -> Self:
@@ -206,8 +221,8 @@ class MultilayerPerceptron(ModelBase):
 
     def __init__(
         self,
-        W: Sequence[np.ndarray] | None = None,
-        b: Sequence[np.ndarray] | None = None,
+        W: Sequence[np.ndarray],
+        b: Sequence[np.ndarray],
     ):
         self._W = W
         self._b = b
@@ -243,7 +258,7 @@ class MultilayerPerceptron(ModelBase):
                 dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx])
 
     def dump(self, io: IO[bytes]) -> None:
-        pickle.dump(self.Serialized(W=self._W, b=self._b), io)
+        pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)
 
     @classmethod
     def load(cls, source: IO[bytes] | Serialized) -> Self:
