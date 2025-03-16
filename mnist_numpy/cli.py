@@ -1,6 +1,6 @@
-from collections.abc import Sequence
 import re
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import click
@@ -9,13 +9,14 @@ import pandas as pd
 from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
+
 from mnist_numpy.data import DATA_DIR, load_data
 from mnist_numpy.model import (
+    DEFAULT_LEARNING_RATE,
+    DEFAULT_NUM_ITERATIONS,
     LinearRegressionModel,
     ModelBase,
     MultilayerPerceptron,
-    DEFAULT_LEARNING_RATE,
-    DEFAULT_NUM_ITERATIONS,
     load_model,
 )
 
@@ -96,10 +97,7 @@ def train(
             raise ValueError(f"Invalid model type: {model_type}")
 
     if training_log_path is None:
-        model_path = (
-            DATA_DIR
-            / f"{seed}_{model_type}_model_{num_iterations=}_{learning_rate=}.pkl"
-        )
+        model_path = DATA_DIR / f"{seed}_{model.get_name()}_model_{num_iterations=}.pkl"
         training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
     else:
         model_path = training_log_path.with_name(

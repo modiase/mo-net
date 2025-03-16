@@ -1,9 +1,9 @@
-from itertools import cycle
 import pickle
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import cycle
 from pathlib import Path
 from typing import IO, ClassVar, Final, Self
 
@@ -41,6 +41,9 @@ class ModelBase(ABC):
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         return np.argmax(softmax(self._forward_prop(X)[1][-1]), axis=1)
+
+    @abstractmethod
+    def get_name(cls) -> str: ...
 
     @classmethod
     @abstractmethod
@@ -175,6 +178,9 @@ class LinearRegressionModel(ModelBase):
         W: np.ndarray
         b: np.ndarray
 
+    def get_name(self) -> str:
+        return "lreg"
+
     @classmethod
     def get_description(cls) -> str:
         return "Linear Regression Model"
@@ -238,6 +244,13 @@ class MultilayerPerceptron(ModelBase):
         _tag: ClassVar[str] = "mlp_relu"
         W: tuple[np.ndarray, ...]
         b: tuple[np.ndarray, ...]
+
+    @property
+    def layers(self) -> tuple[int, ...]:
+        return tuple(w.shape[0] for w in self._W)
+
+    def get_name(self) -> str:
+        return f"mlp_relu_{'_'.join(str(layer) for layer in self.layers[1:])}"
 
     @classmethod
     def get_description(cls) -> str:
