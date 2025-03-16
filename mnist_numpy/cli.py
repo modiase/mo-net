@@ -64,6 +64,13 @@ def cli(): ...
     multiple=True,
     default=(10, 10),
 )
+@click.option(
+    "-b",
+    "--batch-size",
+    type=int,
+    help="Set the batch size",
+    default=None,
+)
 def train(
     *,
     training_log_path: Path | None,
@@ -71,6 +78,7 @@ def train(
     learning_rate: float,
     model_type: str,
     dims: Sequence[int],
+    batch_size: int | None,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data()
 
@@ -107,9 +115,8 @@ def train(
         X_test=X_test,
         Y_test=Y_test,
         training_log_path=training_log_path,
-    )
-
-    model.dump(open(model_path, "wb"))
+        batch_size=batch_size,
+    ).rename(model_path)
 
 
 @cli.command(help="Resume training the model")
@@ -140,11 +147,19 @@ def train(
     help="Set number of iterations",
     default=None,
 )
+@click.option(
+    "-b",
+    "--batch-size",
+    type=int,
+    help="Set the batch size",
+    default=None,
+)
 def resume(
     model_path: Path,
     training_log_path: Path,
     learning_rate: float,
     num_iterations: int | None,
+    batch_size: int | None,
 ):
     X_train, Y_train, X_test, Y_test = load_data()
 
@@ -157,8 +172,11 @@ def resume(
     if not (training_log := pd.read_csv(training_log_path)).empty:
         num_iterations = total_iterations - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
 
-    model = load_model(model_path)
-    model.train(
+    output_path = training_log_path.with_name(
+        training_log_path.name.replace("training_log.csv", ".pkl")
+    )
+
+    load_model(model_path).train(
         learning_rate=learning_rate,
         num_iterations=num_iterations,
         total_iterations=total_iterations,
@@ -167,7 +185,8 @@ def resume(
         X_test=X_test,
         Y_test=Y_test,
         training_log_path=training_log_path,
-    )
+        batch_size=batch_size,
+    ).rename(output_path)
 
 
 @cli.command(help="Run inference using the model")

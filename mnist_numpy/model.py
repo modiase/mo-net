@@ -1,3 +1,4 @@
+from itertools import cycle
 import pickle
 import tempfile
 import time
@@ -82,7 +83,8 @@ class ModelBase(ABC):
         Y_test: np.ndarray,
         training_log_path: Path,
         training_log_interval_seconds: int = 30,
-    ) -> None:
+        batch_size: int | None = None,
+    ) -> Path:
         last_update_time = time.time()
 
         if not training_log_path.exists():
@@ -97,46 +99,57 @@ class ModelBase(ABC):
             f"Training model {self.__class__.__name__} for {num_iterations=} iterations with {learning_rate=}."
         )
 
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            logger.info(f"Training model..\nSaving partial results to: {f.name}.")
-            logger.info(f"\n{training_log_path=}.")
-            self.dump(open(f.name, "wb"))
-            start_iteration = total_iterations - num_iterations
-            for i in tqdm(
-                range(start_iteration, total_iterations),
-                initial=start_iteration,
-                total=num_iterations,
-            ):
-                Z_train, A_train = self._forward_prop(X_train)
-                self._backward_prop_and_update(
-                    X_train,
-                    Y_train,
-                    Z_train,
-                    A_train,
-                    learning_rate,
-                )
+        X_train_batched = cycle(np.array_split(X_train, batch_size))
+        Y_train_batched = cycle(np.array_split(Y_train, batch_size))
 
-                if (
-                    i % 1024 == 0
-                    and (time.time() - last_update_time) > training_log_interval_seconds
-                ):
-                    L_train = (
-                        1
-                        / X_train.shape[0]
-                        * cross_entropy(softmax(A_train[-1]), Y_train)
-                    )
-                    _, A_test = self._forward_prop(X_test)
-                    L_test = (
-                        1 / X_test.shape[0] * cross_entropy(softmax(A_test[-1]), Y_test)
-                    )
-                    tqdm.write(
-                        f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
-                    )
-                    pd.DataFrame(
-                        [[i, L_train, L_test]], columns=training_log.columns
-                    ).to_csv(training_log_path, mode="a", header=False, index=False)
-                    self.dump(open(f.name, "wb"))
-                    last_update_time = time.time()
+        model_checkpoint_path = training_log_path.with_name(
+            training_log_path.name.replace("training_log.csv", "partial.pkl")
+        )
+
+        logger.info(
+            f"Training model..\nSaving partial results to: {model_checkpoint_path}."
+        )
+        logger.info(f"\n{training_log_path=}.")
+        self.dump(open(model_checkpoint_path, "wb"))
+        start_iteration = total_iterations - num_iterations
+        for i in tqdm(
+            range(start_iteration, total_iterations),
+            initial=start_iteration,
+            total=num_iterations,
+        ):
+            X_train_batch = next(X_train_batched)
+            Y_train_batch = next(Y_train_batched)
+            Z_train_batch, A_train_batch = self._forward_prop(X_train_batch)
+            self._backward_prop_and_update(
+                X_train_batch,
+                Y_train_batch,
+                Z_train_batch,
+                A_train_batch,
+                learning_rate,
+            )
+
+            if (
+                i % 1024 == 0
+                and (time.time() - last_update_time) > training_log_interval_seconds
+            ):
+                _, A_train = self._forward_prop(X_train)
+                L_train = (
+                    1 / X_train.shape[0] * cross_entropy(softmax(A_train[-1]), Y_train)
+                )
+                _, A_test = self._forward_prop(X_test)
+                L_test = (
+                    1 / X_test.shape[0] * cross_entropy(softmax(A_test[-1]), Y_test)
+                )
+                tqdm.write(
+                    f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                )
+                pd.DataFrame(
+                    [[i, L_train, L_test]], columns=training_log.columns
+                ).to_csv(training_log_path, mode="a", header=False, index=False)
+                self.dump(open(model_checkpoint_path, "wb"))
+                last_update_time = time.time()
+
+        return model_checkpoint_path
 
 
 class LinearRegressionModel(ModelBase):
@@ -162,9 +175,8 @@ class LinearRegressionModel(ModelBase):
         W: np.ndarray,
         b: np.ndarray,
     ):
-        self._W = (W,)
-        self._k = 1 / W.shape[0]
-        self._b = (b,)
+        self._W = [W]
+        self._b = [b]
 
     def _forward_prop(
         self, X: np.ndarray
@@ -182,9 +194,12 @@ class LinearRegressionModel(ModelBase):
     ) -> None:
         del A  # unused
         Y_pred = softmax(Z[0])
+        k = 1 / X.shape[0]
         dZ = Y_pred - Y_true
-        dW = X.T @ dZ
-        db = np.sum(dZ)
+        dW = k * X.T @ dZ
+        db = k * np.sum(dZ)
+        if np.isnan(dW).any() or np.isnan(db).any():
+            raise ValueError("dW or db is NaN Aborting training.")
         self._W[0] -= learning_rate * dW
         self._b[0] -= learning_rate * db
 
@@ -226,7 +241,6 @@ class MultilayerPerceptron(ModelBase):
     ):
         self._W = W
         self._b = b
-        self._k = 1 / W[0].shape[0]
 
     def _forward_prop(
         self, X: np.ndarray
@@ -247,11 +261,13 @@ class MultilayerPerceptron(ModelBase):
         Y_pred = softmax(Z[-1])
         dZ = Y_pred - Y_true
         _A = [X, *A]
-        k = [1 / _A[idx].shape[0] for idx in range(len(_A))]
+        k = 1 / X.shape[0]
 
         for idx in range(len(self._W) - 1, -1, -1):
-            dW = k[idx] * (_A[idx].T @ dZ)
-            db = k[idx] * np.sum(dZ, axis=0)
+            dW = k * (_A[idx].T @ dZ)
+            db = k * np.sum(dZ, axis=0)
+            if np.isnan(dW).any() or np.isnan(db).any():
+                raise ValueError("dW or db is NaN Aborting training.")
             self._W[idx] -= learning_rate * dW
             self._b[idx] -= learning_rate * db
             if idx > 0:
