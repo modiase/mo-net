@@ -10,7 +10,7 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
 
-from mnist_numpy.data import DATA_DIR, load_data
+from mnist_numpy.data import DATA_DIR, DEFAULT_DATA_PATH, load_data
 from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_NUM_ITERATIONS,
@@ -59,7 +59,7 @@ def cli(): ...
     help="The type of model to train",
 )
 @click.option(
-    "-d",
+    "-i",
     "--dims",
     type=int,
     multiple=True,
@@ -72,6 +72,13 @@ def cli(): ...
     help="Set the batch size",
     default=None,
 )
+@click.option(
+    "-d",
+    "--data-path",
+    type=Path,
+    help="Set the path to the data file",
+    default=DEFAULT_DATA_PATH,
+)
 def train(
     *,
     training_log_path: Path | None,
@@ -80,8 +87,9 @@ def train(
     model_type: str,
     dims: Sequence[int],
     batch_size: int | None,
+    data_path: Path,
 ) -> None:
-    X_train, Y_train, X_test, Y_test = load_data()
+    X_train, Y_train, X_test, Y_test = load_data(data_path)
 
     seed = int(time.time())
     np.random.seed(seed)
@@ -153,14 +161,23 @@ def train(
     help="Set the batch size",
     default=None,
 )
+@click.option(
+    "-d",
+    "--data-path",
+    type=Path,
+    help="Set the path to the data file",
+    default=DEFAULT_DATA_PATH,
+)
 def resume(
+    *,
     model_path: Path,
     training_log_path: Path,
     learning_rate: float,
     num_iterations: int | None,
     batch_size: int | None,
+    data_path: Path,
 ):
-    X_train, Y_train, X_test, Y_test = load_data()
+    X_train, Y_train, X_test, Y_test = load_data(data_path)
 
     if num_iterations is None:
         if (mo := re.search(r"num_iterations=(\d+)", training_log_path.name)) is None:
@@ -197,8 +214,15 @@ def resume(
     type=Path,
     required=True,
 )
-def infer(model_path: Path):
-    X_train, Y_train, X_test, Y_test = load_data()
+@click.option(
+    "-d",
+    "--data-path",
+    type=Path,
+    help="Set the path to the data file",
+    default=DEFAULT_DATA_PATH,
+)
+def infer(*, model_path: Path, data_path: Path):
+    X_train, Y_train, X_test, Y_test = load_data(data_path)
     model = load_model(model_path)
 
     Y_pred = model.predict(X_train)
@@ -228,8 +252,15 @@ def infer(model_path: Path):
     required=True,
     type=Path,
 )
-def explain(*, model_path: Path):
-    X_train = load_data()[0]
+@click.option(
+    "-d",
+    "--data-path",
+    type=Path,
+    help="Set the path to the data file",
+    default=DEFAULT_DATA_PATH,
+)
+def explain(*, model_path: Path, data_path: Path):
+    X_train = load_data(data_path)[0]
     model = load_model(model_path)
     W = model._W[0].reshape(28, 28, 10)
     avg = np.average(X_train, axis=0).reshape(28, 28)
@@ -243,8 +274,15 @@ def explain(*, model_path: Path):
 
 
 @cli.command(help="Sample input data", name="sample")
-def sample_():
-    X_train = load_data()[0]
+@click.option(
+    "-d",
+    "--data-path",
+    type=Path,
+    help="Set the path to the data file",
+    default=DEFAULT_DATA_PATH,
+)
+def sample_data(*, data_path: Path):
+    X_train = load_data(data_path)[0]
     sample_indices = sample(range(len(X_train)), 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(5, 5, idx + 1)

@@ -7,10 +7,11 @@ import pandas as pd
 DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
 N_DIGITS: Final[int] = 10
 MAX_PIXEL_VALUE: Final[int] = 255
+DEFAULT_DATA_PATH: Final[Path] = DATA_DIR / "mnist_test.csv"
 
 
-def load_data() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    df = pd.read_csv(DATA_DIR / "mnist_test.csv")
+def load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    df = pd.read_csv(data_path)
     split_index: int = int(len(df) * 0.8)
     training_set = df.iloc[:split_index, :]
     test_set = df.iloc[split_index:, :]

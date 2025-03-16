@@ -16,6 +16,7 @@ dependencies = [
   "loguru<1.0.0,>=0.7.3",
   "mypy>=1.15.0",
   "networkx>=3.4.2",
+  "taplo>=0.9.3",
 ]
 
 [dependency-groups]
@@ -37,3 +38,4 @@ packages = ["mnist_numpy"]
 infer = "mnist_numpy.cli:infer"
 resume = "mnist_numpy.cli:resume"
 train = "mnist_numpy.cli:train"
+sample_data = "mnist_numpy.cli:sample_data"
