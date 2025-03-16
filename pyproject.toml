@@ -15,6 +15,7 @@ dependencies = [
   "click<9.0.0,>=8.1.8",
   "loguru<1.0.0,>=0.7.3",
   "mypy>=1.15.0",
+  "networkx>=3.4.2",
 ]
 
 [dependency-groups]
@@ -30,3 +31,8 @@ default-groups = []
 
 [tool.setuptools]
 packages = ["mnist_numpy"]
+
+
+[project.scripts]
+infer = "mnist_numpy.cli:infer"
+train = "mnist_numpy.cli:train"
