@@ -102,8 +102,8 @@ class ModelBase(ABC):
 
         if batch_size is None:
             batch_size = X_train.shape[0]
-        X_train_batched = cycle(np.array_split(X_train, batch_size))
-        Y_train_batched = cycle(np.array_split(Y_train, batch_size))
+
+        indices = np.arange(X_train.shape[0])
 
         model_checkpoint_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "partial.pkl")
@@ -120,8 +120,10 @@ class ModelBase(ABC):
             initial=start_iteration,
             total=total_iterations,
         ):
-            X_train_batch = next(X_train_batched)
-            Y_train_batch = next(Y_train_batched)
+            batch_indices = np.random.choice(indices, batch_size, replace=False)
+            X_train_batch = X_train[batch_indices]
+            Y_train_batch = Y_train[batch_indices]
+
             Z_train_batch, A_train_batch = self._forward_prop(X_train_batch)
             self._backward_prop_and_update(
                 X_train_batch,
