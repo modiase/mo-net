@@ -104,7 +104,8 @@ class ModelBase(ABC):
         if batch_size is None:
             batch_size = train_set_size
 
-        indices = np.arange(train_set_size)
+        X_train_batched = cycle(np.array_split(X_train, train_set_size // batch_size))
+        Y_train_batched = cycle(np.array_split(Y_train, train_set_size // batch_size))
 
         model_checkpoint_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "partial.pkl")
@@ -121,9 +122,8 @@ class ModelBase(ABC):
             initial=start_iteration,
             total=total_iterations,
         ):
-            batch_indices = np.random.choice(indices, batch_size, replace=False)
-            X_train_batch = X_train[batch_indices]
-            Y_train_batch = Y_train[batch_indices]
+            X_train_batch = next(X_train_batched)
+            Y_train_batch = next(Y_train_batched)
 
             Z_train_batch, A_train_batch = self._forward_prop(X_train_batch)
             self._backward_prop_and_update(
@@ -134,26 +134,36 @@ class ModelBase(ABC):
                 learning_rate,
             )
 
-            if (
-                i % train_set_size == 0
-                and (time.time() - last_update_time) > training_log_interval_seconds
-            ):
-                _, A_train = self._forward_prop(X_train)
-                L_train = (
-                    1 / X_train.shape[0] * cross_entropy(softmax(A_train[-1]), Y_train)
+            if i % train_set_size == 0:
+                permutation = np.random.permutation(train_set_size)
+                X_train = X_train[permutation]
+                Y_train = Y_train[permutation]
+
+                X_train_batched = cycle(
+                    np.array_split(X_train, train_set_size // batch_size)
                 )
-                _, A_test = self._forward_prop(X_test)
-                L_test = (
-                    1 / X_test.shape[0] * cross_entropy(softmax(A_test[-1]), Y_test)
+                Y_train_batched = cycle(
+                    np.array_split(Y_train, train_set_size // batch_size)
                 )
-                tqdm.write(
-                    f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
-                )
-                pd.DataFrame(
-                    [[i, L_train, L_test]], columns=training_log.columns
-                ).to_csv(training_log_path, mode="a", header=False, index=False)
-                self.dump(open(model_checkpoint_path, "wb"))
-                last_update_time = time.time()
+                if (time.time() - last_update_time) > training_log_interval_seconds:
+                    _, A_train = self._forward_prop(X_train)
+                    L_train = (
+                        1
+                        / X_train.shape[0]
+                        * cross_entropy(softmax(A_train[-1]), Y_train)
+                    )
+                    _, A_test = self._forward_prop(X_test)
+                    L_test = (
+                        1 / X_test.shape[0] * cross_entropy(softmax(A_test[-1]), Y_test)
+                    )
+                    tqdm.write(
+                        f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                    )
+                    pd.DataFrame(
+                        [[i, L_train, L_test]], columns=training_log.columns
+                    ).to_csv(training_log_path, mode="a", header=False, index=False)
+                    self.dump(open(model_checkpoint_path, "wb"))
+                    last_update_time = time.time()
 
         return model_checkpoint_path
 
