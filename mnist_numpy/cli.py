@@ -117,6 +117,7 @@ def train(
         training_log_path=training_log_path,
         batch_size=batch_size,
     ).rename(model_path)
+    logger.info(f"Saved output to {model_path}.")
 
 
 @cli.command(help="Resume training the model")
@@ -187,6 +188,7 @@ def resume(
         training_log_path=training_log_path,
         batch_size=batch_size,
     ).rename(output_path)
+    logger.info(f"Saved output to {output_path}.")
 
 
 @cli.command(help="Run inference using the model")

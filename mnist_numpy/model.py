@@ -1,6 +1,5 @@
 from itertools import cycle
 import pickle
-import tempfile
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -19,7 +18,9 @@ DEFAULT_LEARNING_RATE: Final[float] = 0.001
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
-    return np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
+    return (exp_x := np.exp(x - np.max(x, axis=1, keepdims=True))) / np.sum(
+        exp_x, axis=1, keepdims=True
+    )
 
 
 def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
@@ -99,6 +100,8 @@ class ModelBase(ABC):
             f"Training model {self.__class__.__name__} for {num_iterations=} iterations with {learning_rate=}."
         )
 
+        if batch_size is None:
+            batch_size = X_train.shape[0]
         X_train_batched = cycle(np.array_split(X_train, batch_size))
         Y_train_batched = cycle(np.array_split(Y_train, batch_size))
 
@@ -115,7 +118,7 @@ class ModelBase(ABC):
         for i in tqdm(
             range(start_iteration, total_iterations),
             initial=start_iteration,
-            total=num_iterations,
+            total=total_iterations,
         ):
             X_train_batch = next(X_train_batched)
             Y_train_batch = next(Y_train_batched)
@@ -239,8 +242,8 @@ class MultilayerPerceptron(ModelBase):
         W: Sequence[np.ndarray],
         b: Sequence[np.ndarray],
     ):
-        self._W = W
-        self._b = b
+        self._W = list(W)
+        self._b = list(b)
 
     def _forward_prop(
         self, X: np.ndarray
@@ -266,8 +269,8 @@ class MultilayerPerceptron(ModelBase):
         for idx in range(len(self._W) - 1, -1, -1):
             dW = k * (_A[idx].T @ dZ)
             db = k * np.sum(dZ, axis=0)
-            if np.isnan(dW).any() or np.isnan(db).any():
-                raise ValueError("dW or db is NaN Aborting training.")
+            if np.isnan(dW).any() or np.isnan(db).any() or np.isnan(dZ).any():
+                raise ValueError("Invalid gradient. Aborting training.")
             self._W[idx] -= learning_rate * dW
             self._b[idx] -= learning_rate * db
             if idx > 0:

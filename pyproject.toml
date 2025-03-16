@@ -35,4 +35,5 @@ packages = ["mnist_numpy"]
 
 [project.scripts]
 infer = "mnist_numpy.cli:infer"
+resume = "mnist_numpy.cli:resume"
 train = "mnist_numpy.cli:train"
