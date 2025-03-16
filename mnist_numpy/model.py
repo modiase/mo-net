@@ -100,10 +100,11 @@ class ModelBase(ABC):
             f"Training model {self.__class__.__name__} for {num_iterations=} iterations with {learning_rate=}."
         )
 
+        train_set_size = X_train.shape[0]
         if batch_size is None:
-            batch_size = X_train.shape[0]
+            batch_size = train_set_size
 
-        indices = np.arange(X_train.shape[0])
+        indices = np.arange(train_set_size)
 
         model_checkpoint_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "partial.pkl")
@@ -134,7 +135,7 @@ class ModelBase(ABC):
             )
 
             if (
-                i % 1024 == 0
+                i % train_set_size == 0
                 and (time.time() - last_update_time) > training_log_interval_seconds
             ):
                 _, A_train = self._forward_prop(X_train)
