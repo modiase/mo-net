@@ -188,7 +188,9 @@ def resume(
         total_iterations = num_iterations
 
     if not (training_log := pd.read_csv(training_log_path)).empty:
+        training_log = training_log.iloc[:np.argmin(training_log.iloc[:, 1]), :]
         num_iterations = total_iterations - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
+        training_log.to_csv(training_log_path, index=False)
 
     output_path = training_log_path.with_name(
         training_log_path.name.replace("training_log.csv", ".pkl")
