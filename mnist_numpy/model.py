@@ -89,7 +89,6 @@ class ModelBase(ABC):
         training_log_interval_seconds: int = 30,
         batch_size: int | None = None,
     ) -> Path:
-        last_update_time = time.time()
 
         if not training_log_path.exists():
             training_log = pd.DataFrame(
@@ -119,7 +118,17 @@ class ModelBase(ABC):
         )
         logger.info(f"\n{training_log_path=}.")
         self.dump(open(model_checkpoint_path, "wb"))
+
         start_iteration = total_iterations - num_iterations
+        last_update_time = time.time()
+        L_train_min = (
+            1
+            / X_train.shape[0]
+            * cross_entropy(
+                softmax(self._forward_prop(X_train)[1][-1]), Y_train
+            )
+        )
+
         for i in tqdm(
             range(start_iteration, total_iterations),
             initial=start_iteration,
@@ -165,7 +174,9 @@ class ModelBase(ABC):
                     pd.DataFrame(
                         [[i, L_train, L_test]], columns=training_log.columns
                     ).to_csv(training_log_path, mode="a", header=False, index=False)
-                    self.dump(open(model_checkpoint_path, "wb"))
+                    if L_train < L_train_min:
+                        self.dump(open(model_checkpoint_path, "wb"))
+                        L_train_min = L_train
                     last_update_time = time.time()
 
         return model_checkpoint_path
