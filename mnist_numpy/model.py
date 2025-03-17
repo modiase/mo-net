@@ -297,10 +297,10 @@ class MultilayerPerceptron(ModelBase):
             db = k * np.sum(dZ, axis=0)
             if np.isnan(dW).any() or np.isnan(db).any() or np.isnan(dZ).any():
                 raise ValueError("Invalid gradient. Aborting training.")
-            self._W[idx] -= learning_rate * dW
-            self._b[idx] -= learning_rate * db
             if idx > 0:
                 dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx - 1])
+            self._W[idx] -= learning_rate * dW
+            self._b[idx] -= learning_rate * db
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)
