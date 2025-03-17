@@ -184,6 +184,8 @@ def resume(
             raise ValueError(f"Invalid training log path: {training_log_path}")
         total_iterations = int(mo.group(1))
         num_iterations = total_iterations
+    else:
+        total_iterations = num_iterations
 
     if not (training_log := pd.read_csv(training_log_path)).empty:
         num_iterations = total_iterations - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
