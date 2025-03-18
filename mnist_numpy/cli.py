@@ -188,7 +188,7 @@ def resume(
         total_iterations = num_iterations
 
     if not (training_log := pd.read_csv(training_log_path)).empty:
-        training_log = training_log.iloc[:np.argmin(training_log.iloc[:, 1]), :]
+        training_log = training_log.iloc[: np.argmin(training_log.iloc[:, 1]), :]
         num_iterations = total_iterations - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
         training_log.to_csv(training_log_path, index=False)
 
@@ -238,12 +238,37 @@ def infer(*, model_path: Path, data_path: Path):
     logger.info(f"Test Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
 
     plt.figure(figsize=(15, 8))
-    sample_indices = sample(range(len(X_test)), 25)
+    plt.suptitle("Mislabelled Samples", fontsize=16)
+
+    sample_indices = sample(np.where(Y_true != Y_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
-        plt.subplot(5, 5, idx + 1)
+        plt.subplot(8, 5, idx + 1)
         plt.imshow(X_test[i].reshape(28, 28), cmap="gray")
         plt.title(f"Pred: {Y_pred[i]}, True: {Y_true[i]}")
         plt.axis("off")
+    plt.subplot(8, 1, (6, 8))
+    unique_labels = list(range(10))
+    counts_pred = [np.sum(Y_pred == label) for label in unique_labels]
+    counts_true = [np.sum(Y_true == label) for label in unique_labels]
+    counts_correct = [
+        np.sum((Y_true == Y_pred) & (Y_true == label)) for label in unique_labels
+    ]
+
+    bar_width = 0.25
+    x = np.arange(len(unique_labels))
+
+    plt.bar(x - bar_width, counts_pred, bar_width, label="Predicted")
+    plt.bar(x, counts_true, bar_width, label="True")
+    plt.bar(x + bar_width, counts_correct, bar_width, label="Correct")
+
+    plt.xticks(x, unique_labels)
+    plt.xlabel("Digit")
+    plt.ylabel("Count")
+    plt.title("Predicted vs. True Label Distribution (Sample)")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
     plt.tight_layout()
     plt.show()
 
