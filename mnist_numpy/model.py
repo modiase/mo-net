@@ -24,6 +24,7 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 
 def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
+    Y_pred = np.clip(Y_pred, 1e-15, 1 - 1e-15)
     return -np.sum(Y_true * np.log(Y_pred))
 
 
@@ -89,7 +90,6 @@ class ModelBase(ABC):
         training_log_interval_seconds: int = 30,
         batch_size: int | None = None,
     ) -> Path:
-
         if not training_log_path.exists():
             training_log = pd.DataFrame(
                 columns=["iteration", "training_loss", "test_loss"]
@@ -124,9 +124,7 @@ class ModelBase(ABC):
         L_train_min = (
             1
             / X_train.shape[0]
-            * cross_entropy(
-                softmax(self._forward_prop(X_train)[1][-1]), Y_train
-            )
+            * cross_entropy(softmax(self._forward_prop(X_train)[1][-1]), Y_train)
         )
 
         for i in tqdm(
