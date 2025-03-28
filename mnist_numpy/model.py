@@ -13,8 +13,10 @@ from loguru import logger
 from more_itertools import pairwise
 from tqdm import tqdm
 
-DEFAULT_NUM_ITERATIONS: Final[int] = 10000
+DEFAULT_D_LEARNING_RATE: Final[float] = 0.00001
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
+DEFAULT_NUM_ITERATIONS: Final[int] = 1000000
+DEFAULT_TRAINING_LOG_INTERVAL_SECONDS: Final[int] = 30
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -67,14 +69,13 @@ class ModelBase(ABC):
     ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]: ...
 
     @abstractmethod
-    def _backward_prop_and_update(
+    def _backward_prop(
         self,
         X: np.ndarray,
         Y_true: np.ndarray,
         Z: tuple[np.ndarray, ...],
         A: tuple[np.ndarray, ...],
-        learning_rate: float,
-    ) -> None: ...
+    ) -> tuple[Sequence[np.ndarray], Sequence[np.ndarray]]: ...
 
     def train(
         self,
@@ -86,9 +87,10 @@ class ModelBase(ABC):
         Y_train: np.ndarray,
         X_test: np.ndarray,
         Y_test: np.ndarray,
-        training_log_path: Path,
-        training_log_interval_seconds: int = 30,
         batch_size: int | None = None,
+        d_learning_rate: float = DEFAULT_D_LEARNING_RATE,
+        training_log_path: Path,
+        training_log_interval_seconds: int = DEFAULT_TRAINING_LOG_INTERVAL_SECONDS,
     ) -> Path:
         if not training_log_path.exists():
             training_log = pd.DataFrame(
@@ -120,11 +122,12 @@ class ModelBase(ABC):
         self.dump(open(model_checkpoint_path, "wb"))
 
         start_iteration = total_iterations - num_iterations
+        current_learning_rate = learning_rate
         last_update_time = time.time()
-        L_train_min = (
-            1
-            / X_train.shape[0]
-            * cross_entropy(softmax(self._forward_prop(X_train)[1][-1]), Y_train)
+        k = 1 / train_set_size
+        k_batch = 1 / batch_size
+        L_train_min = k * cross_entropy(
+            softmax(self._forward_prop(X_train)[1][-1]), Y_train
         )
 
         for i in tqdm(
@@ -136,13 +139,25 @@ class ModelBase(ABC):
             Y_train_batch = next(Y_train_batched)
 
             Z_train_batch, A_train_batch = self._forward_prop(X_train_batch)
-            self._backward_prop_and_update(
+            L_batch_before = k_batch * cross_entropy(
+                softmax(A_train_batch[-1]), Y_train_batch
+            )
+            dW, db = self._backward_prop(
                 X_train_batch,
                 Y_train_batch,
                 Z_train_batch,
                 A_train_batch,
-                learning_rate,
             )
+            self._update_weights(dW, db, current_learning_rate)
+            _, A_train_batch = self._forward_prop(X_train_batch)
+            L_batch_after = k_batch * cross_entropy(
+                softmax(A_train_batch[-1]), Y_train_batch
+            )
+            if L_batch_after < L_batch_before:
+                current_learning_rate *= 1 + d_learning_rate
+            else:
+                self._update_weights(dW, db, -current_learning_rate)
+                current_learning_rate *= 1 - 5 * d_learning_rate
 
             if i % train_set_size == 0:
                 permutation = np.random.permutation(train_set_size)
@@ -157,17 +172,12 @@ class ModelBase(ABC):
                 )
                 if (time.time() - last_update_time) > training_log_interval_seconds:
                     _, A_train = self._forward_prop(X_train)
-                    L_train = (
-                        1
-                        / X_train.shape[0]
-                        * cross_entropy(softmax(A_train[-1]), Y_train)
-                    )
+                    L_train = k * cross_entropy(softmax(A_train[-1]), Y_train)
                     _, A_test = self._forward_prop(X_test)
-                    L_test = (
-                        1 / X_test.shape[0] * cross_entropy(softmax(A_test[-1]), Y_test)
-                    )
+                    L_test = k * cross_entropy(softmax(A_test[-1]), Y_test)
                     tqdm.write(
                         f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                        f" {current_learning_rate=}"
                     )
                     pd.DataFrame(
                         [[i, L_train, L_test]], columns=training_log.columns
@@ -223,6 +233,7 @@ class LinearRegressionModel(ModelBase):
         A: tuple[np.ndarray, ...],
         learning_rate: float,
     ) -> None:
+        # TODO: Split up backward prop and update
         del A  # unused
         Y_pred = softmax(Z[0])
         k = 1 / X.shape[0]
@@ -288,28 +299,44 @@ class MultilayerPerceptron(ModelBase):
             Z.append(ReLU(Z[-1]) @ w + b)
         return tuple(Z), tuple(map(ReLU, Z))
 
-    def _backward_prop_and_update(
+    def _backward_prop(
         self,
         X: np.ndarray,
         Y_true: np.ndarray,
         Z: Sequence[np.ndarray],
         A: Sequence[np.ndarray],
-        learning_rate: float,
-    ) -> None:
+    ) -> tuple[Sequence[np.ndarray], Sequence[np.ndarray]]:
         Y_pred = softmax(Z[-1])
         dZ = Y_pred - Y_true
         _A = [X, *A]
         k = 1 / X.shape[0]
 
+        dW = []
+        db = []
         for idx in range(len(self._W) - 1, -1, -1):
-            dW = k * (_A[idx].T @ dZ)
-            db = k * np.sum(dZ, axis=0)
-            if np.isnan(dW).any() or np.isnan(db).any() or np.isnan(dZ).any():
+            dW.append(k * (_A[idx].T @ dZ))
+            db.append(k * np.sum(dZ, axis=0))
+            if (
+                np.isnan(dW[-1]).any()
+                or np.isnan(db[-1]).any()
+                or np.isnan(dZ[-1]).any()
+            ):
                 raise ValueError("Invalid gradient. Aborting training.")
             if idx > 0:
                 dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx - 1])
-            self._W[idx] -= learning_rate * dW
-            self._b[idx] -= learning_rate * db
+
+        return tuple(reversed(dW)), tuple(reversed(db))
+
+    def _update_weights(
+        self,
+        dWs: Sequence[np.ndarray],
+        dbs: Sequence[np.ndarray],
+        learning_rate: float,
+    ) -> None:
+        for w, dW in zip(self._W, dWs):
+            w -= learning_rate * dW
+        for b, db in zip(self._b, dbs):
+            b -= learning_rate * db
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)
