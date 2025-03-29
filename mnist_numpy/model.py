@@ -190,74 +190,6 @@ class ModelBase(ABC):
         return model_checkpoint_path
 
 
-class LinearRegressionModel(ModelBase):
-    @dataclass(frozen=True, kw_only=True)
-    class Serialized:
-        _tag: ClassVar[str] = "lreg"
-        W: np.ndarray
-        b: np.ndarray
-
-    def get_name(self) -> str:
-        return "lreg"
-
-    @classmethod
-    def get_description(cls) -> str:
-        return "Linear Regression Model"
-
-    @classmethod
-    def initialize(cls, *dims: int) -> Self:
-        return cls(
-            np.random.randn(dims[0], dims[1]),
-            np.random.randn(dims[1]),
-        )
-
-    def __init__(
-        self,
-        W: np.ndarray,
-        b: np.ndarray,
-    ):
-        self._W = [W]
-        self._b = [b]
-
-    def _forward_prop(
-        self, X: np.ndarray
-    ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]:
-        Z = X @ self._W[0] + self._b[0]
-        return ((Z,), (Z,))
-
-    def _backward_prop_and_update(
-        self,
-        X: np.ndarray,
-        Y_true: np.ndarray,
-        Z: tuple[np.ndarray, ...],
-        A: tuple[np.ndarray, ...],
-        learning_rate: float,
-    ) -> None:
-        # TODO: Split up backward prop and update
-        del A  # unused
-        Y_pred = softmax(Z[0])
-        k = 1 / X.shape[0]
-        dZ = Y_pred - Y_true
-        dW = k * X.T @ dZ
-        db = k * np.sum(dZ)
-        if np.isnan(dW).any() or np.isnan(db).any():
-            raise ValueError("dW or db is NaN Aborting training.")
-        self._W[0] -= learning_rate * dW
-        self._b[0] -= learning_rate * db
-
-    def dump(self, io: IO[bytes]) -> None:
-        pickle.dump(self.Serialized(W=self._W[0], b=self._b[0]), io)
-
-    @classmethod
-    def load(cls, source: IO[bytes] | Serialized) -> Self:
-        if isinstance(source, cls.Serialized):
-            return cls(W=source.W, b=source.b)
-        data = pickle.load(source)
-        if data._tag != cls.Serialized._tag:
-            raise ValueError(f"Invalid model type: {data._tag}")
-        return cls(W=data.W, b=data.b)
-
-
 class MultilayerPerceptron(ModelBase):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
@@ -354,11 +286,6 @@ class MultilayerPerceptron(ModelBase):
 def load_model(model_path: Path) -> ModelBase:
     serialized = pickle.load(open(model_path, "rb"))
     match serialized._tag:
-        case LinearRegressionModel.Serialized._tag:
-            logger.info(
-                f"Loading {LinearRegressionModel.get_description()} from {model_path}."
-            )
-            return LinearRegressionModel.load(serialized)
         case MultilayerPerceptron.Serialized._tag:
             logger.info(
                 f"Loading {MultilayerPerceptron.get_description()} from {model_path}."

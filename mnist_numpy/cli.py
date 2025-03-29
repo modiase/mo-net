@@ -14,7 +14,6 @@ from mnist_numpy.data import DATA_DIR, DEFAULT_DATA_PATH, load_data
 from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_NUM_ITERATIONS,
-    LinearRegressionModel,
     ModelBase,
     MultilayerPerceptron,
     load_model,
@@ -50,13 +49,9 @@ def cli(): ...
 @click.option(
     "-t",
     "--model-type",
-    type=click.Choice(
-        [
-            LinearRegressionModel.Serialized._tag,
-            MultilayerPerceptron.Serialized._tag,
-        ]
-    ),
+    type=click.Choice([MultilayerPerceptron.Serialized._tag]),
     help="The type of model to train",
+    default=MultilayerPerceptron.Serialized._tag,
 )
 @click.option(
     "-i",
@@ -97,8 +92,6 @@ def train(
 
     model: ModelBase
     match model_type:
-        case LinearRegressionModel.Serialized._tag:
-            model = LinearRegressionModel.initialize(X_train.shape[1], Y_train.shape[1])
         case MultilayerPerceptron.Serialized._tag:
             model = MultilayerPerceptron.initialize(X_train.shape[1], *dims, 10)
         case _:
