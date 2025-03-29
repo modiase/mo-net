@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 
 DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
-N_DIGITS: Final[int] = 10
-MAX_PIXEL_VALUE: Final[int] = 255
 DEFAULT_DATA_PATH: Final[Path] = DATA_DIR / "mnist_test.csv"
+MAX_PIXEL_VALUE: Final[int] = 255
+N_DIGITS: Final[int] = 10
 
 
 def load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

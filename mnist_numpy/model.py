@@ -1,6 +1,7 @@
 import pickle
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import cycle
@@ -13,10 +14,13 @@ from loguru import logger
 from more_itertools import pairwise
 from tqdm import tqdm
 
-DEFAULT_D_LEARNING_RATE: Final[float] = 0.00001
+DEFAULT_BATCH_SIZE: Final[int] = 1000
+DEFAULT_D_LEARNING_RATE: Final[float] = 0.0001
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
+DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_ITERATIONS: Final[int] = 1000000
-DEFAULT_TRAINING_LOG_INTERVAL_SECONDS: Final[int] = 30
+DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS: Final[int] = 30
+MAX_HISTORY_LENGTH: Final[int] = 2
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -69,6 +73,18 @@ class ModelBase(ABC):
     ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]: ...
 
     @abstractmethod
+    def _update_weights(
+        self,
+        dWs: Sequence[np.ndarray],
+        dbs: Sequence[np.ndarray],
+        learning_rate: float,
+        momentum_parameter: float,
+    ) -> None: ...
+
+    @abstractmethod
+    def _undo_update(self) -> None: ...
+
+    @abstractmethod
     def _backward_prop(
         self,
         X: np.ndarray,
@@ -89,12 +105,18 @@ class ModelBase(ABC):
         Y_test: np.ndarray,
         batch_size: int | None = None,
         d_learning_rate: float = DEFAULT_D_LEARNING_RATE,
+        momentum_parameter: float = DEFAULT_MOMENTUM_PARAMETER,
         training_log_path: Path,
-        training_log_interval_seconds: int = DEFAULT_TRAINING_LOG_INTERVAL_SECONDS,
+        training_log_min_interval_seconds: int = DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS,
     ) -> Path:
         if not training_log_path.exists():
             training_log = pd.DataFrame(
-                columns=["iteration", "training_loss", "test_loss"]
+                columns=[
+                    "iteration",
+                    "training_loss",
+                    "test_loss",
+                    "learning_rate",
+                ]
             )
             training_log.to_csv(training_log_path, index=False)
         else:
@@ -121,12 +143,17 @@ class ModelBase(ABC):
         logger.info(f"\n{training_log_path=}.")
         self.dump(open(model_checkpoint_path, "wb"))
 
-        start_iteration = total_iterations - num_iterations
         current_learning_rate = learning_rate
         last_update_time = time.time()
-        k = 1 / train_set_size
+        start_iteration = total_iterations - num_iterations
+
+        k_train = 1 / train_set_size
+
+        test_set_size = X_test.shape[0]
+        k_test = 1 / test_set_size
         k_batch = 1 / batch_size
-        L_train_min = k * cross_entropy(
+
+        L_train_min = k_train * cross_entropy(
             softmax(self._forward_prop(X_train)[1][-1]), Y_train
         )
 
@@ -148,7 +175,7 @@ class ModelBase(ABC):
                 Z_train_batch,
                 A_train_batch,
             )
-            self._update_weights(dW, db, current_learning_rate)
+            self._update_weights(dW, db, current_learning_rate, momentum_parameter)
             _, A_train_batch = self._forward_prop(X_train_batch)
             L_batch_after = k_batch * cross_entropy(
                 softmax(A_train_batch[-1]), Y_train_batch
@@ -156,7 +183,7 @@ class ModelBase(ABC):
             if L_batch_after < L_batch_before:
                 current_learning_rate *= 1 + d_learning_rate
             else:
-                self._update_weights(dW, db, -current_learning_rate)
+                self._undo_update()
                 current_learning_rate *= 1 - 5 * d_learning_rate
 
             if i % train_set_size == 0:
@@ -170,17 +197,18 @@ class ModelBase(ABC):
                 Y_train_batched = cycle(
                     np.array_split(Y_train, train_set_size // batch_size)
                 )
-                if (time.time() - last_update_time) > training_log_interval_seconds:
+                if (time.time() - last_update_time) > training_log_min_interval_seconds:
                     _, A_train = self._forward_prop(X_train)
-                    L_train = k * cross_entropy(softmax(A_train[-1]), Y_train)
+                    L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
                     _, A_test = self._forward_prop(X_test)
-                    L_test = k * cross_entropy(softmax(A_test[-1]), Y_test)
+                    L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
                     tqdm.write(
                         f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
                         f" {current_learning_rate=}"
                     )
                     pd.DataFrame(
-                        [[i, L_train, L_test]], columns=training_log.columns
+                        [[i, L_train, L_test, current_learning_rate]],
+                        columns=training_log.columns,
                     ).to_csv(training_log_path, mode="a", header=False, index=False)
                     if L_train < L_train_min:
                         self.dump(open(model_checkpoint_path, "wb"))
@@ -222,6 +250,10 @@ class MultilayerPerceptron(ModelBase):
     ):
         self._W = list(W)
         self._b = list(b)
+        self._history = deque(
+            ((tuple(np.zeros_like(w) for w in W), tuple(np.zeros_like(b) for b in b)),),
+            maxlen=MAX_HISTORY_LENGTH,
+        )
 
     def _forward_prop(
         self, X: np.ndarray
@@ -264,11 +296,30 @@ class MultilayerPerceptron(ModelBase):
         dWs: Sequence[np.ndarray],
         dbs: Sequence[np.ndarray],
         learning_rate: float,
+        momentum_parameter: float,
     ) -> None:
+        (prev_dWs, prev_dbs) = self._history[-1]
+
+        dWs_update = [
+            learning_rate * (1 - momentum_parameter) * dW + momentum_parameter * prev_dW
+            for prev_dW, dW in zip(prev_dWs, dWs)
+        ]
+        dbs_update = [
+            learning_rate * (1 - momentum_parameter) * db + momentum_parameter * prev_db
+            for prev_db, db in zip(prev_dbs, dbs)
+        ]
+        for w, dW in zip(self._W, dWs_update):
+            w -= dW
+        for b, db in zip(self._b, dbs_update):
+            b -= db
+        self._history.append((tuple(dWs_update), tuple(dbs_update)))
+
+    def _undo_update(self) -> None:
+        (dWs, dbs) = self._history.pop()
         for w, dW in zip(self._W, dWs):
-            w -= learning_rate * dW
+            w += dW
         for b, db in zip(self._b, dbs):
-            b -= learning_rate * db
+            b += db
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)

@@ -1,11 +1,11 @@
-from itertools import product
 import random as rn
+from itertools import product
 from math import pi
 
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
-from mnist_numpy.data import load_data
+
+from mnist_numpy.data import DEFAULT_DATA_PATH, load_data
 
 
 def rotate(a: np.ndarray, theta: float):
@@ -90,7 +90,7 @@ def translate(a: np.ndarray, x_trans: float, y_trans: float):
 
 
 if __name__ == "__main__":
-    X_train, Y_train, _, _ = load_data()
+    X_train, Y_train, _, _ = load_data(DEFAULT_DATA_PATH)
     columns = ["label", *(f"{x}x{y}" for x, y in product(range(1, 29), range(1, 29)))]
     data = []
     for i in range(10000):

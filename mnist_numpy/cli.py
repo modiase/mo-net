@@ -1,7 +1,9 @@
+import functools
 import re
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Callable, ParamSpec, TypeVar
 
 import click
 import numpy as np
@@ -13,11 +15,73 @@ from more_itertools import sample
 from mnist_numpy.data import DATA_DIR, DEFAULT_DATA_PATH, load_data
 from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
+    DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_ITERATIONS,
+    DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS,
     ModelBase,
     MultilayerPerceptron,
     load_model,
 )
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def training_options(f: Callable[P, R]) -> Callable[P, R]:
+    @click.option(
+        "-a",
+        "--learning-rate",
+        help="Set the learning rate",
+        type=float,
+        default=DEFAULT_LEARNING_RATE,
+    )
+    @click.option(
+        "-l",
+        "--training-log-path",
+        type=Path,
+        help="Set the path to the training log file",
+        default=None,
+    )
+    @click.option(
+        "-n",
+        "--num-iterations",
+        help="Set number of iterations",
+        type=int,
+        default=DEFAULT_NUM_ITERATIONS,
+    )
+    @click.option(
+        "-b",
+        "--batch-size",
+        type=int,
+        help="Set the batch size",
+        default=None,
+    )
+    @click.option(
+        "-d",
+        "--data-path",
+        type=Path,
+        help="Set the path to the data file",
+        default=DEFAULT_DATA_PATH,
+    )
+    @click.option(
+        "-m",
+        "--momentum-parameter",
+        type=float,
+        help="Set the momentum parameter",
+        default=DEFAULT_MOMENTUM_PARAMETER,
+    )
+    @click.option(
+        "-p",
+        "--training-log-min-interval-seconds",
+        type=int,
+        help="Set the minimum interval for logging training progress",
+        default=DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS,
+    )
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return wrapper
 
 
 @click.group()
@@ -25,27 +89,7 @@ def cli(): ...
 
 
 @cli.command(help="Train the model")
-@click.option(
-    "-a",
-    "--learning-rate",
-    help="Set the learning rate",
-    type=float,
-    default=DEFAULT_LEARNING_RATE,
-)
-@click.option(
-    "-l",
-    "--training-log-path",
-    type=Path,
-    help="Set the path to the training log file",
-    default=None,
-)
-@click.option(
-    "-n",
-    "--num-iterations",
-    help="Set number of iterations",
-    type=int,
-    default=DEFAULT_NUM_ITERATIONS,
-)
+@training_options
 @click.option(
     "-t",
     "--model-type",
@@ -60,29 +104,17 @@ def cli(): ...
     multiple=True,
     default=(10, 10),
 )
-@click.option(
-    "-b",
-    "--batch-size",
-    type=int,
-    help="Set the batch size",
-    default=None,
-)
-@click.option(
-    "-d",
-    "--data-path",
-    type=Path,
-    help="Set the path to the data file",
-    default=DEFAULT_DATA_PATH,
-)
 def train(
     *,
-    training_log_path: Path | None,
-    num_iterations: int,
-    learning_rate: float,
-    model_type: str,
-    dims: Sequence[int],
     batch_size: int | None,
     data_path: Path,
+    dims: Sequence[int],
+    learning_rate: float,
+    model_type: str,
+    momentum_parameter: float,
+    num_iterations: int,
+    training_log_min_interval_seconds: int,
+    training_log_path: Path | None,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
@@ -114,61 +146,25 @@ def train(
         X_test=X_test,
         Y_test=Y_test,
         training_log_path=training_log_path,
+        training_log_min_interval_seconds=training_log_min_interval_seconds,
         batch_size=batch_size,
+        momentum_parameter=momentum_parameter,
     ).rename(model_path)
     logger.info(f"Saved output to {model_path}.")
 
 
 @cli.command(help="Resume training the model")
-@click.option(
-    "-m",
-    "--model-path",
-    help="Set the path to the model file",
-    type=Path,
-    required=True,
-)
-@click.option(
-    "-l",
-    "--training-log-path",
-    type=Path,
-    help="Set the path to the training log file",
-)
-@click.option(
-    "-a",
-    "--learning-rate",
-    type=float,
-    help="Set the learning rate",
-    default=DEFAULT_LEARNING_RATE,
-)
-@click.option(
-    "-n",
-    "--num-iterations",
-    type=int,
-    help="Set number of iterations",
-    default=None,
-)
-@click.option(
-    "-b",
-    "--batch-size",
-    type=int,
-    help="Set the batch size",
-    default=None,
-)
-@click.option(
-    "-d",
-    "--data-path",
-    type=Path,
-    help="Set the path to the data file",
-    default=DEFAULT_DATA_PATH,
-)
+@training_options
 def resume(
     *,
-    model_path: Path,
-    training_log_path: Path,
-    learning_rate: float,
-    num_iterations: int | None,
     batch_size: int | None,
     data_path: Path,
+    learning_rate: float,
+    model_path: Path,
+    momentum_parameter: float,
+    num_iterations: int | None,
+    training_log_min_interval_seconds: int,
+    training_log_path: Path,
 ):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
@@ -190,15 +186,17 @@ def resume(
     )
 
     load_model(model_path).train(
+        X_test=X_test,
+        X_train=X_train,
+        Y_test=Y_test,
+        Y_train=Y_train,
+        batch_size=batch_size,
         learning_rate=learning_rate,
+        momentum_parameter=momentum_parameter,
         num_iterations=num_iterations,
         total_iterations=total_iterations,
-        X_train=X_train,
-        Y_train=Y_train,
-        X_test=X_test,
-        Y_test=Y_test,
+        training_log_min_interval_seconds=training_log_min_interval_seconds,
         training_log_path=training_log_path,
-        batch_size=batch_size,
     ).rename(output_path)
     logger.info(f"Saved output to {output_path}.")
 
@@ -254,7 +252,7 @@ def infer(*, model_path: Path, data_path: Path):
     plt.bar(x, counts_true, bar_width, label="True")
     plt.bar(x + bar_width, counts_correct, bar_width, label="Correct")
 
-    plt.xticks(x, unique_labels)
+    plt.xticks(x, [str(label) for label in unique_labels])
     plt.xlabel("Digit")
     plt.ylabel("Count")
     plt.title("Predicted vs. True Label Distribution (Sample)")
