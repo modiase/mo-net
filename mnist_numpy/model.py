@@ -14,7 +14,7 @@ from more_itertools import pairwise
 from tqdm import tqdm
 
 DEFAULT_BATCH_SIZE: Final[int] = 1000
-DEFAULT_D_LEARNING_RATE: Final[float] = 0.0001
+DEFAULT_LEARNING_RATE_RESCALE_FACTOR: Final[float] = 0.00001
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_ITERATIONS: Final[int] = 1000000
@@ -103,8 +103,8 @@ class ModelBase(ABC):
         X_test: np.ndarray,
         Y_test: np.ndarray,
         batch_size: int | None = None,
-        d_learning_rate: float = DEFAULT_D_LEARNING_RATE,
-        momentum_parameter: float = DEFAULT_MOMENTUM_PARAMETER,
+        learning_rate_rescale_factor: float,
+        momentum_parameter: float,
         training_log_path: Path,
     ) -> Path:
         if not training_log_path.exists():
@@ -179,10 +179,10 @@ class ModelBase(ABC):
                 softmax(A_train_batch[-1]), Y_train_batch
             )
             if L_batch_after < L_batch_before:
-                current_learning_rate *= 1 + d_learning_rate
+                current_learning_rate *= 1 + learning_rate_rescale_factor
             else:
                 self._undo_update()
-                current_learning_rate *= 1 - 2 * d_learning_rate
+                current_learning_rate *= 1 - 2 * learning_rate_rescale_factor
 
             if i % train_set_size == 0:
                 permutation = np.random.permutation(train_set_size)

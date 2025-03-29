@@ -15,6 +15,7 @@ from more_itertools import sample
 from mnist_numpy.data import DATA_DIR, DEFAULT_DATA_PATH, load_data
 from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
+    DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_ITERATIONS,
     ModelBase,
@@ -69,6 +70,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the momentum parameter",
         default=DEFAULT_MOMENTUM_PARAMETER,
     )
+    @click.option(
+        "-r",
+        "--learning-rate-rescale-factor",
+        type=float,
+        help="Set the learning rate rescale factor",
+        default=DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -102,6 +110,7 @@ def train(
     data_path: Path,
     dims: Sequence[int],
     learning_rate: float,
+    learning_rate_rescale_factor: float,
     model_type: str,
     momentum_parameter: float,
     num_iterations: int,
@@ -129,16 +138,17 @@ def train(
         )
 
     model.train(
+        X_test=X_test,
+        X_train=X_train,
+        Y_test=Y_test,
+        Y_train=Y_train,
+        batch_size=batch_size,
         learning_rate=learning_rate,
+        learning_rate_rescale_factor=learning_rate_rescale_factor,
+        momentum_parameter=momentum_parameter,
         num_iterations=num_iterations,
         total_iterations=num_iterations,
-        X_train=X_train,
-        Y_train=Y_train,
-        X_test=X_test,
-        Y_test=Y_test,
         training_log_path=training_log_path,
-        batch_size=batch_size,
-        momentum_parameter=momentum_parameter,
     ).rename(model_path)
     logger.info(f"Saved output to {model_path}.")
 
@@ -150,6 +160,7 @@ def resume(
     batch_size: int | None,
     data_path: Path,
     learning_rate: float,
+    learning_rate_rescale_factor: float,
     model_path: Path,
     momentum_parameter: float,
     num_iterations: int | None,
@@ -181,6 +192,7 @@ def resume(
         Y_train=Y_train,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        learning_rate_rescale_factor=learning_rate_rescale_factor,
         momentum_parameter=momentum_parameter,
         num_iterations=num_iterations,
         total_iterations=total_iterations,
