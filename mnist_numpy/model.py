@@ -1,5 +1,4 @@
 import pickle
-import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Sequence
@@ -107,7 +106,6 @@ class ModelBase(ABC):
         d_learning_rate: float = DEFAULT_D_LEARNING_RATE,
         momentum_parameter: float = DEFAULT_MOMENTUM_PARAMETER,
         training_log_path: Path,
-        training_log_min_interval_seconds: int = DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS,
     ) -> Path:
         if not training_log_path.exists():
             training_log = pd.DataFrame(
@@ -144,7 +142,6 @@ class ModelBase(ABC):
         self.dump(open(model_checkpoint_path, "wb"))
 
         current_learning_rate = learning_rate
-        last_update_time = time.time()
         start_iteration = total_iterations - num_iterations
 
         k_train = 1 / train_set_size
@@ -184,7 +181,7 @@ class ModelBase(ABC):
                 current_learning_rate *= 1 + d_learning_rate
             else:
                 self._undo_update()
-                current_learning_rate *= 1 - 5 * d_learning_rate
+                current_learning_rate *= 1 - 2 * d_learning_rate
 
             if i % train_set_size == 0:
                 permutation = np.random.permutation(train_set_size)
@@ -197,23 +194,21 @@ class ModelBase(ABC):
                 Y_train_batched = cycle(
                     np.array_split(Y_train, train_set_size // batch_size)
                 )
-                if (time.time() - last_update_time) > training_log_min_interval_seconds:
-                    _, A_train = self._forward_prop(X_train)
-                    L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
-                    _, A_test = self._forward_prop(X_test)
-                    L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
-                    tqdm.write(
-                        f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
-                        f" {current_learning_rate=}"
-                    )
-                    pd.DataFrame(
-                        [[i, L_train, L_test, current_learning_rate]],
-                        columns=training_log.columns,
-                    ).to_csv(training_log_path, mode="a", header=False, index=False)
-                    if L_train < L_train_min:
-                        self.dump(open(model_checkpoint_path, "wb"))
-                        L_train_min = L_train
-                    last_update_time = time.time()
+                _, A_train = self._forward_prop(X_train)
+                L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
+                _, A_test = self._forward_prop(X_test)
+                L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
+                tqdm.write(
+                    f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                    f" {current_learning_rate=}"
+                )
+                pd.DataFrame(
+                    [[i, L_train, L_test, current_learning_rate]],
+                    columns=training_log.columns,
+                ).to_csv(training_log_path, mode="a", header=False, index=False)
+                if L_train < L_train_min:
+                    self.dump(open(model_checkpoint_path, "wb"))
+                    L_train_min = L_train
 
         return model_checkpoint_path
 

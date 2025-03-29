@@ -17,7 +17,6 @@ from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_ITERATIONS,
-    DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS,
     ModelBase,
     MultilayerPerceptron,
     load_model,
@@ -70,13 +69,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the momentum parameter",
         default=DEFAULT_MOMENTUM_PARAMETER,
     )
-    @click.option(
-        "-p",
-        "--training-log-min-interval-seconds",
-        type=int,
-        help="Set the minimum interval for logging training progress",
-        default=DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS,
-    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -113,7 +105,6 @@ def train(
     model_type: str,
     momentum_parameter: float,
     num_iterations: int,
-    training_log_min_interval_seconds: int,
     training_log_path: Path | None,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
@@ -146,7 +137,6 @@ def train(
         X_test=X_test,
         Y_test=Y_test,
         training_log_path=training_log_path,
-        training_log_min_interval_seconds=training_log_min_interval_seconds,
         batch_size=batch_size,
         momentum_parameter=momentum_parameter,
     ).rename(model_path)
@@ -163,7 +153,6 @@ def resume(
     model_path: Path,
     momentum_parameter: float,
     num_iterations: int | None,
-    training_log_min_interval_seconds: int,
     training_log_path: Path,
 ):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
@@ -195,7 +184,6 @@ def resume(
         momentum_parameter=momentum_parameter,
         num_iterations=num_iterations,
         total_iterations=total_iterations,
-        training_log_min_interval_seconds=training_log_min_interval_seconds,
         training_log_path=training_log_path,
     ).rename(output_path)
     logger.info(f"Saved output to {output_path}.")
