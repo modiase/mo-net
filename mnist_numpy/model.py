@@ -153,6 +153,7 @@ class ModelBase(ABC):
         L_train_min = k_train * cross_entropy(
             softmax(self._forward_prop(X_train)[1][-1]), Y_train
         )
+        logger.info(f"Initial training loss: {L_train_min}.")
 
         for i in tqdm(
             range(start_iteration, total_iterations),
