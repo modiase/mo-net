@@ -133,6 +133,10 @@ def train(
         model_path = DATA_DIR / f"{seed}_{model.get_name()}_model_{num_iterations=}.pkl"
         training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
     else:
+        if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
+            training_log_path = training_log_path.with_name(
+                f"{training_log_path.stem}_training_log.csv"
+            )
         model_path = training_log_path.with_name(
             f"{training_log_path.stem.replace('_training_log', '')}.pkl"
         )
