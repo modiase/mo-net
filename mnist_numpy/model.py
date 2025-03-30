@@ -181,7 +181,6 @@ class ModelBase(ABC):
             if L_batch_after < L_batch_before:
                 current_learning_rate *= 1 + learning_rate_rescale_factor
             else:
-                self._undo_update()
                 current_learning_rate *= 1 - 2 * learning_rate_rescale_factor
 
             if i % train_set_size == 0:
