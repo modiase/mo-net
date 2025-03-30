@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from itertools import cycle
 from pathlib import Path
 from typing import IO, ClassVar, Final, Self
@@ -110,6 +111,7 @@ class ModelBase(ABC):
         if not training_log_path.exists():
             training_log = pd.DataFrame(
                 columns=[
+                    "timestamp",
                     "iteration",
                     "training_loss",
                     "test_loss",
@@ -203,7 +205,7 @@ class ModelBase(ABC):
                     f" {current_learning_rate=}"
                 )
                 pd.DataFrame(
-                    [[i, L_train, L_test, current_learning_rate]],
+                    [[datetime.now(), i, L_train, L_test, current_learning_rate]],
                     columns=training_log.columns,
                 ).to_csv(training_log_path, mode="a", header=False, index=False)
                 if L_train < L_train_min:
