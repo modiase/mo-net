@@ -5,7 +5,6 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from itertools import cycle
 from pathlib import Path
 from typing import IO, ClassVar, Final, Self
 
@@ -15,11 +14,11 @@ from loguru import logger
 from more_itertools import pairwise
 from tqdm import tqdm
 
-DEFAULT_BATCH_SIZE: Final[int] = 1000
+DEFAULT_BATCH_SIZE: Final[int] = 100
 DEFAULT_LEARNING_RATE_RESCALE_FACTOR: Final[float] = 0.00001
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
-DEFAULT_NUM_ITERATIONS: Final[int] = 1000000
+DEFAULT_NUM_EPOCHS: Final[int] = 10000
 DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS: Final[int] = 30
 MAX_HISTORY_LENGTH: Final[int] = 2
 
@@ -98,8 +97,8 @@ class ModelBase(ABC):
         self,
         *,
         learning_rate: float,
-        num_iterations: int,
-        total_iterations: int,
+        num_epochs: int,
+        total_epochs: int,
         X_train: np.ndarray,
         Y_train: np.ndarray,
         X_test: np.ndarray,
@@ -124,15 +123,15 @@ class ModelBase(ABC):
             training_log = pd.read_csv(training_log_path)
 
         logger.info(
-            f"Training model {self.__class__.__name__} for {num_iterations=} iterations with {learning_rate=}."
+            f"Training model {self.__class__.__name__} for {num_epochs=} iterations with {learning_rate=}."
         )
 
         train_set_size = X_train.shape[0]
         if batch_size is None:
             batch_size = train_set_size
 
-        X_train_batched = cycle(np.array_split(X_train, train_set_size // batch_size))
-        Y_train_batched = cycle(np.array_split(Y_train, train_set_size // batch_size))
+        X_train_batched = iter(np.array_split(X_train, train_set_size // batch_size))
+        Y_train_batched = iter(np.array_split(Y_train, train_set_size // batch_size))
 
         model_checkpoint_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "partial.pkl")
@@ -145,7 +144,7 @@ class ModelBase(ABC):
         self.dump(open(model_checkpoint_path, "wb"))
 
         current_learning_rate = learning_rate
-        start_iteration = total_iterations - num_iterations
+        start_epoch = total_epochs - num_epochs
 
         k_train = 1 / train_set_size
 
@@ -161,9 +160,9 @@ class ModelBase(ABC):
         last_log_time = time.time()
         log_interval_seconds = 10
         for i in tqdm(
-            range(start_iteration, total_iterations),
-            initial=start_iteration,
-            total=total_iterations,
+            range(start_epoch * train_set_size, total_epochs * train_set_size),
+            initial=start_epoch * train_set_size,
+            total=total_epochs * train_set_size,
         ):
             X_train_batch = next(X_train_batched)
             Y_train_batch = next(Y_train_batched)
@@ -193,10 +192,10 @@ class ModelBase(ABC):
                 X_train = X_train[permutation]
                 Y_train = Y_train[permutation]
 
-                X_train_batched = cycle(
+                X_train_batched = iter(
                     np.array_split(X_train, train_set_size // batch_size)
                 )
-                Y_train_batched = cycle(
+                Y_train_batched = iter(
                     np.array_split(Y_train, train_set_size // batch_size)
                 )
                 _, A_train = self._forward_prop(X_train)

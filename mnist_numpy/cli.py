@@ -17,7 +17,7 @@ from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
     DEFAULT_MOMENTUM_PARAMETER,
-    DEFAULT_NUM_ITERATIONS,
+    DEFAULT_NUM_EPOCHS,
     ModelBase,
     MultilayerPerceptron,
     load_model,
@@ -41,13 +41,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=Path,
         help="Set the path to the training log file",
         default=None,
-    )
-    @click.option(
-        "-n",
-        "--num-iterations",
-        help="Set number of iterations",
-        type=int,
-        default=DEFAULT_NUM_ITERATIONS,
     )
     @click.option(
         "-b",
@@ -91,6 +84,13 @@ def cli(): ...
 @cli.command(help="Train the model")
 @training_options
 @click.option(
+    "-n",
+    "--num-epochs",
+    help="Set number of epochs",
+    type=int,
+    default=DEFAULT_NUM_EPOCHS,
+)
+@click.option(
     "-t",
     "--model-type",
     type=click.Choice([MultilayerPerceptron.Serialized._tag]),
@@ -113,7 +113,7 @@ def train(
     learning_rate_rescale_factor: float,
     model_type: str,
     momentum_parameter: float,
-    num_iterations: int,
+    num_epochs: int,
     training_log_path: Path | None,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
@@ -130,7 +130,7 @@ def train(
             raise ValueError(f"Invalid model type: {model_type}")
 
     if training_log_path is None:
-        model_path = DATA_DIR / f"{seed}_{model.get_name()}_model_{num_iterations=}.pkl"
+        model_path = DATA_DIR / f"{seed}_{model.get_name()}_model_{num_epochs=}.pkl"
         training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
     else:
         if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
@@ -150,8 +150,8 @@ def train(
         learning_rate=learning_rate,
         learning_rate_rescale_factor=learning_rate_rescale_factor,
         momentum_parameter=momentum_parameter,
-        num_iterations=num_iterations,
-        total_iterations=num_iterations,
+        num_epochs=num_epochs,
+        total_epochs=num_epochs,
         training_log_path=training_log_path,
     ).rename(model_path)
     logger.info(f"Saved output to {model_path}.")
@@ -159,6 +159,13 @@ def train(
 
 @cli.command(help="Resume training the model")
 @training_options
+@click.option(
+    "-n",
+    "--num-epochs",
+    help="Set number of epochs",
+    type=int,
+    default=None,
+)
 def resume(
     *,
     batch_size: int | None,
@@ -167,22 +174,25 @@ def resume(
     learning_rate_rescale_factor: float,
     model_path: Path,
     momentum_parameter: float,
-    num_iterations: int | None,
+    num_epochs: int | None,
     training_log_path: Path,
 ):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
-    if num_iterations is None:
-        if (mo := re.search(r"num_iterations=(\d+)", training_log_path.name)) is None:
+    if num_epochs is None:
+        if (mo := re.search(r"num_epochs=(\d+)", training_log_path.name)) is None:
             raise ValueError(f"Invalid training log path: {training_log_path}")
-        total_iterations = int(mo.group(1))
-        num_iterations = total_iterations
+        total_epochs = int(mo.group(1))
+        num_epochs = total_epochs
     else:
-        total_iterations = num_iterations
+        if (mo := re.search(r"num_epochs=(\d+)", training_log_path.name)) is None:
+            total_epochs = num_epochs
+        else:
+            total_epochs = int(mo.group(1))
 
     if not (training_log := pd.read_csv(training_log_path)).empty:
         training_log = training_log.iloc[: np.argmin(training_log.iloc[:, 1]), :]
-        num_iterations = total_iterations - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
+        num_epochs = total_epochs - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
         training_log.to_csv(training_log_path, index=False)
 
     output_path = training_log_path.with_name(
@@ -198,8 +208,8 @@ def resume(
         learning_rate=learning_rate,
         learning_rate_rescale_factor=learning_rate_rescale_factor,
         momentum_parameter=momentum_parameter,
-        num_iterations=num_iterations,
-        total_iterations=total_iterations,
+        num_epochs=num_epochs,
+        total_epochs=total_epochs,
         training_log_path=training_log_path,
     ).rename(output_path)
     logger.info(f"Saved output to {output_path}.")
