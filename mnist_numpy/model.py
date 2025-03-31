@@ -161,10 +161,14 @@ class ModelBase(ABC):
 
         last_log_time = time.time()
         log_interval_seconds = 10
+        batches_per_epoch = train_set_size // batch_size
         for i in tqdm(
-            range(start_epoch * train_set_size, total_epochs * train_set_size),
-            initial=start_epoch * train_set_size,
-            total=total_epochs * train_set_size,
+            range(
+                start_epoch * batches_per_epoch,
+                total_epochs * batches_per_epoch,
+            ),
+            initial=start_epoch * batches_per_epoch,
+            total=total_epochs * batches_per_epoch,
         ):
             X_train_batch = next(X_train_batched)
             Y_train_batch = next(Y_train_batched)
