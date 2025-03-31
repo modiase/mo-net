@@ -13,12 +13,12 @@ def main(training_log_path: Path):
 
     # Create the plot
     plt.figure(figsize=(12, 6))
-    plt.plot(df["iteration"], df["training_loss"], label="Training Loss", color="blue")
-    plt.plot(df["iteration"], df["test_loss"], label="Test Loss", color="red")
+    plt.plot(df["epoch"], df["training_loss"], label="Training Loss", color="blue")
+    plt.plot(df["epoch"], df["test_loss"], label="Test Loss", color="red")
 
     # Customize the plot
-    plt.title("Training and Test Loss vs. Iterations")
-    plt.xlabel("Iteration")
+    plt.title("Training and Test Loss vs. Epochs")
+    plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.grid(True, linestyle="--", alpha=0.7)
     plt.legend()
