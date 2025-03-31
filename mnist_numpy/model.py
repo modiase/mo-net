@@ -1,4 +1,5 @@
 import pickle
+import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Sequence
@@ -111,11 +112,11 @@ class ModelBase(ABC):
         if not training_log_path.exists():
             training_log = pd.DataFrame(
                 columns=[
-                    "timestamp",
-                    "iteration",
+                    "epoch",
                     "training_loss",
                     "test_loss",
                     "learning_rate",
+                    "timestamp",
                 ]
             )
             training_log.to_csv(training_log_path, index=False)
@@ -157,6 +158,8 @@ class ModelBase(ABC):
         )
         logger.info(f"Initial training loss: {L_train_min}.")
 
+        last_log_time = time.time()
+        log_interval_seconds = 10
         for i in tqdm(
             range(start_iteration, total_iterations),
             initial=start_iteration,
@@ -185,7 +188,7 @@ class ModelBase(ABC):
             else:
                 current_learning_rate *= 1 - 2 * learning_rate_rescale_factor
 
-            if i % train_set_size == 0:
+            if i % (train_set_size // batch_size) == 0:
                 permutation = np.random.permutation(train_set_size)
                 X_train = X_train[permutation]
                 Y_train = Y_train[permutation]
@@ -200,17 +203,20 @@ class ModelBase(ABC):
                 L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
                 _, A_test = self._forward_prop(X_test)
                 L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
-                tqdm.write(
-                    f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
-                    f" {current_learning_rate=}"
-                )
+                epoch = i // (train_set_size // batch_size)
                 pd.DataFrame(
-                    [[datetime.now(), i, L_train, L_test, current_learning_rate]],
+                    [[epoch, L_train, L_test, current_learning_rate, datetime.now()]],
                     columns=training_log.columns,
                 ).to_csv(training_log_path, mode="a", header=False, index=False)
                 if L_train < L_train_min:
                     self.dump(open(model_checkpoint_path, "wb"))
                     L_train_min = L_train
+            if time.time() - last_log_time > log_interval_seconds:
+                tqdm.write(
+                    f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                    f" {current_learning_rate=}"
+                )
+                last_log_time = time.time()
 
         return model_checkpoint_path
 
