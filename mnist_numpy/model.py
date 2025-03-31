@@ -21,6 +21,8 @@ DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 10000
 DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS: Final[int] = 30
 MAX_HISTORY_LENGTH: Final[int] = 2
+MAX_LEARNING_RATE: Final[float] = 0.1
+MIN_LEARNING_RATE: Final[float] = 0.000001
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -186,6 +188,9 @@ class ModelBase(ABC):
                 current_learning_rate *= 1 + learning_rate_rescale_factor
             else:
                 current_learning_rate *= 1 - 2 * learning_rate_rescale_factor
+            current_learning_rate = min(
+                MAX_LEARNING_RATE, max(current_learning_rate, MIN_LEARNING_RATE)
+            )
 
             if i % (train_set_size // batch_size) == 0:
                 permutation = np.random.permutation(train_set_size)
