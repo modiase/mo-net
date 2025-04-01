@@ -4,10 +4,14 @@ import click
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from mnist_numpy.data import DATA_DIR
+
 
 @click.command()
-@click.argument("training_log_path", type=click.Path(exists=True))
+@click.argument("training_log_path", type=Path)
 def main(training_log_path: Path):
+    if not training_log_path.exists():
+        training_log_path = DATA_DIR / training_log_path.name
     # Read the CSV file
     df = pd.read_csv(training_log_path)
 
