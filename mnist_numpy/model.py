@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from more_itertools import pairwise
+from pydantic import BaseModel
 from tqdm import tqdm
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
@@ -41,6 +42,16 @@ def ReLU(x: np.ndarray) -> np.ndarray:
 
 def deriv_ReLU(x: np.ndarray) -> np.ndarray:
     return np.where(x > 0, 1, 0)
+
+
+class TrainingParameters(BaseModel):
+    batch_size: int
+    learning_rate: float
+    learning_rate_limits: tuple[float, float]
+    learning_rate_rescale_factor: float
+    momentum_parameter: float
+    num_epochs: int
+    total_epochs: int
 
 
 class ModelBase(ABC):
@@ -97,18 +108,12 @@ class ModelBase(ABC):
     def train(
         self,
         *,
-        learning_rate: float,
-        learning_rate_limits: tuple[float, float],
-        num_epochs: int,
-        total_epochs: int,
+        training_parameters: TrainingParameters,
+        training_log_path: Path,
         X_train: np.ndarray,
         Y_train: np.ndarray,
         X_test: np.ndarray,
         Y_test: np.ndarray,
-        batch_size: int | None = None,
-        learning_rate_rescale_factor: float,
-        momentum_parameter: float,
-        training_log_path: Path,
     ) -> Path:
         if not training_log_path.exists():
             training_log = pd.DataFrame(
@@ -125,34 +130,50 @@ class ModelBase(ABC):
             training_log = pd.read_csv(training_log_path)
 
         logger.info(
-            f"Training model {self.__class__.__name__} for {num_epochs=} iterations with {learning_rate=}."
+            f"Training model {self.__class__.__name__} for {training_parameters.num_epochs=} iterations with {training_parameters.learning_rate=}."
         )
 
         train_set_size = X_train.shape[0]
-        if batch_size is None:
-            batch_size = train_set_size
 
-        X_train_batched = iter(np.array_split(X_train, train_set_size // batch_size))
-        Y_train_batched = iter(np.array_split(Y_train, train_set_size // batch_size))
+        X_train_batched = iter(
+            np.array_split(X_train, train_set_size // training_parameters.batch_size)
+        )
+        Y_train_batched = iter(
+            np.array_split(Y_train, train_set_size // training_parameters.batch_size)
+        )
 
         model_checkpoint_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "partial.pkl")
         )
+        model_training_parameters_path = training_log_path.with_name(
+            training_log_path.name.replace(
+                "training_log.csv", "training_parameters.json"
+            )
+        )
+        if not model_training_parameters_path.exists():
+            model_training_parameters_path.write_text(
+                training_parameters.model_dump_json()
+            )
+        else:
+            training_parameters = TrainingParameters.model_validate_json(
+                model_training_parameters_path.read_text()
+            )
 
         logger.info(
             f"Training model..\nSaving partial results to: {model_checkpoint_path}."
         )
+        logger.info(f"\n{training_parameters=}.")
         logger.info(f"\n{training_log_path=}.")
         self.dump(open(model_checkpoint_path, "wb"))
 
-        current_learning_rate = learning_rate
-        start_epoch = total_epochs - num_epochs
+        current_learning_rate = training_parameters.learning_rate
+        start_epoch = training_parameters.total_epochs - training_parameters.num_epochs
 
         k_train = 1 / train_set_size
 
         test_set_size = X_test.shape[0]
         k_test = 1 / test_set_size
-        k_batch = 1 / batch_size
+        k_batch = 1 / training_parameters.batch_size
 
         L_train_min = k_train * cross_entropy(
             softmax(self._forward_prop(X_train)[1][-1]), Y_train
@@ -161,15 +182,15 @@ class ModelBase(ABC):
 
         last_log_time = time.time()
         log_interval_seconds = 10
-        batches_per_epoch = train_set_size // batch_size
-        min_learning_rate, max_learning_rate = learning_rate_limits
+        batches_per_epoch = train_set_size // training_parameters.batch_size
+        min_learning_rate, max_learning_rate = training_parameters.learning_rate_limits
         for i in tqdm(
             range(
                 start_epoch * batches_per_epoch,
-                total_epochs * batches_per_epoch,
+                training_parameters.total_epochs * batches_per_epoch,
             ),
             initial=start_epoch * batches_per_epoch,
-            total=total_epochs * batches_per_epoch,
+            total=training_parameters.total_epochs * batches_per_epoch,
         ):
             X_train_batch = next(X_train_batched)
             Y_train_batch = next(Y_train_batched)
@@ -184,15 +205,21 @@ class ModelBase(ABC):
                 Z_train_batch,
                 A_train_batch,
             )
-            self._update_weights(dW, db, current_learning_rate, momentum_parameter)
+            self._update_weights(
+                dW, db, current_learning_rate, training_parameters.momentum_parameter
+            )
             _, A_train_batch = self._forward_prop(X_train_batch)
             L_batch_after = k_batch * cross_entropy(
                 softmax(A_train_batch[-1]), Y_train_batch
             )
             if L_batch_after < L_batch_before:
-                current_learning_rate *= 1 + learning_rate_rescale_factor
+                current_learning_rate *= (
+                    1 + training_parameters.learning_rate_rescale_factor
+                )
             else:
-                current_learning_rate *= 1 - 2 * learning_rate_rescale_factor
+                current_learning_rate *= (
+                    1 - 2 * training_parameters.learning_rate_rescale_factor
+                )
             current_learning_rate = min(
                 max_learning_rate,
                 max(
@@ -201,22 +228,26 @@ class ModelBase(ABC):
                 ),
             )
 
-            if i % (train_set_size // batch_size) == 0:
+            if i % (train_set_size // training_parameters.batch_size) == 0:
                 permutation = np.random.permutation(train_set_size)
                 X_train = X_train[permutation]
                 Y_train = Y_train[permutation]
 
                 X_train_batched = iter(
-                    np.array_split(X_train, train_set_size // batch_size)
+                    np.array_split(
+                        X_train, train_set_size // training_parameters.batch_size
+                    )
                 )
                 Y_train_batched = iter(
-                    np.array_split(Y_train, train_set_size // batch_size)
+                    np.array_split(
+                        Y_train, train_set_size // training_parameters.batch_size
+                    )
                 )
                 _, A_train = self._forward_prop(X_train)
                 L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
                 _, A_test = self._forward_prop(X_test)
                 L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
-                epoch = i // (train_set_size // batch_size)
+                epoch = i // (train_set_size // training_parameters.batch_size)
                 pd.DataFrame(
                     [[epoch, L_train, L_test, current_learning_rate, datetime.now()]],
                     columns=training_log.columns,

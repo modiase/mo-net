@@ -21,6 +21,7 @@ from mnist_numpy.model import (
     DEFAULT_NUM_EPOCHS,
     ModelBase,
     MultilayerPerceptron,
+    TrainingParameters,
     load_model,
 )
 
@@ -155,13 +156,15 @@ def train(
         X_train=X_train,
         Y_test=Y_test,
         Y_train=Y_train,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        learning_rate_rescale_factor=learning_rate_rescale_factor,
-        learning_rate_limits=learning_rate_limits,
-        momentum_parameter=momentum_parameter,
-        num_epochs=num_epochs,
-        total_epochs=num_epochs,
+        training_parameters=TrainingParameters(
+            batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
+            learning_rate=learning_rate,
+            learning_rate_limits=learning_rate_limits,
+            learning_rate_rescale_factor=learning_rate_rescale_factor,
+            momentum_parameter=momentum_parameter,
+            num_epochs=num_epochs,
+            total_epochs=num_epochs,
+        ),
         training_log_path=training_log_path,
     ).rename(model_path)
     logger.info(f"Saved output to {model_path}.")
@@ -215,13 +218,15 @@ def resume(
         X_train=X_train,
         Y_test=Y_test,
         Y_train=Y_train,
-        batch_size=batch_size,
-        learning_rate=learning_rate,
-        learning_rate_rescale_factor=learning_rate_rescale_factor,
-        learning_rate_limits=learning_rate_limits,
-        momentum_parameter=momentum_parameter,
-        num_epochs=num_epochs,
-        total_epochs=total_epochs,
+        training_parameters=TrainingParameters(
+            batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
+            learning_rate=learning_rate,
+            learning_rate_rescale_factor=learning_rate_rescale_factor,
+            learning_rate_limits=learning_rate_limits,
+            momentum_parameter=momentum_parameter,
+            num_epochs=num_epochs,
+            total_epochs=total_epochs,
+        ),
         training_log_path=training_log_path,
     ).rename(output_path)
     logger.info(f"Saved output to {output_path}.")
