@@ -7,7 +7,6 @@ from typing import Callable, ParamSpec, TypeVar
 
 import click
 import numpy as np
-import pandas as pd
 from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
@@ -140,7 +139,7 @@ def train(
             raise ValueError(f"Invalid model type: {model_type}")
 
     if training_log_path is None:
-        model_path = DATA_DIR / f"{seed}_{model.get_name()}_model_{num_epochs=}.pkl"
+        model_path = DATA_DIR / f"{seed}_{model.get_name()}_model.pkl"
         training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
     else:
         if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
@@ -171,46 +170,42 @@ def train(
 
 
 @cli.command(help="Resume training the model")
-@training_options
 @click.option(
-    "-n",
-    "--num-epochs",
-    help="Set number of epochs",
-    type=int,
-    default=None,
+    "-m",
+    "--model-path",
+    help="Set the path to the model file",
+    type=Path,
+    required=True,
+)
+@click.option(
+    "-p",
+    "--training-parameters-path",
+    help="Set the path to the training parameter file",
+    type=Path,
+    required=True,
+)
+@click.option(
+    "-d",
+    "--data-path",
+    type=Path,
+    help="Set the path to the data file",
+    default=DEFAULT_DATA_PATH,
 )
 def resume(
     *,
-    batch_size: int | None,
     data_path: Path,
-    learning_rate: float,
-    learning_rate_rescale_factor: float,
-    learning_rate_limits: tuple[float, float],
     model_path: Path,
-    momentum_parameter: float,
-    num_epochs: int | None,
-    training_log_path: Path,
+    training_parameters_path: Path,
 ):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
-    if num_epochs is None:
-        if (mo := re.search(r"num_epochs=(\d+)", training_log_path.name)) is None:
-            raise ValueError(f"Invalid training log path: {training_log_path}")
-        total_epochs = int(mo.group(1))
-        num_epochs = total_epochs
-    else:
-        if (mo := re.search(r"num_epochs=(\d+)", training_log_path.name)) is None:
-            total_epochs = num_epochs
-        else:
-            total_epochs = int(mo.group(1))
-
-    if not (training_log := pd.read_csv(training_log_path)).empty:
-        training_log = training_log.iloc[: np.argmin(training_log.iloc[:, 1]), :]
-        num_epochs = total_epochs - int(training_log.iloc[-1, 0])  # type: ignore[arg-type]
-        training_log.to_csv(training_log_path, index=False)
-
-    output_path = training_log_path.with_name(
-        training_log_path.name.replace("training_log.csv", ".pkl")
+    training_log_path = training_parameters_path.with_name(
+        training_parameters_path.name.replace(
+            "training_parameters.json", "training_log.csv"
+        )
+    )
+    output_path = training_parameters_path.with_name(
+        training_parameters_path.name.replace("training_parameters.json", ".pkl")
     )
 
     load_model(model_path).train(
@@ -218,14 +213,8 @@ def resume(
         X_train=X_train,
         Y_test=Y_test,
         Y_train=Y_train,
-        training_parameters=TrainingParameters(
-            batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
-            learning_rate=learning_rate,
-            learning_rate_rescale_factor=learning_rate_rescale_factor,
-            learning_rate_limits=learning_rate_limits,
-            momentum_parameter=momentum_parameter,
-            num_epochs=num_epochs,
-            total_epochs=total_epochs,
+        training_parameters=TrainingParameters.model_validate_json(
+            training_parameters_path.read_text()
         ),
         training_log_path=training_log_path,
     ).rename(output_path)
