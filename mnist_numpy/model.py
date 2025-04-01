@@ -21,8 +21,7 @@ DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 10000
 DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS: Final[int] = 30
 MAX_HISTORY_LENGTH: Final[int] = 2
-MAX_LEARNING_RATE: Final[float] = 0.1
-MIN_LEARNING_RATE: Final[float] = 0.000001
+DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 0.01"
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -99,6 +98,7 @@ class ModelBase(ABC):
         self,
         *,
         learning_rate: float,
+        learning_rate_limits: tuple[float, float],
         num_epochs: int,
         total_epochs: int,
         X_train: np.ndarray,
@@ -162,6 +162,7 @@ class ModelBase(ABC):
         last_log_time = time.time()
         log_interval_seconds = 10
         batches_per_epoch = train_set_size // batch_size
+        min_learning_rate, max_learning_rate = learning_rate_limits
         for i in tqdm(
             range(
                 start_epoch * batches_per_epoch,
@@ -193,7 +194,11 @@ class ModelBase(ABC):
             else:
                 current_learning_rate *= 1 - 2 * learning_rate_rescale_factor
             current_learning_rate = min(
-                MAX_LEARNING_RATE, max(current_learning_rate, MIN_LEARNING_RATE)
+                max_learning_rate,
+                max(
+                    current_learning_rate,
+                    min_learning_rate,
+                ),
             )
 
             if i % (train_set_size // batch_size) == 0:

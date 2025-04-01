@@ -15,6 +15,7 @@ from more_itertools import sample
 from mnist_numpy.data import DATA_DIR, DEFAULT_DATA_PATH, load_data
 from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
+    DEFAULT_LEARNING_RATE_LIMITS,
     DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_EPOCHS,
@@ -70,6 +71,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the learning rate rescale factor",
         default=DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
     )
+    @click.option(
+        "-s",
+        "--learning-rate-limits",
+        type=lambda x: tuple(float(y) for y in x.split(",")),
+        help="Set the learning rate limits",
+        default=DEFAULT_LEARNING_RATE_LIMITS,
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -111,6 +119,7 @@ def train(
     dims: Sequence[int],
     learning_rate: float,
     learning_rate_rescale_factor: float,
+    learning_rate_limits: tuple[float, float],
     model_type: str,
     momentum_parameter: float,
     num_epochs: int,
@@ -149,6 +158,7 @@ def train(
         batch_size=batch_size,
         learning_rate=learning_rate,
         learning_rate_rescale_factor=learning_rate_rescale_factor,
+        learning_rate_limits=learning_rate_limits,
         momentum_parameter=momentum_parameter,
         num_epochs=num_epochs,
         total_epochs=num_epochs,
@@ -172,6 +182,7 @@ def resume(
     data_path: Path,
     learning_rate: float,
     learning_rate_rescale_factor: float,
+    learning_rate_limits: tuple[float, float],
     model_path: Path,
     momentum_parameter: float,
     num_epochs: int | None,
@@ -207,6 +218,7 @@ def resume(
         batch_size=batch_size,
         learning_rate=learning_rate,
         learning_rate_rescale_factor=learning_rate_rescale_factor,
+        learning_rate_limits=learning_rate_limits,
         momentum_parameter=momentum_parameter,
         num_epochs=num_epochs,
         total_epochs=total_epochs,
