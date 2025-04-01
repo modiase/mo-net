@@ -17,6 +17,7 @@ dependencies = [
   "mypy>=1.15.0",
   "networkx>=3.4.2",
   "taplo>=0.9.3",
+  "pydantic>=2.11.1",
 ]
 
 [dependency-groups]
