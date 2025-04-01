@@ -8,6 +8,12 @@ DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
 DEFAULT_DATA_PATH: Final[Path] = DATA_DIR / "mnist_test.csv"
 MAX_PIXEL_VALUE: Final[int] = 255
 N_DIGITS: Final[int] = 10
+OUTPUT_PATH: Final[Path] = DATA_DIR / "output"
+if not OUTPUT_PATH.exists():
+    OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+RUN_PATH: Final[Path] = DATA_DIR / "run"
+if not RUN_PATH.exists():
+    RUN_PATH.mkdir(parents=True, exist_ok=True)
 
 
 def load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

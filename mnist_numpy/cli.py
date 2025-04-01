@@ -11,7 +11,7 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
 
-from mnist_numpy.data import DATA_DIR, DEFAULT_DATA_PATH, load_data
+from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
 from mnist_numpy.model import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_LEARNING_RATE_LIMITS,
@@ -139,15 +139,15 @@ def train(
             raise ValueError(f"Invalid model type: {model_type}")
 
     if training_log_path is None:
-        model_path = DATA_DIR / f"{seed}_{model.get_name()}_model.pkl"
-        training_log_path = model_path.with_name(f"{model_path.stem}_training_log.csv")
+        model_path = OUTPUT_PATH / f"{seed}_{model.get_name()}_model.pkl"
+        training_log_path = RUN_PATH / (f"{model_path.stem}_training_log.csv")
     else:
         if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
             training_log_path = training_log_path.with_name(
                 f"{training_log_path.stem}_training_log.csv"
             )
-        model_path = training_log_path.with_name(
-            f"{training_log_path.stem.replace('_training_log', '')}.pkl"
+        model_path = OUTPUT_PATH / training_log_path.name.replace(
+            "training_log.csv", ".pkl"
         )
 
     model.train(
@@ -204,8 +204,8 @@ def resume(
             "training_parameters.json", "training_log.csv"
         )
     )
-    output_path = training_parameters_path.with_name(
-        training_parameters_path.name.replace("training_parameters.json", ".pkl")
+    output_path = OUTPUT_PATH / training_parameters_path.name.replace(
+        "training_parameters.json", ".pkl"
     )
 
     load_model(model_path).train(

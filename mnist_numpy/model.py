@@ -120,6 +120,8 @@ class ModelBase(ABC):
                 columns=[
                     "epoch",
                     "training_loss",
+                    "monotonic_training_loss",
+                    "moving_average_training_loss",
                     "test_loss",
                     "learning_rate",
                     "timestamp",
@@ -178,6 +180,7 @@ class ModelBase(ABC):
         L_train_min = k_train * cross_entropy(
             softmax(self._forward_prop(X_train)[1][-1]), Y_train
         )
+        training_loss_history = deque([L_train_min], maxlen=10)
         logger.info(f"Initial training loss: {L_train_min}.")
 
         last_log_time = time.time()
@@ -245,11 +248,22 @@ class ModelBase(ABC):
                 )
                 _, A_train = self._forward_prop(X_train)
                 L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
+                training_loss_history.append(L_train)
                 _, A_test = self._forward_prop(X_test)
                 L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
                 pd.DataFrame(
-                    [[epoch, L_train, L_test, current_learning_rate, datetime.now()]],
+                    [
+                        [
+                            epoch,
+                            L_train,
+                            L_train_min,
+                            np.average(training_loss_history),
+                            L_test,
+                            current_learning_rate,
+                            datetime.now(),
+                        ]
+                    ],
                     columns=training_log.columns,
                 ).to_csv(training_log_path, mode="a", header=False, index=False)
                 if L_train < L_train_min:
@@ -257,7 +271,7 @@ class ModelBase(ABC):
                     L_train_min = L_train
             if time.time() - last_log_time > log_interval_seconds:
                 tqdm.write(
-                    f"Iteration {i}: Training Loss = {L_train}, Test Loss = {L_test}"
+                    f"Iteration {i}: Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
                     f" {current_learning_rate=}"
                 )
                 last_log_time = time.time()
