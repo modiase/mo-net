@@ -1,20 +1,18 @@
 import pickle
-from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
-from typing import IO, ClassVar, Final, Self, Sequence
+from typing import IO, ClassVar, Self, Sequence
 
 import numpy as np
-from loguru import logger
 from more_itertools import pairwise
 
 from mnist_numpy.functions import ReLU, deriv_ReLU, softmax
 from mnist_numpy.model import ModelBase
 
-MAX_HISTORY_LENGTH: Final[int] = 2
+MLP_WeightsT = tuple[Sequence[np.ndarray], Sequence[np.ndarray]]
+MLP_GradientT = tuple[Sequence[np.ndarray], Sequence[np.ndarray]]
 
 
-class MultilayerPerceptron(ModelBase):
+class MultilayerPerceptron(ModelBase[MLP_WeightsT, MLP_GradientT]):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         _tag: ClassVar[str] = "mlp_relu"
@@ -22,7 +20,7 @@ class MultilayerPerceptron(ModelBase):
         b: tuple[np.ndarray, ...]
 
     @property
-    def layers(self) -> tuple[int, ...]:
+    def layers(self) -> Sequence[int]:
         return tuple(w.shape[0] for w in self._W)
 
     def get_name(self) -> str:
@@ -46,10 +44,6 @@ class MultilayerPerceptron(ModelBase):
     ):
         self._W = list(W)
         self._b = list(b)
-        self._history = deque(
-            ((tuple(np.zeros_like(w) for w in W), tuple(np.zeros_like(b) for b in b)),),
-            maxlen=MAX_HISTORY_LENGTH,
-        )
 
     def _forward_prop(
         self, X: np.ndarray
@@ -65,7 +59,7 @@ class MultilayerPerceptron(ModelBase):
         Y_true: np.ndarray,
         Z: Sequence[np.ndarray],
         A: Sequence[np.ndarray],
-    ) -> tuple[Sequence[np.ndarray], Sequence[np.ndarray]]:
+    ) -> MLP_GradientT:
         Y_pred = softmax(Z[-1])
         dZ = Y_pred - Y_true
         _A = [X, *A]
@@ -87,35 +81,15 @@ class MultilayerPerceptron(ModelBase):
 
         return tuple(reversed(dW)), tuple(reversed(db))
 
-    def _update_weights(
+    def update_weights(
         self,
-        dWs: Sequence[np.ndarray],
-        dbs: Sequence[np.ndarray],
-        learning_rate: float,
-        momentum_parameter: float,
+        weights: MLP_WeightsT,
     ) -> None:
-        (prev_dWs, prev_dbs) = self._history[-1]
-
-        dWs_update = [
-            learning_rate * (1 - momentum_parameter) * dW + momentum_parameter * prev_dW
-            for prev_dW, dW in zip(prev_dWs, dWs)
-        ]
-        dbs_update = [
-            learning_rate * (1 - momentum_parameter) * db + momentum_parameter * prev_db
-            for prev_db, db in zip(prev_dbs, dbs)
-        ]
-        for w, dW in zip(self._W, dWs_update):
-            w -= dW
-        for b, db in zip(self._b, dbs_update):
-            b -= db
-        self._history.append((tuple(dWs_update), tuple(dbs_update)))
-
-    def _undo_update(self) -> None:
-        (dWs, dbs) = self._history.pop()
+        dWs, dbs = weights
         for w, dW in zip(self._W, dWs):
-            w += dW
+            w -= dW
         for b, db in zip(self._b, dbs):
-            b += db
+            b -= db
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)
@@ -131,3 +105,9 @@ class MultilayerPerceptron(ModelBase):
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         return np.argmax(softmax(self._forward_prop(X)[1][-1]), axis=1)
+
+    def empty_weights(self) -> MLP_WeightsT:
+        return (
+            tuple(np.zeros_like(w) for w in self._W),
+            tuple(np.zeros_like(b) for b in self._b),
+        )

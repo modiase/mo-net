@@ -1,4 +1,5 @@
 import time
+from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -18,8 +19,9 @@ DEFAULT_LEARNING_RATE_RESCALE_FACTOR: Final[float] = 0.00001
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 10000
-DEFAULT_TRAINING_LOG_MIN_INTERVAL_SECONDS: Final[int] = 30
+DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 0.01"
+MAX_HISTORY_LENGTH: Final[int] = 2
 
 
 class TrainingParameters(BaseModel):
@@ -32,11 +34,88 @@ class TrainingParameters(BaseModel):
     total_epochs: int
 
 
+class OptimizerBase(ABC):
+    @abstractmethod
+    def update(
+        self, model: ModelBase, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
+    ) -> None: ...
+
+
+class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase):
+    def __init__(
+        self,
+        training_parameters: TrainingParameters,
+        model: ModelBase,
+    ):
+        self.learning_rate = training_parameters.learning_rate
+        self.momentum_parameter = training_parameters.momentum_parameter
+        self.learning_rate_rescale_factor = (
+            training_parameters.learning_rate_rescale_factor
+        )
+        self.min_learning_rate = training_parameters.learning_rate_limits[0]
+        self.max_learning_rate = training_parameters.learning_rate_limits[1]
+        self.k_batch = 1 / training_parameters.batch_size
+        self._history = deque(
+            (model.empty_weights(),),
+            maxlen=MAX_HISTORY_LENGTH,
+        )
+
+    def update(
+        self,
+        model: ModelBase,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
+    ) -> None:
+        Z_train_batch, A_train_batch = model._forward_prop(X_train_batch)
+        L_batch_before = self.k_batch * cross_entropy(
+            softmax(A_train_batch[-1]), Y_train_batch
+        )
+        # TODO: Refactor further to reduce coupling between model and optimizer.
+        dWs, dbs = model._backward_prop(
+            X_train_batch,
+            Y_train_batch,
+            Z_train_batch,
+            A_train_batch,
+        )
+
+        (prev_dWs, prev_dbs) = self._history[-1]
+
+        dWs_update = [
+            self.learning_rate * (1 - self.momentum_parameter) * dW
+            + self.momentum_parameter * prev_dW
+            for prev_dW, dW in zip(prev_dWs, dWs)
+        ]
+        dbs_update = [
+            self.learning_rate * (1 - self.momentum_parameter) * db
+            + self.momentum_parameter * prev_db
+            for prev_db, db in zip(prev_dbs, dbs)
+        ]
+        model.update_weights((tuple(dWs_update), tuple(dbs_update)))
+        self._history.append((tuple(dWs_update), tuple(dbs_update)))
+
+        _, A_train_batch = model._forward_prop(X_train_batch)
+        L_batch_after = self.k_batch * cross_entropy(
+            softmax(A_train_batch[-1]), Y_train_batch
+        )
+        if L_batch_after < L_batch_before:
+            self.learning_rate *= 1 + self.learning_rate_rescale_factor
+        else:
+            self.learning_rate *= 1 - 2 * self.learning_rate_rescale_factor
+        self.learning_rate = min(
+            self.max_learning_rate,
+            max(
+                self.learning_rate,
+                self.min_learning_rate,
+            ),
+        )
+
+
 class ModelTrainer:
     @staticmethod
     def train(
         *,
         model: ModelBase,
+        optimizer: OptimizerBase,
         training_parameters: TrainingParameters,
         training_log_path: Path,
         X_train: np.ndarray,
@@ -61,7 +140,9 @@ class ModelTrainer:
             training_log = pd.read_csv(training_log_path)
 
         logger.info(
-            f"Training model {model.__class__.__name__} for {training_parameters.num_epochs=} iterations with {training_parameters.learning_rate=}."
+            f"Training model {model.__class__.__name__}"
+            f" for {training_parameters.num_epochs=} iterations with {training_parameters.learning_rate=}"
+            f" using optimizer {optimizer.__class__.__name__}."
         )
 
         train_set_size = X_train.shape[0]
@@ -104,7 +185,6 @@ class ModelTrainer:
 
         test_set_size = X_test.shape[0]
         k_test = 1 / test_set_size
-        k_batch = 1 / training_parameters.batch_size
 
         L_train_min = k_train * cross_entropy(
             softmax(model._forward_prop(X_train)[1][-1]), Y_train
@@ -113,9 +193,8 @@ class ModelTrainer:
         logger.info(f"Initial training loss: {L_train_min}.")
 
         last_log_time = time.time()
-        log_interval_seconds = 10
+        log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
         batches_per_epoch = train_set_size // training_parameters.batch_size
-        min_learning_rate, max_learning_rate = training_parameters.learning_rate_limits
         for i in tqdm(
             range(
                 start_epoch * batches_per_epoch,
@@ -127,38 +206,7 @@ class ModelTrainer:
             X_train_batch = next(X_train_batched)
             Y_train_batch = next(Y_train_batched)
 
-            Z_train_batch, A_train_batch = model._forward_prop(X_train_batch)
-            L_batch_before = k_batch * cross_entropy(
-                softmax(A_train_batch[-1]), Y_train_batch
-            )
-            dW, db = model._backward_prop(
-                X_train_batch,
-                Y_train_batch,
-                Z_train_batch,
-                A_train_batch,
-            )
-            model._update_weights(
-                dW, db, current_learning_rate, training_parameters.momentum_parameter
-            )
-            _, A_train_batch = model._forward_prop(X_train_batch)
-            L_batch_after = k_batch * cross_entropy(
-                softmax(A_train_batch[-1]), Y_train_batch
-            )
-            if L_batch_after < L_batch_before:
-                current_learning_rate *= (
-                    1 + training_parameters.learning_rate_rescale_factor
-                )
-            else:
-                current_learning_rate *= (
-                    1 - 2 * training_parameters.learning_rate_rescale_factor
-                )
-            current_learning_rate = min(
-                max_learning_rate,
-                max(
-                    current_learning_rate,
-                    min_learning_rate,
-                ),
-            )
+            optimizer.update(model, X_train_batch, Y_train_batch)
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
                 permutation = np.random.permutation(train_set_size)

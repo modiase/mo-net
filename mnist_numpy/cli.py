@@ -24,6 +24,7 @@ from mnist_numpy.train import (
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_EPOCHS,
     ModelTrainer,
+    NaiveAdaptiveLearningRateWithMomentumOptimizer,
     TrainingParameters,
 )
 
@@ -153,20 +154,25 @@ def train(
             "training_log.csv", ".pkl"
         )
 
+    training_parameters = TrainingParameters(
+        batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
+        learning_rate=learning_rate,
+        learning_rate_limits=learning_rate_limits,
+        learning_rate_rescale_factor=learning_rate_rescale_factor,
+        momentum_parameter=momentum_parameter,
+        num_epochs=num_epochs,
+        total_epochs=num_epochs,
+    )
     ModelTrainer.train(
         model=model,
         X_test=X_test,
         X_train=X_train,
         Y_test=Y_test,
         Y_train=Y_train,
-        training_parameters=TrainingParameters(
-            batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
-            learning_rate=learning_rate,
-            learning_rate_limits=learning_rate_limits,
-            learning_rate_rescale_factor=learning_rate_rescale_factor,
-            momentum_parameter=momentum_parameter,
-            num_epochs=num_epochs,
-            total_epochs=num_epochs,
+        training_parameters=training_parameters,
+        optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
+            training_parameters=training_parameters,
+            model=model,
         ),
         training_log_path=training_log_path,
     ).rename(model_path)
@@ -212,15 +218,21 @@ def resume(
         "training_parameters.json", ".pkl"
     )
 
+    model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+    training_parameters = TrainingParameters.model_validate_json(
+        training_parameters_path.read_text()
+    )
     ModelTrainer.train(
         # TODO: Dispatch on model type
-        model=MultilayerPerceptron.load(pickle.load(open(model_path, "rb"))),
+        model=model,
         X_test=X_test,
         X_train=X_train,
         Y_test=Y_test,
         Y_train=Y_train,
-        training_parameters=TrainingParameters.model_validate_json(
-            training_parameters_path.read_text()
+        training_parameters=training_parameters,
+        optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
+            training_parameters=training_parameters,
+            model=model,
         ),
         training_log_path=training_log_path,
     ).rename(output_path)

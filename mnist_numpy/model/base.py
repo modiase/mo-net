@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import IO, Self, Sequence
+from typing import IO, Generic, Self, TypeVar
 
 import numpy as np
 
+_WeightsT = TypeVar("_WeightsT")
+_GradientT = TypeVar("_GradientT")
 
-class ModelBase(ABC):
-    _W: Sequence[np.ndarray]
-    _b: Sequence[np.ndarray]
 
+class ModelBase(ABC, Generic[_WeightsT, _GradientT]):
     @abstractmethod
     def predict(self, X: np.ndarray) -> np.ndarray: ...
 
@@ -37,16 +37,10 @@ class ModelBase(ABC):
     ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]: ...
 
     @abstractmethod
-    def _update_weights(
+    def update_weights(
         self,
-        dWs: Sequence[np.ndarray],
-        dbs: Sequence[np.ndarray],
-        learning_rate: float,
-        momentum_parameter: float,
+        weights: _WeightsT,
     ) -> None: ...
-
-    @abstractmethod
-    def _undo_update(self) -> None: ...
 
     @abstractmethod
     def _backward_prop(
@@ -55,4 +49,7 @@ class ModelBase(ABC):
         Y_true: np.ndarray,
         Z: tuple[np.ndarray, ...],
         A: tuple[np.ndarray, ...],
-    ) -> tuple[Sequence[np.ndarray], Sequence[np.ndarray]]: ...
+    ) -> _GradientT: ...
+
+    @abstractmethod
+    def empty_weights(self) -> _WeightsT: ...
