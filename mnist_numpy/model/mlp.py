@@ -20,6 +20,15 @@ class MLP_Gradient:
             dbs=tuple(db1 + db2 for db1, db2 in zip(self.dbs, other.dbs)),
         )
 
+    def __neg__(self) -> Self:
+        return self.__class__(
+            dWs=tuple(-dW for dW in self.dWs),
+            dbs=tuple(-db for db in self.dbs),
+        )
+
+    def __sub__(self, other: Self) -> Self:
+        return self + (-other)
+
 
 @dataclass(frozen=True, kw_only=True)
 class MLP_Parameters:

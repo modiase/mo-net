@@ -40,10 +40,6 @@ ModelT = TypeVar("ModelT", bound=ModelBase)
 
 
 class OptimizerBase(ABC, Generic[ModelT]):
-    @property
-    @abstractmethod
-    def learning_rate(self) -> float: ...
-
     @abstractmethod
     def update(
         self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
@@ -60,6 +56,8 @@ class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
         self._iterations_per_epoch = train_set_size / training_parameters.batch_size
         self._learning_rate = training_parameters.learning_rate
         self._momentum_parameter = training_parameters.momentum_parameter
+        self._min_momentum_parameter = 0.0
+        self._max_momentum_parameter = training_parameters.momentum_parameter
         self._learning_rate_rescale_factor = math.exp(
             math.log(training_parameters.learning_rate_rescale_factor_per_epoch)
             / self._iterations_per_epoch
@@ -117,9 +115,19 @@ class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
         )
         if L_batch_after < L_batch_before:
             self._learning_rate *= 1 + self._learning_rate_rescale_factor
+            self._momentum_parameter += 0.05
         else:
             self._learning_rate *= 1 - 2 * self._learning_rate_rescale_factor
+            self._momentum_parameter -= 0.05
+            model.update_parameters(model.empty_gradient() - update)
 
+        self._momentum_parameter = min(
+            self._max_momentum_parameter,
+            max(
+                self._momentum_parameter,
+                self._min_momentum_parameter,
+            ),
+        )
         self._learning_rate = min(
             self._max_learning_rate,
             max(
@@ -127,6 +135,9 @@ class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
                 self._min_learning_rate,
             ),
         )
+
+    def report(self) -> str:
+        return f"Learning Rate: {self._learning_rate:.10f}, Momentum Parameter: {self._momentum_parameter:.2f}"
 
 
 class ModelTrainer:
@@ -266,8 +277,8 @@ class ModelTrainer:
                     L_train_min = L_train
             if time.time() - last_log_time > log_interval_seconds:
                 tqdm.write(
-                    f"Iteration {i}: Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
-                    f" Current Learning Rate = {optimizer.learning_rate}"
+                    f"Iteration {i}, Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
+                    + (f", {report}" if (report := optimizer.report()) != "" else "")
                 )
                 last_log_time = time.time()
 
