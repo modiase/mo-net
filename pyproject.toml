@@ -42,7 +42,8 @@ typecheck = "fd -e py -x uv run mypy"
 
 [project.scripts]
 infer = "mnist_numpy.cli:infer"
-resume = "mnist_numpy.cli:resume"
-train = "mnist_numpy.cli:train"
-sample_data = "mnist_numpy.cli:sample_data"
+inspect_params = "mnist_numpy.scripts.inspect_params:main"
 plot_loss = "mnist_numpy.scripts.plot_loss:main"
+resume = "mnist_numpy.cli:resume"
+sample_data = "mnist_numpy.cli:sample_data"
+train = "mnist_numpy.cli:train"
