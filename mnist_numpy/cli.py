@@ -1,4 +1,5 @@
 import functools
+import pickle
 import re
 import time
 from collections.abc import Sequence
@@ -13,15 +14,17 @@ from more_itertools import sample
 
 from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
 from mnist_numpy.model import (
+    ModelBase,
+    MultilayerPerceptron,
+)
+from mnist_numpy.train import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_LEARNING_RATE_LIMITS,
     DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_EPOCHS,
-    ModelBase,
-    MultilayerPerceptron,
+    ModelTrainer,
     TrainingParameters,
-    load_model,
 )
 
 P = ParamSpec("P")
@@ -150,7 +153,8 @@ def train(
             "training_log.csv", ".pkl"
         )
 
-    model.train(
+    ModelTrainer.train(
+        model=model,
         X_test=X_test,
         X_train=X_train,
         Y_test=Y_test,
@@ -208,7 +212,9 @@ def resume(
         "training_parameters.json", ".pkl"
     )
 
-    load_model(model_path).train(
+    ModelTrainer.train(
+        # TODO: Dispatch on model type
+        model=MultilayerPerceptron.load(pickle.load(open(model_path, "rb"))),
         X_test=X_test,
         X_train=X_train,
         Y_test=Y_test,
@@ -238,7 +244,9 @@ def resume(
 )
 def infer(*, model_path: Path, data_path: Path):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
-    model = load_model(model_path)
+
+    # TODO: Dispatch on model type
+    model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
 
     Y_pred = model.predict(X_train)
     Y_true = np.argmax(Y_train, axis=1)
@@ -301,7 +309,8 @@ def infer(*, model_path: Path, data_path: Path):
 )
 def explain(*, model_path: Path, data_path: Path):
     X_train = load_data(data_path)[0]
-    model = load_model(model_path)
+    # TODO: Dispatch on model type
+    model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
     W = model._W[0].reshape(28, 28, 10)
     avg = np.average(X_train, axis=0).reshape(28, 28)
 
