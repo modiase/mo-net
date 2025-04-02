@@ -23,8 +23,9 @@ from mnist_numpy.train import (
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_EPOCHS,
     DEFAULT_RESCALE_FACTOR_PER_EPOCH,
+    AdalmOptimizer,
+    AdamOptimizer,
     ModelTrainer,
-    NaiveAdaptiveLearningRateWithMomentumOptimizer,
     TrainingParameters,
 )
 
@@ -170,11 +171,9 @@ def train(
         Y_test=Y_test,
         Y_train=Y_train,
         training_parameters=training_parameters,
-        optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
+        optimizer=AdamOptimizer(
             model=model,
-            num_epochs=num_epochs,
-            train_set_size=X_train.shape[0],
-            training_parameters=training_parameters,
+            learning_rate=learning_rate,
         ),
         training_log_path=training_log_path,
     ).rename(model_path)
@@ -232,7 +231,7 @@ def resume(
         Y_test=Y_test,
         Y_train=Y_train,
         training_parameters=training_parameters,
-        optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
+        optimizer=AdalmOptimizer(
             model=model,
             num_epochs=training_parameters.num_epochs,
             train_set_size=X_train.shape[0],

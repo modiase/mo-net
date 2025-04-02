@@ -93,7 +93,7 @@ if __name__ == "__main__":
     X_train, Y_train, _, _ = load_data(DEFAULT_DATA_PATH)
     columns = ["label", *(f"{x}x{y}" for x, y in product(range(1, 29), range(1, 29)))]
     data = []
-    for i in range(10000):
+    for i in range(100000):
         idx = rn.randint(0, 7999)
         digit = translate(
             shear(

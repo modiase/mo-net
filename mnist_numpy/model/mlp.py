@@ -29,6 +29,32 @@ class MLP_Gradient:
     def __sub__(self, other: Self) -> Self:
         return self + (-other)
 
+    def __mul__(self, other: float) -> Self:
+        return self.__class__(
+            dWs=tuple(dW * other for dW in self.dWs),
+            dbs=tuple(db * other for db in self.dbs),
+        )
+
+    def __rmul__(self, other: float) -> Self:
+        return self * other
+
+    def __truediv__(self, other: float) -> Self:
+        return self * (1 / other)
+
+    def __pow__(self, exp: float) -> Self:
+        return self.__class__(
+            dWs=tuple(dW**exp for dW in self.dWs),
+            dbs=tuple(db**exp for db in self.dbs),
+        )
+
+    def __getitem__(self, idx: int | tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
+        match idx:
+            case int():
+                return self.dWs[idx], self.dbs[idx]
+            case tuple():
+                i, *rest = idx
+                return self.dWs[i][*rest], self.dbs[i][*rest]
+
 
 @dataclass(frozen=True, kw_only=True)
 class MLP_Parameters:
@@ -52,6 +78,14 @@ class MLP_Parameters:
 
     def unroll(self) -> tuple[Sequence[np.ndarray], Sequence[np.ndarray]]:
         return tuple(w.flatten() for w in self.W), tuple(b for b in self.b)
+
+    def __getitem__(self, idx: int | tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
+        match idx:
+            case int():
+                return self.W[idx], self.b[idx]
+            case tuple():
+                i, *rest = idx
+                return self.W[i][*rest], self.b[i][*rest]
 
 
 class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
@@ -131,9 +165,9 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
         update: MLP_Gradient,
     ) -> None:
         for w, dW in zip(self._W, update.dWs):
-            w -= dW
+            w += dW
         for b, db in zip(self._b, update.dbs):
-            b -= db
+            b += db
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(self.Serialized(W=tuple(self._W), b=tuple(self._b)), io)
