@@ -24,6 +24,7 @@ dependencies = [
 dev = [
     "pandas-stubs>=2.2.3.250308",
     "ruff<1.0.0,>=0.9.7",
+    "taskipy>=1.14.1",
     "types-tqdm>=4.67.0.20250301",
 ]
 
@@ -33,6 +34,10 @@ default-groups = []
 
 [tool.setuptools]
 packages = ["mnist_numpy"]
+
+[tool.taskipy.tasks]
+format = "fd -e py -x uv run ruff format"
+typecheck = "fd -e py -x uv run mypy"
 
 
 [project.scripts]
