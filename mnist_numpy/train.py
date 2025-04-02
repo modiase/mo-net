@@ -110,13 +110,17 @@ class AdalmOptimizer(OptimizerBase[ModelT]):
 
         update = MLP_Gradient(
             dWs=tuple(
-                self._learning_rate * (1 - self._momentum_parameter) * -dW
-                + self._momentum_parameter * prev_dW
+                -(
+                    self._learning_rate * (1 - self._momentum_parameter) * dW
+                    + self._momentum_parameter * prev_dW
+                )
                 for prev_dW, dW in zip(prev_update.dWs, gradient.dWs)
             ),
             dbs=tuple(
-                self._learning_rate * (1 - self._momentum_parameter) * -db
-                + self._momentum_parameter * prev_db
+                -(
+                    self._learning_rate * (1 - self._momentum_parameter) * db
+                    + self._momentum_parameter * prev_db
+                )
                 for prev_db, db in zip(prev_update.dbs, gradient.dbs)
             ),
         )
@@ -155,7 +159,7 @@ class AdalmOptimizer(OptimizerBase[ModelT]):
     def report(self) -> str:
         return (
             f"Learning Rate: {self._learning_rate:.10f}, Maximum Learning Rate: {self._max_learning_rate:.10f}"
-            f" Momentum Parameter: {self._momentum_parameter:.2f}"
+            f", Momentum Parameter: {self._momentum_parameter:.2f}"
         )
 
 

@@ -111,6 +111,13 @@ def cli(): ...
     default=MultilayerPerceptron.Serialized._tag,
 )
 @click.option(
+    "-o",
+    "--optimizer",
+    type=click.Choice(["adam", "adalm"]),
+    help="The type of optimizer to use",
+    default="adam",
+)
+@click.option(
     "-i",
     "--dims",
     type=int,
@@ -128,6 +135,7 @@ def train(
     model_type: str,
     momentum_parameter: float,
     num_epochs: int,
+    optimizer: str,
     training_log_path: Path | None,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
@@ -164,6 +172,23 @@ def train(
         num_epochs=num_epochs,
         total_epochs=num_epochs,
     )
+
+    match optimizer:
+        case "adam":
+            optimizer = AdamOptimizer(
+                model=model,
+                learning_rate=learning_rate,
+            )
+        case "adalm":
+            optimizer = AdalmOptimizer(
+                model=model,
+                num_epochs=num_epochs,
+                train_set_size=X_train.shape[0],
+                training_parameters=training_parameters,
+            )
+        case _:
+            raise ValueError(f"Invalid optimizer: {optimizer}")
+
     ModelTrainer.train(
         model=model,
         X_test=X_test,
@@ -171,10 +196,7 @@ def train(
         Y_test=Y_test,
         Y_train=Y_train,
         training_parameters=training_parameters,
-        optimizer=AdamOptimizer(
-            model=model,
-            learning_rate=learning_rate,
-        ),
+        optimizer=optimizer,
         training_log_path=training_log_path,
     ).rename(model_path)
     logger.info(f"Saved output to {model_path}.")
