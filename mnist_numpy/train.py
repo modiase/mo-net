@@ -17,8 +17,8 @@ from mnist_numpy.model import ModelBase
 from mnist_numpy.model.mlp import MLP_Gradient
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
-DEFAULT_LEARNING_RATE: Final[float] = 0.001
-DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 0.01"
+DEFAULT_LEARNING_RATE: Final[float] = 0.1
+DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 1"
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 10000
@@ -49,26 +49,33 @@ class OptimizerBase(ABC, Generic[ModelT]):
 class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
     def __init__(
         self,
-        training_parameters: TrainingParameters,
+        *,
         model: ModelT,
+        num_epochs: int,
         train_set_size: int,
+        training_parameters: TrainingParameters,
     ):
         self._iterations_per_epoch = train_set_size / training_parameters.batch_size
         self._learning_rate = training_parameters.learning_rate
         self._momentum_parameter = training_parameters.momentum_parameter
         self._min_momentum_parameter = 0.0
         self._max_momentum_parameter = training_parameters.momentum_parameter
+        self._min_learning_rate = training_parameters.learning_rate_limits[0]
+        self._max_learning_rate = training_parameters.learning_rate_limits[1]
+        self._learning_rate_decay_factor = math.exp(
+            (math.log(self._min_learning_rate) - math.log(self._max_learning_rate))
+            / num_epochs
+        )
         self._learning_rate_rescale_factor = math.exp(
             math.log(training_parameters.learning_rate_rescale_factor_per_epoch)
             / self._iterations_per_epoch
         )
-        self._min_learning_rate = training_parameters.learning_rate_limits[0]
-        self._max_learning_rate = training_parameters.learning_rate_limits[1]
         self._k_batch = 1 / training_parameters.batch_size
         self._history = deque(
             (model.empty_gradient(),),
             maxlen=MAX_HISTORY_LENGTH,
         )
+        self._iterations = 0
 
     @property
     def learning_rate(self) -> float:
@@ -119,7 +126,6 @@ class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
         else:
             self._learning_rate *= 1 - 2 * self._learning_rate_rescale_factor
             self._momentum_parameter -= 0.05
-            model.update_parameters(model.empty_gradient() - update)
 
         self._momentum_parameter = min(
             self._max_momentum_parameter,
@@ -135,9 +141,15 @@ class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
                 self._min_learning_rate,
             ),
         )
+        self._iterations += 1
+        if self._iterations % self._iterations_per_epoch == 0:
+            self._max_learning_rate *= self._learning_rate_decay_factor
 
     def report(self) -> str:
-        return f"Learning Rate: {self._learning_rate:.10f}, Momentum Parameter: {self._momentum_parameter:.2f}"
+        return (
+            f"Learning Rate: {self._learning_rate:.10f}, Maximum Learning Rate: {self._max_learning_rate:.10f}"
+            f" Momentum Parameter: {self._momentum_parameter:.2f}"
+        )
 
 
 class ModelTrainer:

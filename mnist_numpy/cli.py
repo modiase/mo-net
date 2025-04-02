@@ -172,6 +172,7 @@ def train(
         training_parameters=training_parameters,
         optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
             model=model,
+            num_epochs=num_epochs,
             train_set_size=X_train.shape[0],
             training_parameters=training_parameters,
         ),
@@ -233,6 +234,7 @@ def resume(
         training_parameters=training_parameters,
         optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
             model=model,
+            num_epochs=training_parameters.num_epochs,
             train_set_size=X_train.shape[0],
             training_parameters=training_parameters,
         ),
