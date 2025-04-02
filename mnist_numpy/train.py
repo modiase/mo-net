@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Final
+from typing import Final, Generic, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from mnist_numpy.functions import cross_entropy, softmax
 from mnist_numpy.model import ModelBase
+from mnist_numpy.model.mlp import MLP_Gradient
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
@@ -35,81 +36,95 @@ class TrainingParameters(BaseModel):
     total_epochs: int
 
 
-class OptimizerBase(ABC):
+ModelT = TypeVar("ModelT", bound=ModelBase)
+
+
+class OptimizerBase(ABC, Generic[ModelT]):
+    @property
+    @abstractmethod
+    def learning_rate(self) -> float: ...
+
     @abstractmethod
     def update(
-        self, model: ModelBase, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
+        self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
     ) -> None: ...
 
 
-class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase):
+class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase[ModelT]):
     def __init__(
         self,
         training_parameters: TrainingParameters,
-        model: ModelBase,
+        model: ModelT,
         train_set_size: int,
     ):
-        self.iterations_per_epoch = train_set_size / training_parameters.batch_size
-        self.learning_rate = training_parameters.learning_rate
-        self.momentum_parameter = training_parameters.momentum_parameter
-        self.learning_rate_rescale_factor = math.exp(
+        self._iterations_per_epoch = train_set_size / training_parameters.batch_size
+        self._learning_rate = training_parameters.learning_rate
+        self._momentum_parameter = training_parameters.momentum_parameter
+        self._learning_rate_rescale_factor = math.exp(
             math.log(training_parameters.learning_rate_rescale_factor_per_epoch)
-            / self.iterations_per_epoch
+            / self._iterations_per_epoch
         )
-        self.min_learning_rate = training_parameters.learning_rate_limits[0]
-        self.max_learning_rate = training_parameters.learning_rate_limits[1]
-        self.k_batch = 1 / training_parameters.batch_size
+        self._min_learning_rate = training_parameters.learning_rate_limits[0]
+        self._max_learning_rate = training_parameters.learning_rate_limits[1]
+        self._k_batch = 1 / training_parameters.batch_size
         self._history = deque(
-            (model.empty_weights(),),
+            (model.empty_gradient(),),
             maxlen=MAX_HISTORY_LENGTH,
         )
 
+    @property
+    def learning_rate(self) -> float:
+        return self._learning_rate
+
     def update(
         self,
-        model: ModelBase,
+        model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
     ) -> None:
         Z_train_batch, A_train_batch = model._forward_prop(X_train_batch)
-        L_batch_before = self.k_batch * cross_entropy(
+        L_batch_before = self._k_batch * cross_entropy(
             softmax(A_train_batch[-1]), Y_train_batch
         )
         # TODO: Refactor further to reduce coupling between model and optimizer.
-        dWs, dbs = model._backward_prop(
+        gradient = model._backward_prop(
             X_train_batch,
             Y_train_batch,
             Z_train_batch,
             A_train_batch,
         )
 
-        (prev_dWs, prev_dbs) = self._history[-1]
+        prev_update = self._history[-1]
 
-        dWs_update = [
-            self.learning_rate * (1 - self.momentum_parameter) * dW
-            + self.momentum_parameter * prev_dW
-            for prev_dW, dW in zip(prev_dWs, dWs)
-        ]
-        dbs_update = [
-            self.learning_rate * (1 - self.momentum_parameter) * db
-            + self.momentum_parameter * prev_db
-            for prev_db, db in zip(prev_dbs, dbs)
-        ]
-        model.update_weights((tuple(dWs_update), tuple(dbs_update)))
-        self._history.append((tuple(dWs_update), tuple(dbs_update)))
+        update = MLP_Gradient(
+            dWs=tuple(
+                self._learning_rate * (1 - self._momentum_parameter) * dW
+                + self._momentum_parameter * prev_dW
+                for prev_dW, dW in zip(prev_update.dWs, gradient.dWs)
+            ),
+            dbs=tuple(
+                self._learning_rate * (1 - self._momentum_parameter) * db
+                + self._momentum_parameter * prev_db
+                for prev_db, db in zip(prev_update.dbs, gradient.dbs)
+            ),
+        )
+        model.update_parameters(update)
+        self._history.append(update)
 
         _, A_train_batch = model._forward_prop(X_train_batch)
-        L_batch_after = self.k_batch * cross_entropy(
+        L_batch_after = self._k_batch * cross_entropy(
             softmax(A_train_batch[-1]), Y_train_batch
         )
         if L_batch_after < L_batch_before:
-            self.learning_rate *= 1 + self.learning_rate_rescale_factor
+            self._learning_rate *= 1 + self._learning_rate_rescale_factor
         else:
-            self.learning_rate *= 1 - 2 * self.learning_rate_rescale_factor
-        self.learning_rate = min(
-            self.max_learning_rate,
+            self._learning_rate *= 1 - 2 * self._learning_rate_rescale_factor
+
+        self._learning_rate = min(
+            self._max_learning_rate,
             max(
-                self.learning_rate,
-                self.min_learning_rate,
+                self._learning_rate,
+                self._min_learning_rate,
             ),
         )
 
@@ -118,8 +133,8 @@ class ModelTrainer:
     @staticmethod
     def train(
         *,
-        model: ModelBase,
-        optimizer: OptimizerBase,
+        model: ModelT,
+        optimizer: OptimizerBase[ModelT],
         training_parameters: TrainingParameters,
         training_log_path: Path,
         X_train: np.ndarray,
@@ -252,7 +267,7 @@ class ModelTrainer:
             if time.time() - last_log_time > log_interval_seconds:
                 tqdm.write(
                     f"Iteration {i}: Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
-                    f" {optimizer.learning_rate=}"
+                    f" Current Learning Rate = {optimizer.learning_rate}"
                 )
                 last_log_time = time.time()
 

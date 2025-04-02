@@ -8,11 +8,44 @@ from more_itertools import pairwise
 from mnist_numpy.functions import ReLU, deriv_ReLU, softmax
 from mnist_numpy.model import ModelBase
 
-MLP_WeightsT = tuple[Sequence[np.ndarray], Sequence[np.ndarray]]
-MLP_GradientT = tuple[Sequence[np.ndarray], Sequence[np.ndarray]]
+
+@dataclass(frozen=True, kw_only=True)
+class MLP_Gradient:
+    dWs: Sequence[np.ndarray]
+    dbs: Sequence[np.ndarray]
+
+    def __add__(self, other: Self) -> Self:
+        return self.__class__(
+            dWs=tuple(dW1 + dW2 for dW1, dW2 in zip(self.dWs, other.dWs)),
+            dbs=tuple(db1 + db2 for db1, db2 in zip(self.dbs, other.dbs)),
+        )
 
 
-class MultilayerPerceptron(ModelBase[MLP_WeightsT, MLP_GradientT]):
+@dataclass(frozen=True, kw_only=True)
+class MLP_Parameters:
+    W: Sequence[np.ndarray]
+    b: Sequence[np.ndarray]
+
+    def __add__(self, other: Self | MLP_Gradient) -> Self:
+        match other:
+            case MLP_Parameters():
+                return self.__class__(
+                    W=tuple(W1 + W2 for W1, W2 in zip(self.W, other.W)),
+                    b=tuple(b1 + b2 for b1, b2 in zip(self.b, other.b)),
+                )
+            case MLP_Gradient():
+                return self.__class__(
+                    W=tuple(W1 + dW for W1, dW in zip(self.W, other.dWs)),
+                    b=tuple(b1 + db for b1, db in zip(self.b, other.dbs)),
+                )
+            case _:
+                raise ValueError(f"Invalid type: {type(other)}")
+
+    def unroll(self) -> tuple[Sequence[np.ndarray], Sequence[np.ndarray]]:
+        return tuple(w.flatten() for w in self.W), tuple(b for b in self.b)
+
+
+class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         _tag: ClassVar[str] = "mlp_relu"
@@ -59,7 +92,7 @@ class MultilayerPerceptron(ModelBase[MLP_WeightsT, MLP_GradientT]):
         Y_true: np.ndarray,
         Z: Sequence[np.ndarray],
         A: Sequence[np.ndarray],
-    ) -> MLP_GradientT:
+    ) -> MLP_Gradient:
         Y_pred = softmax(Z[-1])
         dZ = Y_pred - Y_true
         _A = [X, *A]
@@ -79,16 +112,18 @@ class MultilayerPerceptron(ModelBase[MLP_WeightsT, MLP_GradientT]):
             if idx > 0:
                 dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx - 1])
 
-        return tuple(reversed(dW)), tuple(reversed(db))
+        return MLP_Gradient(
+            dWs=tuple(reversed(dW)),
+            dbs=tuple(reversed(db)),
+        )
 
-    def update_weights(
+    def update_parameters(
         self,
-        weights: MLP_WeightsT,
+        update: MLP_Gradient,
     ) -> None:
-        dWs, dbs = weights
-        for w, dW in zip(self._W, dWs):
+        for w, dW in zip(self._W, update.dWs):
             w -= dW
-        for b, db in zip(self._b, dbs):
+        for b, db in zip(self._b, update.dbs):
             b -= db
 
     def dump(self, io: IO[bytes]) -> None:
@@ -106,8 +141,12 @@ class MultilayerPerceptron(ModelBase[MLP_WeightsT, MLP_GradientT]):
     def predict(self, X: np.ndarray) -> np.ndarray:
         return np.argmax(softmax(self._forward_prop(X)[1][-1]), axis=1)
 
-    def empty_weights(self) -> MLP_WeightsT:
-        return (
-            tuple(np.zeros_like(w) for w in self._W),
-            tuple(np.zeros_like(b) for b in self._b),
+    def empty_gradient(self) -> MLP_Gradient:
+        return MLP_Gradient(
+            dWs=tuple(np.zeros_like(w) for w in self._W),
+            dbs=tuple(np.zeros_like(b) for b in self._b),
         )
+
+    @property
+    def parameters(self) -> MLP_Parameters:
+        return MLP_Parameters(W=tuple(self._W), b=tuple(self._b))

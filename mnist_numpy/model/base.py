@@ -5,11 +5,11 @@ from typing import IO, Generic, Self, TypeVar
 
 import numpy as np
 
-_WeightsT = TypeVar("_WeightsT")
+_ParametersT = TypeVar("_ParametersT")
 _GradientT = TypeVar("_GradientT")
 
 
-class ModelBase(ABC, Generic[_WeightsT, _GradientT]):
+class ModelBase(ABC, Generic[_ParametersT, _GradientT]):
     @abstractmethod
     def predict(self, X: np.ndarray) -> np.ndarray: ...
 
@@ -36,10 +36,14 @@ class ModelBase(ABC, Generic[_WeightsT, _GradientT]):
         self, X: np.ndarray
     ) -> tuple[tuple[np.ndarray, ...], tuple[np.ndarray, ...]]: ...
 
+    @property
     @abstractmethod
-    def update_weights(
+    def parameters(self) -> _ParametersT: ...
+
+    @abstractmethod
+    def update_parameters(
         self,
-        weights: _WeightsT,
+        update: _GradientT,
     ) -> None: ...
 
     @abstractmethod
@@ -52,4 +56,4 @@ class ModelBase(ABC, Generic[_WeightsT, _GradientT]):
     ) -> _GradientT: ...
 
     @abstractmethod
-    def empty_weights(self) -> _WeightsT: ...
+    def empty_gradient(self) -> _GradientT: ...
