@@ -20,9 +20,9 @@ from mnist_numpy.model import (
 from mnist_numpy.train import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_LEARNING_RATE_LIMITS,
-    DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
     DEFAULT_MOMENTUM_PARAMETER,
     DEFAULT_NUM_EPOCHS,
+    DEFAULT_RESCALE_FACTOR_PER_EPOCH,
     ModelTrainer,
     NaiveAdaptiveLearningRateWithMomentumOptimizer,
     TrainingParameters,
@@ -70,10 +70,10 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     )
     @click.option(
         "-r",
-        "--learning-rate-rescale-factor",
+        "--learning-rate-rescale-factor-per-epoch",
         type=float,
-        help="Set the learning rate rescale factor",
-        default=DEFAULT_LEARNING_RATE_RESCALE_FACTOR,
+        help="Set the learning rate rescale factor per epoch",
+        default=DEFAULT_RESCALE_FACTOR_PER_EPOCH,
     )
     @click.option(
         "-s",
@@ -122,7 +122,7 @@ def train(
     data_path: Path,
     dims: Sequence[int],
     learning_rate: float,
-    learning_rate_rescale_factor: float,
+    learning_rate_rescale_factor_per_epoch: float,
     learning_rate_limits: tuple[float, float],
     model_type: str,
     momentum_parameter: float,
@@ -158,7 +158,7 @@ def train(
         batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
         learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
-        learning_rate_rescale_factor=learning_rate_rescale_factor,
+        learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
         momentum_parameter=momentum_parameter,
         num_epochs=num_epochs,
         total_epochs=num_epochs,
@@ -171,8 +171,9 @@ def train(
         Y_train=Y_train,
         training_parameters=training_parameters,
         optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
-            training_parameters=training_parameters,
             model=model,
+            train_set_size=X_train.shape[0],
+            training_parameters=training_parameters,
         ),
         training_log_path=training_log_path,
     ).rename(model_path)
@@ -231,8 +232,9 @@ def resume(
         Y_train=Y_train,
         training_parameters=training_parameters,
         optimizer=NaiveAdaptiveLearningRateWithMomentumOptimizer(
-            training_parameters=training_parameters,
             model=model,
+            train_set_size=X_train.shape[0],
+            training_parameters=training_parameters,
         ),
         training_log_path=training_log_path,
     ).rename(output_path)

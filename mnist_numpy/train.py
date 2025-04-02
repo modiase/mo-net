@@ -1,3 +1,4 @@
+import math
 import time
 from abc import ABC, abstractmethod
 from collections import deque
@@ -15,12 +16,12 @@ from mnist_numpy.functions import cross_entropy, softmax
 from mnist_numpy.model import ModelBase
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
-DEFAULT_LEARNING_RATE_RESCALE_FACTOR: Final[float] = 0.00001
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
+DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 0.01"
+DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 10000
-DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
-DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 0.01"
+DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.5
 MAX_HISTORY_LENGTH: Final[int] = 2
 
 
@@ -28,7 +29,7 @@ class TrainingParameters(BaseModel):
     batch_size: int
     learning_rate: float
     learning_rate_limits: tuple[float, float]
-    learning_rate_rescale_factor: float
+    learning_rate_rescale_factor_per_epoch: float
     momentum_parameter: float
     num_epochs: int
     total_epochs: int
@@ -46,11 +47,14 @@ class NaiveAdaptiveLearningRateWithMomentumOptimizer(OptimizerBase):
         self,
         training_parameters: TrainingParameters,
         model: ModelBase,
+        train_set_size: int,
     ):
+        self.iterations_per_epoch = train_set_size / training_parameters.batch_size
         self.learning_rate = training_parameters.learning_rate
         self.momentum_parameter = training_parameters.momentum_parameter
-        self.learning_rate_rescale_factor = (
-            training_parameters.learning_rate_rescale_factor
+        self.learning_rate_rescale_factor = math.exp(
+            math.log(training_parameters.learning_rate_rescale_factor_per_epoch)
+            / self.iterations_per_epoch
         )
         self.min_learning_rate = training_parameters.learning_rate_limits[0]
         self.max_learning_rate = training_parameters.learning_rate_limits[1]
@@ -178,7 +182,6 @@ class ModelTrainer:
         logger.info(f"\n{training_log_path=}.")
         model.dump(open(model_checkpoint_path, "wb"))
 
-        current_learning_rate = training_parameters.learning_rate
         start_epoch = training_parameters.total_epochs - training_parameters.num_epochs
 
         k_train = 1 / train_set_size
@@ -237,7 +240,7 @@ class ModelTrainer:
                             L_train_min,
                             np.average(training_loss_history),
                             L_test,
-                            current_learning_rate,
+                            optimizer.learning_rate,
                             datetime.now(),
                         ]
                     ],
@@ -249,7 +252,7 @@ class ModelTrainer:
             if time.time() - last_log_time > log_interval_seconds:
                 tqdm.write(
                     f"Iteration {i}: Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
-                    f" {current_learning_rate=}"
+                    f" {optimizer.learning_rate=}"
                 )
                 last_log_time = time.time()
 
