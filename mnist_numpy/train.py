@@ -105,6 +105,9 @@ class ModelTrainer:
         L_train_min = k_train * cross_entropy(
             softmax(model._forward_prop(X_train)[1][-1]), Y_train
         )
+        L_test_min = k_test * cross_entropy(
+            softmax(model._forward_prop(X_test)[1][-1]), Y_test
+        )
         training_loss_history = deque([L_train_min], maxlen=10)
         logger.info(f"Initial training loss: {L_train_min}.")
 
@@ -159,9 +162,9 @@ class ModelTrainer:
                     ],
                     columns=training_log.columns,
                 ).to_csv(training_log_path, mode="a", header=False, index=False)
-                if L_train < L_train_min:
+                if L_test < L_test_min:
                     model.dump(open(model_checkpoint_path, "wb"))
-                    L_train_min = L_train
+                    L_test_min = L_test
             if time.time() - last_log_time > log_interval_seconds:
                 tqdm.write(
                     f"Iteration {i}, Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
