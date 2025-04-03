@@ -40,6 +40,7 @@ DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.5
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
+    # TODO: Remove optimizer specific options
     @click.option(
         "-a",
         "--learning-rate",
