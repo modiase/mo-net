@@ -57,3 +57,6 @@ class ModelBase(ABC, Generic[_ParametersT, _GradientT]):
 
     @abstractmethod
     def empty_gradient(self) -> _GradientT: ...
+
+
+ModelT = TypeVar("ModelT", bound=ModelBase)

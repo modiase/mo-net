@@ -4,7 +4,7 @@ import re
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, ParamSpec, TypeVar
+from typing import Callable, Final, ParamSpec, TypeVar
 
 import click
 import numpy as np
@@ -17,20 +17,26 @@ from mnist_numpy.model import (
     ModelBase,
     MultilayerPerceptron,
 )
-from mnist_numpy.train import (
-    DEFAULT_LEARNING_RATE,
-    DEFAULT_LEARNING_RATE_LIMITS,
-    DEFAULT_MOMENTUM_PARAMETER,
-    DEFAULT_NUM_EPOCHS,
-    DEFAULT_RESCALE_FACTOR_PER_EPOCH,
+from mnist_numpy.optimizer import (
     AdalmOptimizer,
     AdamOptimizer,
+    NoOptimizer,
+    OptimizerBase,
+)
+from mnist_numpy.train import (
     ModelTrainer,
     TrainingParameters,
 )
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+DEFAULT_BATCH_SIZE: Final[int] = 100
+DEFAULT_LEARNING_RATE: Final[float] = 0.1
+DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 1"
+DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
+DEFAULT_NUM_EPOCHS: Final[int] = 10000
+DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.5
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
@@ -83,6 +89,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the learning rate limits",
         default=DEFAULT_LEARNING_RATE_LIMITS,
     )
+    @click.option(
+        "-o",
+        "--optimizer-type",
+        type=click.Choice(["adam", "adalm", "no"]),
+        help="The type of optimizer to use",
+        default="adam",
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -111,13 +124,6 @@ def cli(): ...
     default=MultilayerPerceptron.Serialized._tag,
 )
 @click.option(
-    "-o",
-    "--optimizer",
-    type=click.Choice(["adam", "adalm"]),
-    help="The type of optimizer to use",
-    default="adam",
-)
-@click.option(
     "-i",
     "--dims",
     type=int,
@@ -135,7 +141,7 @@ def train(
     model_type: str,
     momentum_parameter: float,
     num_epochs: int,
-    optimizer: str,
+    optimizer_type: str,
     training_log_path: Path | None,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
@@ -173,7 +179,8 @@ def train(
         total_epochs=num_epochs,
     )
 
-    match optimizer:
+    optimizer: OptimizerBase
+    match optimizer_type:
         case "adam":
             optimizer = AdamOptimizer(
                 model=model,
@@ -184,7 +191,12 @@ def train(
                 model=model,
                 num_epochs=num_epochs,
                 train_set_size=X_train.shape[0],
-                training_parameters=training_parameters,
+                parameters=training_parameters,
+            )
+        case "no":
+            optimizer = NoOptimizer(
+                model=model,
+                learning_rate=learning_rate,
             )
         case _:
             raise ValueError(f"Invalid optimizer: {optimizer}")
@@ -257,7 +269,7 @@ def resume(
             model=model,
             num_epochs=training_parameters.num_epochs,
             train_set_size=X_train.shape[0],
-            training_parameters=training_parameters,
+            parameters=training_parameters,
         ),
         training_log_path=training_log_path,
     ).rename(output_path)
