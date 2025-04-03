@@ -1,6 +1,7 @@
 import math
 from collections import deque
-from typing import Final, Protocol
+from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
@@ -12,39 +13,44 @@ from mnist_numpy.optimizer.base import OptimizerBase
 MAX_HISTORY_LENGTH: Final[int] = 2
 
 
-class Parameters(Protocol):
+@dataclass(frozen=True, kw_only=True)
+class AdalmConfig:
     batch_size: int
     learning_rate: float
     learning_rate_limits: tuple[float, float]
     learning_rate_rescale_factor_per_epoch: float
     momentum_parameter: float
+    num_epochs: int
+    train_set_size: int
 
 
-class AdalmOptimizer(OptimizerBase[ModelT]):
+class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
+    Config = AdalmConfig
+
     def __init__(
         self,
         *,
         model: ModelT,
-        num_epochs: int,
-        train_set_size: int,
-        parameters: Parameters,
+        config: AdalmConfig,
     ):
-        self._iterations_per_epoch = train_set_size / parameters.batch_size
-        self._learning_rate = parameters.learning_rate
-        self._momentum_parameter = parameters.momentum_parameter
+        super().__init__(config)
+
+        self._iterations_per_epoch = config.train_set_size / config.batch_size
+        self._learning_rate = config.learning_rate
+        self._momentum_parameter = config.momentum_parameter
         self._min_momentum_parameter = 0.0
-        self._max_momentum_parameter = parameters.momentum_parameter
-        self._min_learning_rate = parameters.learning_rate_limits[0]
-        self._max_learning_rate = parameters.learning_rate_limits[1]
+        self._max_momentum_parameter = config.momentum_parameter
+        self._min_learning_rate = config.learning_rate_limits[0]
+        self._max_learning_rate = config.learning_rate_limits[1]
         self._learning_rate_decay_factor = math.exp(
             (math.log(self._min_learning_rate) - math.log(self._max_learning_rate))
-            / num_epochs
+            / config.num_epochs
         )
         self._learning_rate_rescale_factor = math.exp(
-            math.log(parameters.learning_rate_rescale_factor_per_epoch)
+            math.log(config.learning_rate_rescale_factor_per_epoch)
             / self._iterations_per_epoch
         )
-        self._k_batch = 1 / parameters.batch_size
+        self._k_batch = 1 / config.batch_size
         self._history = deque(
             (model.empty_gradient(),),
             maxlen=MAX_HISTORY_LENGTH,

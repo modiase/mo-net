@@ -184,19 +184,26 @@ def train(
         case "adam":
             optimizer = AdamOptimizer(
                 model=model,
-                learning_rate=learning_rate,
+                config=AdamOptimizer.Config(learning_rate=learning_rate),
             )
         case "adalm":
             optimizer = AdalmOptimizer(
                 model=model,
-                num_epochs=num_epochs,
-                train_set_size=X_train.shape[0],
-                parameters=training_parameters,
+                config=AdalmOptimizer.Config(
+                    num_epochs=num_epochs,
+                    train_set_size=(train_set_size := X_train.shape[0]),
+                    batch_size=(
+                        batch_size if batch_size is not None else train_set_size
+                    ),
+                    learning_rate=learning_rate,
+                    learning_rate_limits=learning_rate_limits,
+                    learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
+                    momentum_parameter=momentum_parameter,
+                ),
             )
         case "no":
             optimizer = NoOptimizer(
-                model=model,
-                learning_rate=learning_rate,
+                config=NoOptimizer.Config(learning_rate=learning_rate),
             )
         case _:
             raise ValueError(f"Invalid optimizer: {optimizer}")
@@ -267,9 +274,15 @@ def resume(
         training_parameters=training_parameters,
         optimizer=AdalmOptimizer(
             model=model,
-            num_epochs=training_parameters.num_epochs,
-            train_set_size=X_train.shape[0],
-            parameters=training_parameters,
+            config=AdalmOptimizer.Config(
+                num_epochs=training_parameters.num_epochs,
+                train_set_size=X_train.shape[0],
+                batch_size=training_parameters.batch_size,
+                learning_rate=training_parameters.learning_rate,
+                learning_rate_limits=training_parameters.learning_rate_limits,
+                learning_rate_rescale_factor_per_epoch=training_parameters.learning_rate_rescale_factor_per_epoch,
+                momentum_parameter=training_parameters.momentum_parameter,
+            ),
         ),
         training_log_path=training_log_path,
     ).rename(output_path)

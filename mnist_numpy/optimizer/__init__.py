@@ -1,5 +1,6 @@
 from .adalm import AdalmOptimizer
 from .adam import AdamOptimizer
+from .base import ConfigT as OptimizerConfigT
 from .base import NoOptimizer, OptimizerBase
 
 __all__ = [
@@ -7,4 +8,5 @@ __all__ = [
     "AdalmOptimizer",
     "OptimizerBase",
     "NoOptimizer",
+    "OptimizerConfigT",
 ]

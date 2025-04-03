@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
@@ -11,21 +12,26 @@ DEFAULT_BETA_2: Final[float] = 0.999
 DEFAULT_EPSILON: Final[float] = 1e-8
 
 
-class AdamOptimizer(OptimizerBase[ModelT]):
+@dataclass(frozen=True, kw_only=True)
+class AdamConfig:
+    beta_1: float = DEFAULT_BETA_1
+    beta_2: float = DEFAULT_BETA_2
+    epsilon: float = DEFAULT_EPSILON
+    learning_rate: float
+
+
+class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
+    Config = AdamConfig
+
     def __init__(
         self,
         *,
         model: ModelT,
-        beta_1: float = DEFAULT_BETA_1,
-        beta_2: float = DEFAULT_BETA_2,
-        epsilon: float = DEFAULT_EPSILON,
-        learning_rate: float,
+        config: AdamConfig,
     ):
-        self._beta_1 = beta_1
-        self._beta_2 = beta_2
-        self._epsilon = epsilon
+        super().__init__(config)
+
         self._first_moment = model.empty_gradient()
-        self._learning_rate = learning_rate
         self._second_moment = model.empty_gradient()
         self._iterations = 0
 
@@ -44,31 +50,33 @@ class AdamOptimizer(OptimizerBase[ModelT]):
             A_train_batch,
         )
         self._first_moment = (
-            self._beta_1 * self._first_moment + (1 - self._beta_1) * gradient
+            self._config.beta_1 * self._first_moment
+            + (1 - self._config.beta_1) * gradient
         )
         self._second_moment = (
-            self._beta_2 * self._second_moment + (1 - self._beta_2) * gradient**2
+            self._config.beta_2 * self._second_moment
+            + (1 - self._config.beta_2) * gradient**2
         )
         first_moment_corrected = self._first_moment / (
-            1 - self._beta_1**self._iterations
+            1 - self._config.beta_1**self._iterations
         )
         second_moment_corrected = self._second_moment / (
-            1 - self._beta_2**self._iterations
+            1 - self._config.beta_2**self._iterations
         )
 
         update = MLP_Gradient(
             dWs=tuple(
-                -self._learning_rate
+                -self._config.learning_rate
                 * first_moment_corrected
-                / (np.sqrt(second_moment_corrected) + self._epsilon)
+                / (np.sqrt(second_moment_corrected) + self._config.epsilon)
                 for first_moment_corrected, second_moment_corrected in zip(
                     first_moment_corrected.dWs, second_moment_corrected.dWs
                 )
             ),
             dbs=tuple(
-                -self._learning_rate
+                -self._config.learning_rate
                 * first_moment_corrected
-                / (np.sqrt(second_moment_corrected) + self._epsilon)
+                / (np.sqrt(second_moment_corrected) + self._config.epsilon)
                 for first_moment_corrected, second_moment_corrected in zip(
                     first_moment_corrected.dbs, second_moment_corrected.dbs
                 )
@@ -78,7 +86,7 @@ class AdamOptimizer(OptimizerBase[ModelT]):
 
     @property
     def learning_rate(self) -> float:
-        return self._learning_rate
+        return self._config.learning_rate
 
     def report(self) -> str:
-        return f"Learning Rate: {self._learning_rate:.10f}"
+        return f"Learning Rate: {self._config.learning_rate:.10f}"

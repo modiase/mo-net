@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from mnist_numpy.functions import cross_entropy, softmax
 from mnist_numpy.model.base import ModelT
-from mnist_numpy.optimizer.base import OptimizerBase
+from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
@@ -32,7 +32,7 @@ class ModelTrainer:
     def train(
         *,
         model: ModelT,
-        optimizer: OptimizerBase[ModelT],
+        optimizer: OptimizerBase[ModelT, OptimizerConfigT],
         training_parameters: TrainingParameters,
         training_log_path: Path,
         X_train: np.ndarray,
