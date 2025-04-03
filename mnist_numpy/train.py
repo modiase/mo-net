@@ -161,6 +161,7 @@ class ModelTrainer:
                     ],
                     columns=training_log.columns,
                 ).to_csv(training_log_path, mode="a", header=False, index=False)
+                L_train_min = min(L_train_min, L_train)
                 if L_test < L_test_min:
                     model.dump(open(model_checkpoint_path, "wb"))
                     L_test_min = L_test
