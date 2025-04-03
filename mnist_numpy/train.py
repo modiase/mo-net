@@ -1,5 +1,4 @@
 import time
-from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Final
@@ -46,8 +45,8 @@ class ModelTrainer:
                     "epoch",
                     "training_loss",
                     "monotonic_training_loss",
-                    "moving_average_training_loss",
                     "test_loss",
+                    "monotonic_test_loss",
                     "learning_rate",
                     "timestamp",
                 ]
@@ -108,7 +107,6 @@ class ModelTrainer:
         L_test_min = k_test * cross_entropy(
             softmax(model._forward_prop(X_test)[1][-1]), Y_test
         )
-        training_loss_history = deque([L_train_min], maxlen=10)
 
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
@@ -143,28 +141,30 @@ class ModelTrainer:
                 )
                 _, A_train = model._forward_prop(X_train)
                 L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
-                training_loss_history.append(L_train)
                 _, A_test = model._forward_prop(X_test)
                 L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
+
+                L_train_min = min(L_train_min, L_train)
+                if L_test < L_test_min:
+                    model.dump(open(model_checkpoint_path, "wb"))
+                    L_test_min = L_test
+
                 pd.DataFrame(
                     [
                         [
                             epoch,
                             L_train,
                             L_train_min,
-                            np.average(training_loss_history),
                             L_test,
+                            L_test_min,
                             optimizer.learning_rate,
                             datetime.now(),
                         ]
                     ],
                     columns=training_log.columns,
                 ).to_csv(training_log_path, mode="a", header=False, index=False)
-                L_train_min = min(L_train_min, L_train)
-                if L_test < L_test_min:
-                    model.dump(open(model_checkpoint_path, "wb"))
-                    L_test_min = L_test
+
             if time.time() - last_log_time > log_interval_seconds:
                 tqdm.write(
                     f"Iteration {i}, Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
