@@ -109,7 +109,6 @@ class ModelTrainer:
             softmax(model._forward_prop(X_test)[1][-1]), Y_test
         )
         training_loss_history = deque([L_train_min], maxlen=10)
-        logger.info(f"Initial training loss: {L_train_min}.")
 
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
