@@ -70,13 +70,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=DEFAULT_DATA_PATH,
     )
     @click.option(
-        "-m",
-        "--momentum-parameter",
-        type=float,
-        help="Set the momentum parameter",
-        default=DEFAULT_MOMENTUM_PARAMETER,
-    )
-    @click.option(
         "-r",
         "--learning-rate-rescale-factor-per-epoch",
         type=float,
@@ -131,6 +124,12 @@ def cli(): ...
     multiple=True,
     default=(10, 10),
 )
+@click.option(
+    "-m",
+    "--model-path",
+    help="Set the path to the model file",
+    type=Path,
+)
 def train(
     *,
     batch_size: int | None,
@@ -139,8 +138,8 @@ def train(
     learning_rate: float,
     learning_rate_rescale_factor_per_epoch: float,
     learning_rate_limits: tuple[float, float],
+    model_path: Path | None,
     model_type: str,
-    momentum_parameter: float,
     num_epochs: int,
     optimizer_type: str,
     training_log_path: Path | None,
@@ -152,11 +151,14 @@ def train(
     logger.info(f"Training model with {seed=}.")
 
     model: ModelBase
-    match model_type:
-        case MultilayerPerceptron.Serialized._tag:
-            model = MultilayerPerceptron.initialize(X_train.shape[1], *dims, 10)
-        case _:
-            raise ValueError(f"Invalid model type: {model_type}")
+    if model_path is None:
+        match model_type:
+            case MultilayerPerceptron.Serialized._tag:
+                model = MultilayerPerceptron.initialize(X_train.shape[1], *dims, 10)
+            case _:
+                raise ValueError(f"Invalid model type: {model_type}")
+    else:
+        model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{seed}_{model.get_name()}_model.pkl"
@@ -175,7 +177,7 @@ def train(
         learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
         learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-        momentum_parameter=momentum_parameter,
+        momentum_parameter=DEFAULT_MOMENTUM_PARAMETER,
         num_epochs=num_epochs,
         total_epochs=num_epochs,
     )
@@ -199,7 +201,7 @@ def train(
                     learning_rate=learning_rate,
                     learning_rate_limits=learning_rate_limits,
                     learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-                    momentum_parameter=momentum_parameter,
+                    momentum_parameter=DEFAULT_MOMENTUM_PARAMETER,
                 ),
             )
         case "no":
@@ -220,74 +222,6 @@ def train(
         training_log_path=training_log_path,
     ).rename(model_path)
     logger.info(f"Saved output to {model_path}.")
-
-
-@cli.command(help="Resume training the model")
-@click.option(
-    "-m",
-    "--model-path",
-    help="Set the path to the model file",
-    type=Path,
-    required=True,
-)
-@click.option(
-    "-p",
-    "--training-parameters-path",
-    help="Set the path to the training parameter file",
-    type=Path,
-    required=True,
-)
-@click.option(
-    "-d",
-    "--data-path",
-    type=Path,
-    help="Set the path to the data file",
-    default=DEFAULT_DATA_PATH,
-)
-def resume(
-    *,
-    data_path: Path,
-    model_path: Path,
-    training_parameters_path: Path,
-):
-    X_train, Y_train, X_test, Y_test = load_data(data_path)
-
-    training_log_path = training_parameters_path.with_name(
-        training_parameters_path.name.replace(
-            "training_parameters.json", "training_log.csv"
-        )
-    )
-    output_path = OUTPUT_PATH / training_parameters_path.name.replace(
-        "training_parameters.json", ".pkl"
-    )
-
-    model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
-    training_parameters = TrainingParameters.model_validate_json(
-        training_parameters_path.read_text()
-    )
-    ModelTrainer.train(
-        # TODO: Dispatch on model type
-        model=model,
-        X_test=X_test,
-        X_train=X_train,
-        Y_test=Y_test,
-        Y_train=Y_train,
-        training_parameters=training_parameters,
-        optimizer=AdalmOptimizer(
-            model=model,
-            config=AdalmOptimizer.Config(
-                num_epochs=training_parameters.num_epochs,
-                train_set_size=X_train.shape[0],
-                batch_size=training_parameters.batch_size,
-                learning_rate=training_parameters.learning_rate,
-                learning_rate_limits=training_parameters.learning_rate_limits,
-                learning_rate_rescale_factor_per_epoch=training_parameters.learning_rate_rescale_factor_per_epoch,
-                momentum_parameter=training_parameters.momentum_parameter,
-            ),
-        ),
-        training_log_path=training_log_path,
-    ).rename(output_path)
-    logger.info(f"Saved output to {output_path}.")
 
 
 @cli.command(help="Run inference using the model")
