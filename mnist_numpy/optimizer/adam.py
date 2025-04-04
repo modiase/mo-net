@@ -1,10 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final
 
 import numpy as np
 
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MLP_Gradient
+from mnist_numpy.model.scheduler import NoopScheduler, Scheduler
 from mnist_numpy.optimizer.base import OptimizerBase
 
 DEFAULT_BETA_1: Final[float] = 0.9
@@ -18,6 +19,7 @@ class AdamConfig:
     beta_2: float = DEFAULT_BETA_2
     epsilon: float = DEFAULT_EPSILON
     learning_rate: float
+    scheduler: Scheduler = field(default_factory=NoopScheduler)
 
 
 class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
@@ -34,6 +36,8 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         self._first_moment = model.empty_gradient()
         self._second_moment = model.empty_gradient()
         self._iterations = 0
+        self._scheduler = config.scheduler
+        self._current_learning_rate = config.learning_rate
 
     def update(
         self,
@@ -48,6 +52,9 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
             Y_train_batch,
             Z_train_batch,
             A_train_batch,
+        )
+        self._current_learning_rate = self._scheduler(
+            self._iterations, self._current_learning_rate, gradient
         )
         self._first_moment = (
             self._config.beta_1 * self._first_moment
@@ -86,7 +93,7 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
 
     @property
     def learning_rate(self) -> float:
-        return self._config.learning_rate
+        return self._current_learning_rate
 
     def report(self) -> str:
-        return f"Learning Rate: {self._config.learning_rate:.10f}"
+        return f"Learning Rate: {self._current_learning_rate:.10f}"

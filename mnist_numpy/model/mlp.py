@@ -1,5 +1,6 @@
 import pickle
 from dataclasses import dataclass
+from itertools import chain
 from typing import IO, ClassVar, Self, Sequence
 
 import numpy as np
@@ -54,6 +55,11 @@ class MLP_Gradient:
             case tuple():
                 i, *rest = idx
                 return self.dWs[i][*rest], self.dbs[i][*rest]
+
+    def cosine_distance(self, other: Self) -> float:
+        v1 = np.concat(tuple(chain((w.flatten() for w in self.dWs), self.dbs)))
+        v2 = np.concat(tuple(chain((w.flatten() for w in other.dWs), other.dbs)))
+        return (1 - (np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))) / 2
 
 
 @dataclass(frozen=True, kw_only=True)

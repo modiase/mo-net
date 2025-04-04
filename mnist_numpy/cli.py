@@ -1,4 +1,5 @@
 import functools
+import math
 import pickle
 import re
 import time
@@ -17,6 +18,7 @@ from mnist_numpy.model import (
     ModelBase,
     MultilayerPerceptron,
 )
+from mnist_numpy.model.scheduler import CosineScheduler
 from mnist_numpy.optimizer import (
     AdalmOptimizer,
     AdamOptimizer,
@@ -171,9 +173,10 @@ def train(
         model_path = OUTPUT_PATH / training_log_path.name.replace(
             "training_log.csv", ".pkl"
         )
-
+    train_set_size = X_train.shape[0]
+    batch_size = batch_size if batch_size is not None else train_set_size
     training_parameters = TrainingParameters(
-        batch_size=(batch_size if batch_size is not None else X_train.shape[0]),
+        batch_size=batch_size,
         learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
         learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
@@ -185,9 +188,20 @@ def train(
     optimizer: OptimizerBase
     match optimizer_type:
         case "adam":
+            batches_per_epoch = math.ceil(train_set_size / batch_size)
             optimizer = AdamOptimizer(
                 model=model,
-                config=AdamOptimizer.Config(learning_rate=learning_rate),
+                config=AdamOptimizer.Config(
+                    learning_rate=learning_rate,
+                    scheduler=CosineScheduler(
+                        batch_size=batch_size,
+                        learning_rate_rescale_factor=math.exp(
+                            math.log(learning_rate_rescale_factor_per_epoch)
+                            / batches_per_epoch
+                        ),
+                        train_set_size=train_set_size,
+                    ),
+                ),
             )
         case "adalm":
             optimizer = AdalmOptimizer(
