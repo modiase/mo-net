@@ -1,4 +1,5 @@
 import math
+from collections import deque
 from collections.abc import MutableSequence
 from typing import Generic, Protocol, TypeVar
 
@@ -40,8 +41,8 @@ class CosineScheduler:
         learning_rate_rescale_factor: float,
         train_set_size: int,
     ):
-        self._cosines: MutableSequence[float] = []
         self._iterations_per_batch = math.ceil(train_set_size / batch_size)
+        self._cosines: MutableSequence[float] = deque(maxlen=self._iterations_per_batch)
         self._learning_rate_rescale_factor = learning_rate_rescale_factor
         self._previous_gradient: GradientWithCosineDistance | None = None
 
@@ -62,7 +63,5 @@ class CosineScheduler:
 
         if current_iteration % self._iterations_per_batch == 0:
             if np.average(self._cosines) > 0.1:
-                self._cosines.clear()
                 return current_learning_rate / self._learning_rate_rescale_factor
-            self._cosines.clear()
         return current_learning_rate
