@@ -1,24 +1,35 @@
 import math
 from collections.abc import MutableSequence
-from typing import Protocol
+from typing import Generic, Protocol, TypeVar
 
 import numpy as np
 
-from mnist_numpy.model.mlp import MLP_Gradient
+from mnist_numpy.protocols import Gradient, HasCosineDistance
+
+_GradientT_contra = TypeVar("_GradientT_contra", bound=Gradient, contravariant=True)
 
 
-class Scheduler(Protocol):
+class Scheduler(Protocol, Generic[_GradientT_contra]):
     def __call__(
         self,
         current_iteration: int,
         current_learning_rate: float,
-        gradient: MLP_Gradient,
+        gradient: _GradientT_contra,
     ) -> float: ...
 
 
 class NoopScheduler:
-    def __call__(self, _: object, current_learning_rate: float, __: object) -> float:
+    def __call__(
+        self,
+        current_iteration: object,
+        current_learning_rate: float,
+        gradient: Gradient,
+    ) -> float:
+        del current_iteration, gradient  # unused
         return current_learning_rate
+
+
+class GradientWithCosineDistance(Gradient, HasCosineDistance): ...
 
 
 class CosineScheduler:
@@ -32,13 +43,13 @@ class CosineScheduler:
         self._cosines: MutableSequence[float] = []
         self._iterations_per_batch = math.ceil(train_set_size / batch_size)
         self._learning_rate_rescale_factor = learning_rate_rescale_factor
-        self._previous_gradient: MLP_Gradient | None = None
+        self._previous_gradient: GradientWithCosineDistance | None = None
 
     def __call__(
         self,
         current_iteration: int,
         current_learning_rate: float,
-        gradient: MLP_Gradient,
+        gradient: GradientWithCosineDistance,
     ):
         if self._previous_gradient is None:
             self._previous_gradient = gradient

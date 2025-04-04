@@ -95,6 +95,8 @@ class MLP_Parameters:
 
 
 class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
+    Gradient = MLP_Gradient
+
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         _tag: ClassVar[str] = "mlp_relu"

@@ -4,7 +4,6 @@ from typing import Final
 import numpy as np
 
 from mnist_numpy.model.base import ModelT
-from mnist_numpy.model.mlp import MLP_Gradient
 from mnist_numpy.model.scheduler import NoopScheduler, Scheduler
 from mnist_numpy.optimizer.base import OptimizerBase
 
@@ -71,7 +70,7 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
             1 - self._config.beta_2**self._iterations
         )
 
-        update = MLP_Gradient(
+        update = model.Gradient(
             dWs=tuple(
                 -self._config.learning_rate
                 * first_moment_corrected

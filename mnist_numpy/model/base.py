@@ -10,6 +10,8 @@ _GradientT = TypeVar("_GradientT")
 
 
 class ModelBase(ABC, Generic[_ParametersT, _GradientT]):
+    Gradient: type[_GradientT]
+
     @abstractmethod
     def predict(self, X: np.ndarray) -> np.ndarray: ...
 

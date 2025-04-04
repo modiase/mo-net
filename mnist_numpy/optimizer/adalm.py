@@ -7,7 +7,6 @@ import numpy as np
 
 from mnist_numpy.functions import cross_entropy, softmax
 from mnist_numpy.model.base import ModelT
-from mnist_numpy.model.mlp import MLP_Gradient
 from mnist_numpy.optimizer.base import OptimizerBase
 
 MAX_HISTORY_LENGTH: Final[int] = 2
@@ -71,7 +70,6 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
         L_batch_before = self._k_batch * cross_entropy(
             softmax(A_train_batch[-1]), Y_train_batch
         )
-        # TODO: Refactor further to reduce coupling between model and optimizer.
         gradient = model._backward_prop(
             X_train_batch,
             Y_train_batch,
@@ -81,7 +79,7 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
 
         prev_update = self._history[-1]
 
-        update = MLP_Gradient(
+        update = model.Gradient(
             dWs=tuple(
                 -(
                     self._learning_rate * (1 - self._momentum_parameter) * dW
