@@ -154,11 +154,7 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
         for idx in range(len(self._W) - 1, -1, -1):
             dW.append(k * (_A[idx].T @ dZ))
             db.append(k * np.sum(dZ, axis=0))
-            if (
-                np.isnan(dW[-1]).any()
-                or np.isnan(db[-1]).any()
-                or np.isnan(dZ[-1]).any()
-            ):
+            if np.isnan(dW[-1]).any() or np.isnan(db[-1]).any() or np.isnan(dZ).any():
                 raise ValueError("Invalid gradient. Aborting training.")
             if idx > 0:
                 dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx - 1])
