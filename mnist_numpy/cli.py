@@ -200,6 +200,7 @@ def train(
                             / batches_per_epoch
                         ),
                         train_set_size=train_set_size,
+                        learning_rate_limits=learning_rate_limits,
                     ),
                 ),
             )

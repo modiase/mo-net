@@ -40,11 +40,23 @@ class CosineScheduler:
         batch_size: int,
         learning_rate_rescale_factor: float,
         train_set_size: int,
+        learning_rate_limits: tuple[float, float] | None = None,
     ):
         self._iterations_per_batch = math.ceil(train_set_size / batch_size)
-        self._cosines: MutableSequence[float] = deque(maxlen=self._iterations_per_batch)
+        self._cosine_distances: MutableSequence[float] = deque(
+            maxlen=self._iterations_per_batch
+        )
         self._learning_rate_rescale_factor = learning_rate_rescale_factor
         self._previous_gradient: GradientWithCosineDistance | None = None
+        self._learning_rate_limits = (
+            learning_rate_limits
+            if learning_rate_limits is not None
+            else (-float("inf"), float("inf"))
+        )
+
+    def _apply_limits(self, learning_rate: float) -> float:
+        minimum, maximum = self._learning_rate_limits
+        return max(min(learning_rate, maximum), minimum)
 
     def __call__(
         self,
@@ -59,9 +71,11 @@ class CosineScheduler:
         if not np.isnan(
             cosine_distance := gradient.cosine_distance(self._previous_gradient)
         ):
-            self._cosines.append(cosine_distance)
+            self._cosine_distances.append(cosine_distance)
 
         if current_iteration % self._iterations_per_batch == 0:
-            if np.average(self._cosines) > 0.1:
-                return current_learning_rate / self._learning_rate_rescale_factor
+            if np.average(self._cosine_distances) > 0.1:
+                return self._apply_limits(
+                    current_learning_rate / self._learning_rate_rescale_factor,
+                )
         return current_learning_rate
