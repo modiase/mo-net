@@ -1,5 +1,4 @@
 import functools
-import math
 import pickle
 import re
 import time
@@ -18,7 +17,7 @@ from mnist_numpy.model import (
     ModelBase,
     MultilayerPerceptron,
 )
-from mnist_numpy.model.scheduler import CosineScheduler
+from mnist_numpy.model.scheduler import DecayScheduler
 from mnist_numpy.optimizer import (
     AdalmOptimizer,
     AdamOptimizer,
@@ -38,7 +37,7 @@ DEFAULT_LEARNING_RATE: Final[float] = 0.1
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 1"
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
-DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.5
+DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.05
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
@@ -188,19 +187,15 @@ def train(
     optimizer: OptimizerBase
     match optimizer_type:
         case "adam":
-            batches_per_epoch = math.ceil(train_set_size / batch_size)
             optimizer = AdamOptimizer(
                 model=model,
                 config=AdamOptimizer.Config(
                     learning_rate=learning_rate,
-                    scheduler=CosineScheduler(
+                    scheduler=DecayScheduler(
                         batch_size=batch_size,
-                        learning_rate_rescale_factor=math.exp(
-                            math.log(learning_rate_rescale_factor_per_epoch)
-                            / batches_per_epoch
-                        ),
-                        train_set_size=train_set_size,
                         learning_rate_limits=learning_rate_limits,
+                        learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
+                        train_set_size=train_set_size,
                     ),
                 ),
             )
