@@ -135,7 +135,7 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
         Z = [X @ self._W[0] + self._b[0]]
         for w, b in zip(self._W[1:], self._b[1:]):
             Z.append(ReLU(Z[-1]) @ w + b)
-        return tuple(Z), tuple(map(ReLU, Z))
+        return tuple(Z), tuple(chain(map(ReLU, Z[:-1]), (Z[-1],)))
 
     def _backward_prop(
         self,
