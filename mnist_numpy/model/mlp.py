@@ -118,7 +118,7 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
     def initialize(cls, *dims: int) -> Self:
         return cls(
             [np.random.randn(dim_in, dim_out) for dim_in, dim_out in pairwise(dims)],
-            [np.random.randn(dim_out) for dim_out in dims[1:]],
+            [np.zeros(dim_out) for dim_out in dims[1:]],
         )
 
     def __init__(
