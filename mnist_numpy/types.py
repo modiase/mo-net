@@ -1,4 +1,4 @@
-from typing import Callable, Generic, NewType, Protocol, TypeVar
+from typing import Generic, NewType, Protocol, TypeVar
 
 import numpy as np
 
@@ -19,5 +19,4 @@ _X = TypeVar("_X", bound=np.ndarray | float)
 class ActivationFn(Protocol):
     def __call__(self, x: _X) -> _X: ...
 
-    @property
-    def deriv(self) -> Callable[[_X], _X]: ...
+    def deriv(self, x: _X) -> _X: ...

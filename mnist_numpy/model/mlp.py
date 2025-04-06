@@ -1,4 +1,5 @@
 import pickle
+from collections.abc import MutableSequence
 from dataclasses import dataclass
 from itertools import chain
 from typing import IO, ClassVar, Self, Sequence
@@ -6,8 +7,10 @@ from typing import IO, ClassVar, Self, Sequence
 import numpy as np
 from more_itertools import pairwise
 
-from mnist_numpy.functions import ReLU, deriv_ReLU, softmax
+from mnist_numpy.functions import ReLU, softmax
 from mnist_numpy.model import ModelBase
+from mnist_numpy.model.layer import LayerBase
+from mnist_numpy.types import Activations, PreActivations
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -157,7 +160,7 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
             if np.isnan(dW[-1]).any() or np.isnan(db[-1]).any() or np.isnan(dZ).any():
                 raise ValueError("Invalid gradient. Aborting training.")
             if idx > 0:
-                dZ = (dZ @ self._W[idx].T) * deriv_ReLU(Z[idx - 1])
+                dZ = (dZ @ self._W[idx].T) * ReLU.deriv(Z[idx - 1])
 
         return MLP_Gradient(
             dWs=tuple(reversed(dW)),
@@ -197,3 +200,51 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
     @property
     def parameters(self) -> MLP_Parameters:
         return MLP_Parameters(W=tuple(self._W), b=tuple(self._b))
+
+
+class MultiLayerPerceptronV2:
+    def __init__(self, layers: Sequence[LayerBase]):
+        self._layers = tuple(layers)
+        if len(layers) < 2:
+            raise ValueError(f"{self.__class__.__name__} must have at least 2 layers.")
+        self._As: MutableSequence[Activations] = []
+        self._Zs: MutableSequence[PreActivations] = []
+
+        self._layers[0]._init(None, self._layers[1])
+        for previous_layer, next_layer in pairwise(self._hidden_layers):
+            previous_layer._init(previous_layer, next_layer)
+        self._layers[-1]._init(self._layers[-2], None)
+
+    @property
+    def _hidden_layers(self) -> Sequence[LayerBase]:
+        return self._layers[1:-1]
+
+    @property
+    def _non_input_layers(self) -> Sequence[LayerBase]:
+        return self._layers[1:]
+
+    @property
+    def _input_layer(self) -> LayerBase:
+        return self._layers[0]
+
+    def _forward_prop(self, X: np.ndarray) -> np.ndarray:
+        self._Zs.clear()
+        self._As.clear()
+
+        Z, A = self._input_layer._forward_prop(Activations(X))
+        self._Zs.append(Z)
+        self._As.append(A)
+
+        for layer in self._non_input_layers:
+            Z, A = layer._forward_prop(self._As[-1])
+            self._Zs.append(Z)
+            self._As.append(A)
+        return A
+
+    def _backward_prop(self, Y_true: np.ndarray) -> MLP_Gradient:
+        dZ = self._layers[-1].Parameters._W.T @ (Y_true - self._As[-1])
+        for layer, A, Z in zip(
+            reversed(self._layers), reversed(self._As), reversed(self._Zs)
+        ):
+            dZ = layer._backward_prop(A, Z, dZ)
+        return dZ

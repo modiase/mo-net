@@ -110,7 +110,7 @@ class CosineScheduler:
         ):
             self._cosine_distances.append(cosine_distance)
 
-        if current_iteration % self._iterations_per_batch == 0:
+        if current_iteration % self._batches_per_epoch == 0:
             if np.average(self._cosine_distances) > 0.1:
                 return self._apply_limits(
                     current_learning_rate
