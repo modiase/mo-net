@@ -6,7 +6,7 @@ from typing import Generic, Self, TypeVar, cast
 
 import numpy as np
 
-from mnist_numpy.functions import noop
+from mnist_numpy.functions import eye
 from mnist_numpy.types import ActivationFn, Activations, D, PreActivations
 
 _ParamType = TypeVar("_ParamType")
@@ -36,8 +36,8 @@ class LayerBase(ABC, Generic[_ParamType, _PreviousLayerType, _NextLayerType]):
         self, As: Activations, Zs: PreActivations, dZ: D[PreActivations]
     ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
 
-    @abstractmethod
-    def _update_parameters(self, params: D[_ParamType]) -> None: ...
+    def _update_parameters(self, params: D[DenseParameters]) -> None:
+        self._parameters = params + self._parameters
 
     @abstractmethod
     def _init(
@@ -48,11 +48,21 @@ class LayerBase(ABC, Generic[_ParamType, _PreviousLayerType, _NextLayerType]):
     @abstractmethod
     def neurons(self) -> int: ...
 
+    @property
+    def parameters(self) -> _ParamType:
+        return self._parameters
+
 
 @dataclass(kw_only=True, frozen=True)
 class DenseParameters:
     _W: np.ndarray
     _B: np.ndarray
+
+    def __add__(self, other: Self) -> Self:
+        return self.__class__(_W=self._W + other._W, _B=self._B + other._B)
+
+    def __radd__(self, other: Self) -> Self:
+        return self.__add__(other)
 
     def __mul__(self, other: float) -> Self:
         if not isinstance(other, float):
@@ -148,6 +158,10 @@ class OutputLayer(LayerBase[DenseParameters, LayerBase, None]):
             ),
         ), dZ @ self._parameters._W.T * self._activation_fn.deriv(Zs)
 
+    def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
+        As = As @ self._parameters._W + self._parameters._B
+        return As, self._activation_fn(As)
+
     @property
     def neurons(self) -> int:
         return self._neurons
@@ -156,7 +170,7 @@ class OutputLayer(LayerBase[DenseParameters, LayerBase, None]):
 class InputLayer(LayerBase[None, None, LayerBase]):
     def __init__(self, neurons: int):
         # TODO: fix-types
-        super().__init__(neurons, noop)  # type: ignore
+        super().__init__(neurons, eye)  # type: ignore
         self._parameters = None
 
     def _init(self, previous_layer: LayerBase | None, next_layer: LayerBase | None):
@@ -178,6 +192,10 @@ class InputLayer(LayerBase[None, None, LayerBase]):
     ) -> tuple[D[DenseParameters], D[PreActivations]]:
         del As, Zs, dZ  # unused
         raise NotImplementedError("InputLayer cannot backpropagate")
+
+    def _update_parameters(self, params: D[DenseParameters]) -> None:
+        del params  # unused
+        raise NotImplementedError("InputLayer cannot update parameters")
 
     @property
     def neurons(self) -> int:

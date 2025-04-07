@@ -59,7 +59,7 @@ class _ReLU:
 ReLU = _ReLU()
 
 
-class _Noop:
+class _Eye:
     def __call__(self, x: _X) -> _X:
         return x
 
@@ -72,4 +72,4 @@ class _Noop:
             return cast(_X, 1.0)
 
 
-noop = _Noop()
+eye = _Eye()

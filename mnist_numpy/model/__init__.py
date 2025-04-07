@@ -1,4 +1,12 @@
 from .base import ModelBase
-from .mlp import MultilayerPerceptron
+from .layer import DenseLayer, InputLayer, OutputLayer
+from .mlp import MultilayerPerceptron, MultiLayerPerceptronV2
 
-__all__ = ["ModelBase", "MultilayerPerceptron"]
+__all__ = [
+    "DenseLayer",
+    "InputLayer",
+    "ModelBase",
+    "MultiLayerPerceptronV2",
+    "MultilayerPerceptron",
+    "OutputLayer",
+]

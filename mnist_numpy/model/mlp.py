@@ -5,12 +5,12 @@ from itertools import chain
 from typing import IO, ClassVar, Self, Sequence
 
 import numpy as np
-from more_itertools import pairwise
+from more_itertools import pairwise, triplewise
 
-from mnist_numpy.functions import ReLU, softmax
+from mnist_numpy.functions import ReLU, eye, softmax
 from mnist_numpy.model import ModelBase
-from mnist_numpy.model.layer import LayerBase
-from mnist_numpy.types import Activations, PreActivations
+from mnist_numpy.model.layer import DenseLayer, InputLayer, LayerBase, OutputLayer
+from mnist_numpy.types import ActivationFn, Activations, PreActivations
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -203,6 +203,23 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
 
 
 class MultiLayerPerceptronV2:
+    @classmethod
+    def of(
+        cls,
+        layers: Sequence[LayerBase],
+        activation_fn: ActivationFn = eye,
+        output_activation_fn: ActivationFn = eye,
+    ) -> Self:
+        return cls(
+            tuple(
+                (
+                    InputLayer(layers[0]),
+                    *(DenseLayer(layer, activation_fn) for layer in layers[1:-1]),
+                    OutputLayer(layers[-1], output_activation_fn),
+                )
+            )
+        )
+
     def __init__(self, layers: Sequence[LayerBase]):
         self._layers = tuple(layers)
         if len(layers) < 2:
@@ -211,40 +228,44 @@ class MultiLayerPerceptronV2:
         self._Zs: MutableSequence[PreActivations] = []
 
         self._layers[0]._init(None, self._layers[1])
-        for previous_layer, next_layer in pairwise(self._hidden_layers):
-            previous_layer._init(previous_layer, next_layer)
-        self._layers[-1]._init(self._layers[-2], None)
+        for previous_layer, layer, next_layer in triplewise(self._layers):
+            layer._init(previous_layer, next_layer)
+        self.output_layer._init(self.hidden_layers[-1], None)
 
     @property
-    def _hidden_layers(self) -> Sequence[LayerBase]:
+    def hidden_layers(self) -> Sequence[LayerBase]:
         return self._layers[1:-1]
 
     @property
-    def _non_input_layers(self) -> Sequence[LayerBase]:
+    def non_input_layers(self) -> Sequence[LayerBase]:
         return self._layers[1:]
 
     @property
-    def _input_layer(self) -> LayerBase:
+    def input_layer(self) -> LayerBase:
         return self._layers[0]
 
-    def _forward_prop(self, X: np.ndarray) -> np.ndarray:
+    @property
+    def output_layer(self) -> LayerBase:
+        return self._layers[-1]
+
+    def forward_prop(self, X: np.ndarray) -> np.ndarray:
         self._Zs.clear()
         self._As.clear()
 
-        Z, A = self._input_layer._forward_prop(Activations(X))
+        Z, A = self.input_layer._forward_prop(Activations(X))
         self._Zs.append(Z)
         self._As.append(A)
 
-        for layer in self._non_input_layers:
+        for layer in self.non_input_layers:
             Z, A = layer._forward_prop(self._As[-1])
             self._Zs.append(Z)
             self._As.append(A)
         return A
 
-    def _backward_prop(self, Y_true: np.ndarray) -> MLP_Gradient:
-        dZ = self._layers[-1].Parameters._W.T @ (Y_true - self._As[-1])
+    def backward_prop(self, Y_true: np.ndarray) -> MLP_Gradient:
+        dZ = self.output_layer.Parameters._W.T @ (Y_true - self._As[-1])
         for layer, A, Z in zip(
-            reversed(self._layers), reversed(self._As), reversed(self._Zs)
+            reversed(self.non_input_layers), reversed(self._As), reversed(self._Zs)
         ):
             dZ = layer._backward_prop(A, Z, dZ)
         return dZ
