@@ -2,7 +2,7 @@ import pickle
 from collections.abc import MutableSequence
 from dataclasses import dataclass
 from itertools import chain
-from typing import IO, ClassVar, Self, Sequence
+from typing import IO, ClassVar, Protocol, Self, Sequence
 
 import numpy as np
 from more_itertools import pairwise, triplewise
@@ -202,6 +202,21 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
         return MLP_Parameters(W=tuple(self._W), b=tuple(self._b))
 
 
+class SupportsMultiplyByFloat(Protocol):
+    def __mul__(self, scalar: float): ...
+
+
+@dataclass
+class MLP_ParamUpdate:
+    dParams: Sequence[SupportsMultiplyByFloat]  # TODO: improve-types
+
+    def __mul__(self, scalar: float):
+        return self.__class__(dParams=tuple(scalar * param for param in self.dParams))
+
+    def __rmul__(self, scalar: float):
+        return self.__mul__(scalar)
+
+
 class MultiLayerPerceptronV2:
     @classmethod
     def of(
@@ -210,6 +225,8 @@ class MultiLayerPerceptronV2:
         activation_fn: ActivationFn = eye,
         output_activation_fn: ActivationFn = eye,
     ) -> Self:
+        if len(layers) < 2:
+            raise ValueError(f"{cls.__name__} must have at least 2 layers.")
         return cls(
             tuple(
                 (
@@ -263,9 +280,26 @@ class MultiLayerPerceptronV2:
         return A
 
     def backward_prop(self, Y_true: np.ndarray) -> MLP_Gradient:
-        dZ = self.output_layer.Parameters._W.T @ (Y_true - self._As[-1])
+        dps = []
+        dZ = Y_true - self._As[-1]
         for layer, A, Z in zip(
-            reversed(self.non_input_layers), reversed(self._As), reversed(self._Zs)
+            reversed(self.non_input_layers),
+            reversed(self._As[1:]),
+            reversed(self._Zs[:-1]),
         ):
-            dZ = layer._backward_prop(A, Z, dZ)
-        return dZ
+            dp, dZ = layer._backward_prop(A, Z, dZ)
+            dps.append(dp)
+        return tuple(reversed(dps))
+
+    def update_params(self, update: MLP_ParamUpdate) -> None:
+        def _it():
+            return zip(update.dParams, self.non_input_layers)
+
+        if not all(isinstance(upd, layer.__class__.Parameters) for upd, layer in _it()):
+            raise ValueError(
+                "Incompatible update passed to model."
+                f" Update has types {', '.join(type(u) for u in update.dParams)}"
+                f" Model has layers {', '.join(type(l) for l in self.non_input_layers)}"
+            )
+        for dP, layer in _it():
+            layer._update_parameters(dP)

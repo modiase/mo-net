@@ -82,6 +82,14 @@ class DenseParameters:
     def random(cls, dim_in: int, dim_out: int) -> Self:
         return cls(_W=np.random.randn(dim_in, dim_out), _B=np.zeros(dim_out))
 
+    @classmethod
+    def eye(cls, dim: int) -> Self:
+        return cls(_W=np.eye(dim), _B=np.zeros(dim))
+
+    @classmethod
+    def of(cls, W: np.ndarray, B: np.ndarray) -> Self:
+        return cls(_W=np.atleast_2d(W), _B=np.atleast_1d(B))
+
 
 class DenseLayer(LayerBase[DenseParameters, LayerBase, LayerBase]):
     Parameters = DenseParameters
@@ -109,9 +117,9 @@ class DenseLayer(LayerBase[DenseParameters, LayerBase, LayerBase]):
     ) -> tuple[D[DenseParameters], D[PreActivations]]:
         return cast(  # TODO: fix-types
             D[DenseParameters],
-            self.Parameters(
-                _W=As.T @ dZ,
-                _B=np.sum(
+            self.Parameters.of(
+                W=As.T @ dZ,
+                B=np.sum(
                     cast(  # TODO: fix-types
                         float | np.ndarray, dZ
                     )
@@ -148,9 +156,9 @@ class OutputLayer(LayerBase[DenseParameters, LayerBase, None]):
     ) -> tuple[D[DenseParameters], D[PreActivations]]:
         return cast(  # TODO: fix-types
             D[DenseParameters],
-            self.Parameters(
-                _W=As.T @ dZ,
-                _B=np.sum(
+            self.Parameters.of(
+                W=As.T @ dZ,
+                B=np.sum(
                     cast(  # TODO: fix-types
                         float | np.ndarray, dZ
                     )
