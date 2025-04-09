@@ -14,6 +14,7 @@ _X = TypeVar("_X", bound=np.ndarray | float)
 class _Softmax:
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
+            x = np.atleast_2d(cast(np.ndarray, x))
             return (exp_x := np.exp(x - np.max(x, axis=1, keepdims=True))) / np.sum(
                 exp_x, axis=1, keepdims=True
             )

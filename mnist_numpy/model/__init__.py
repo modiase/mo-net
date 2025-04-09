@@ -1,5 +1,5 @@
 from .base import ModelBase
-from .layer import DenseLayer, InputLayer, OutputLayer
+from .layer import DenseLayer, InputLayer, SoftmaxOutputLayer
 from .mlp import MultilayerPerceptron, MultiLayerPerceptronV2
 
 __all__ = [
@@ -8,5 +8,5 @@ __all__ = [
     "ModelBase",
     "MultiLayerPerceptronV2",
     "MultilayerPerceptron",
-    "OutputLayer",
+    "SoftmaxOutputLayer",
 ]

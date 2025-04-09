@@ -1,15 +1,25 @@
+from __future__ import annotations
+
 import pickle
 from collections.abc import MutableSequence
 from dataclasses import dataclass
 from itertools import chain
-from typing import IO, ClassVar, Protocol, Self, Sequence
+from typing import IO, ClassVar, Literal, Protocol, Self, Sequence, cast
 
 import numpy as np
-from more_itertools import pairwise, triplewise
+from more_itertools import first, last, pairwise, triplewise
 
 from mnist_numpy.functions import ReLU, eye, softmax
 from mnist_numpy.model import ModelBase
-from mnist_numpy.model.layer import DenseLayer, InputLayer, LayerBase, OutputLayer
+from mnist_numpy.model.layer import (
+    DenseLayer,
+    HiddenLayerBase,
+    InputLayer,
+    LayerBase,
+    OutputLayerBase,
+    RawOutputLayer,
+    SoftmaxOutputLayer,
+)
 from mnist_numpy.types import ActivationFn, Activations, PreActivations
 
 
@@ -205,101 +215,143 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
 class SupportsMultiplyByFloat(Protocol):
     def __mul__(self, scalar: float): ...
 
-
-@dataclass
-class MLP_ParamUpdate:
-    dParams: Sequence[SupportsMultiplyByFloat]  # TODO: improve-types
-
-    def __mul__(self, scalar: float):
-        return self.__class__(dParams=tuple(scalar * param for param in self.dParams))
-
-    def __rmul__(self, scalar: float):
-        return self.__mul__(scalar)
+    def __rmul__(self, scalar: float): ...
 
 
 class MultiLayerPerceptronV2:
+    @dataclass
+    class Gradient:
+        dParams: Sequence[SupportsMultiplyByFloat]  # TODO: improve-types
+
+        def __mul__(self, scalar: float):
+            return self.__class__(
+                dParams=tuple(scalar * param for param in self.dParams)
+            )
+
+        def __rmul__(self, scalar: float):
+            return self.__mul__(scalar)
+
     @classmethod
     def of(
         cls,
-        layers: Sequence[LayerBase],
+        *,
+        layer_neuron_counts: Sequence[int],
         activation_fn: ActivationFn = eye,
-        output_activation_fn: ActivationFn = eye,
+        output_layer_type: Literal["softmax", "raw"] = "softmax",
     ) -> Self:
-        if len(layers) < 2:
+        if len(layer_neuron_counts) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
+        OutputLayerClass = (
+            SoftmaxOutputLayer if output_layer_type == "softmax" else RawOutputLayer
+        )
         return cls(
             tuple(
                 (
-                    InputLayer(layers[0]),
-                    *(DenseLayer(layer, activation_fn) for layer in layers[1:-1]),
-                    OutputLayer(layers[-1], output_activation_fn),
+                    InputLayer(layer_neuron_counts[0]),
+                    *(
+                        DenseLayer(neurons=layer, activation_fn=activation_fn)
+                        for layer in layer_neuron_counts[1:-1]
+                    ),
+                    OutputLayerClass(layer_neuron_counts[-1]),
                 )
             )
         )
 
     def __init__(self, layers: Sequence[LayerBase]):
-        self._layers = tuple(layers)
         if len(layers) < 2:
             raise ValueError(f"{self.__class__.__name__} must have at least 2 layers.")
+        if not isinstance(layers[-1], OutputLayerBase):
+            raise ValueError(
+                f"{self.__class__.__name__} must have an output layer of type {OutputLayerBase.__name__}."
+            )
+        if not isinstance(layers[0], InputLayer):
+            raise ValueError(
+                f"{self.__class__.__name__} must have an input layer of type {InputLayer.__name__}."
+            )
+        if not all(isinstance(layer, HiddenLayerBase) for layer in layers[1:-1]):
+            raise ValueError(
+                f"Hidden layers must have type {HiddenLayerBase.__name__}."
+            )
+        self._hidden_layers = cast(Sequence[HiddenLayerBase], layers[1:-1])
         self._As: MutableSequence[Activations] = []
         self._Zs: MutableSequence[PreActivations] = []
+        self._input_layer = layers[0]
+        self._output_layer = layers[-1]
 
-        self._layers[0]._init(None, self._layers[1])
-        for previous_layer, layer, next_layer in triplewise(self._layers):
-            layer._init(previous_layer, next_layer)
-        self.output_layer._init(self.hidden_layers[-1], None)
-
-    @property
-    def hidden_layers(self) -> Sequence[LayerBase]:
-        return self._layers[1:-1]
-
-    @property
-    def non_input_layers(self) -> Sequence[LayerBase]:
-        return self._layers[1:]
-
-    @property
-    def input_layer(self) -> LayerBase:
-        return self._layers[0]
+        self._input_layer._init(
+            previous_layer=None,
+            next_layer=first(chain(self._hidden_layers, (self._output_layer,))),  # type: ignore[arg-type]
+        )
+        for previous_layer, hidden_layer, next_layer in triplewise(layers):
+            hidden_layer._init(previous_layer=previous_layer, next_layer=next_layer)
+        self._output_layer._init(
+            previous_layer=last(chain((self._input_layer,), self._hidden_layers)),  # type: ignore[arg-type]
+            next_layer=None,
+        )
 
     @property
-    def output_layer(self) -> LayerBase:
-        return self._layers[-1]
+    def hidden_layers(self) -> Sequence[HiddenLayerBase]:
+        return self._hidden_layers
+
+    @property
+    def non_input_layers(self) -> Sequence[HiddenLayerBase | OutputLayerBase]:
+        return tuple(chain(self._hidden_layers, (self._output_layer,)))
+
+    @property
+    def input_layer(self) -> InputLayer:
+        return self._input_layer
+
+    @property
+    def output_layer(self) -> OutputLayerBase:
+        return self._output_layer
+
+    @property
+    def layers(self) -> Sequence[LayerBase]:
+        return tuple(
+            chain((self.input_layer,), self.hidden_layers, (self.output_layer,))
+        )
 
     def forward_prop(self, X: np.ndarray) -> np.ndarray:
         self._Zs.clear()
         self._As.clear()
 
-        Z, A = self.input_layer._forward_prop(Activations(X))
+        Z, A = self.input_layer._forward_prop(As=Activations(X))
         self._Zs.append(Z)
         self._As.append(A)
 
         for layer in self.non_input_layers:
-            Z, A = layer._forward_prop(self._As[-1])
+            Z, A = layer._forward_prop(As=self._As[-1])
             self._Zs.append(Z)
             self._As.append(A)
         return A
 
-    def backward_prop(self, Y_true: np.ndarray) -> MLP_Gradient:
+    def backward_prop(self, Y_true: np.ndarray) -> MultiLayerPerceptronV2.Gradient:
         dps = []
-        dZ = Y_true - self._As[-1]
-        for layer, A, Z in zip(
-            reversed(self.non_input_layers),
-            reversed(self._As[1:]),
-            reversed(self._Zs[:-1]),
+        dp, dZ = self.output_layer._backward_prop(
+            Y_pred=self._As[-1],
+            Y_true=Y_true,
+            As_prev=self._As[-2],
+            Zs_prev=self._Zs[-2],
+        )
+        dps.append(dp)
+        for layer, As_prev, Zs_prev in zip(
+            reversed(self.hidden_layers),
+            reversed(self._As[:-2]),
+            reversed(self._Zs[:-2]),
         ):
-            dp, dZ = layer._backward_prop(A, Z, dZ)
+            dp, dZ = layer._backward_prop(As_prev=As_prev, Zs_prev=Zs_prev, dZ=dZ)
             dps.append(dp)
-        return tuple(reversed(dps))
+        return self.Gradient(dParams=tuple(reversed(dps)))  # type: ignore[arg-type] # TODO: Fix-types
 
-    def update_params(self, update: MLP_ParamUpdate) -> None:
+    def update_params(self, update: MultiLayerPerceptronV2.Gradient) -> None:
         def _it():
             return zip(update.dParams, self.non_input_layers)
 
         if not all(isinstance(upd, layer.__class__.Parameters) for upd, layer in _it()):
             raise ValueError(
                 "Incompatible update passed to model."
-                f" Update has types {', '.join(type(u) for u in update.dParams)}"
-                f" Model has layers {', '.join(type(l) for l in self.non_input_layers)}"
+                f" Update has types {', '.join(type(upd).__name__ for upd in update.dParams)}"
+                f" Model has layers {', '.join(type(layer).__name__ for layer in self.non_input_layers)}"
             )
         for dP, layer in _it():
             layer._update_parameters(dP)
