@@ -1,19 +1,22 @@
-import pickle
-from itertools import chain
 from pathlib import Path
 
 import click
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mnist_numpy.model.mlp import DeprecatedMultilayerPerceptron
+from mnist_numpy.model.mlp import MultiLayerPerceptron
 
 
 @click.command()
 @click.argument("model_path", type=Path)
 def main(model_path: Path):
-    model = DeprecatedMultilayerPerceptron.load(pickle.load(model_path.open("rb")))
-    weights, biases = map(chain.from_iterable, model.parameters.unroll())
+    model = MultiLayerPerceptron.load(model_path.open("rb"))
+    weights = np.concatenate(
+        tuple(layer.parameters._W.flatten() for layer in model.non_input_layers)
+    )
+    biases = np.concatenate(
+        tuple(layer.parameters._B for layer in model.non_input_layers)
+    )
 
     weights_array = np.abs(np.array(list(weights)))
     biases_array = np.abs(np.array(list(biases)))

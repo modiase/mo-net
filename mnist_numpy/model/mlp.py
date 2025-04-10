@@ -349,6 +349,7 @@ class MultiLayerPerceptron(ModelBase):
         self._hidden_layers = cast(Sequence[HiddenLayerBase], layers[1:-1])
         self._As: MutableSequence[Activations] = []
         self._Zs: MutableSequence[PreActivations] = []
+        self._dropout_masks: MutableSequence[np.ndarray] = []
         self._input_layer = layers[0]
         self._output_layer = layers[-1]
 
@@ -385,18 +386,41 @@ class MultiLayerPerceptron(ModelBase):
             chain((self.input_layer,), self.hidden_layers, (self.output_layer,))
         )
 
-    def forward_prop(self, X: np.ndarray) -> Activations:
+    def forward_prop(
+        self,
+        X: np.ndarray,
+        *,
+        dropout_keep_prob: float = 1.0,
+        training: bool = False,
+    ) -> Activations:
         self._Zs.clear()
         self._As.clear()
+        self._dropout_masks.clear()
 
         Z, A = self.input_layer._forward_prop(As=Activations(X))
         self._Zs.append(Z)
         self._As.append(A)
 
-        for layer in self.non_input_layers:
+        for layer in self.hidden_layers:
             Z, A = layer._forward_prop(As=self._As[-1])
+
+            if training and dropout_keep_prob < 1.0:
+                dropout_mask = (np.random.rand(*A.shape) < dropout_keep_prob).astype(
+                    A.dtype
+                )
+                A *= dropout_mask
+                A /= dropout_keep_prob
+                self._dropout_masks.append(dropout_mask)
+            else:
+                self._dropout_masks.append(None)
+
             self._Zs.append(Z)
             self._As.append(A)
+
+        Z, A = self.output_layer._forward_prop(As=self._As[-1])
+        self._Zs.append(Z)
+        self._As.append(A)
+
         return Activations(A)
 
     def backward_prop(self, Y_true: np.ndarray) -> MultiLayerPerceptron.Gradient:
@@ -408,11 +432,16 @@ class MultiLayerPerceptron(ModelBase):
             Zs_prev=self._Zs[-2],
         )
         dps.append(dp)
-        for layer, As_prev, Zs_prev in zip(
+        for layer, As_prev, Zs_prev, dropout_mask in zip(
             reversed(self.hidden_layers),
             reversed(self._As[:-2]),
             reversed(self._Zs[:-2]),
+            reversed(self._dropout_masks),
         ):
+            if dropout_mask is not None:
+                dZ *= dropout_mask
+                dZ /= dropout_mask.mean()
+
             dp, dZ = layer._backward_prop(As_prev=As_prev, Zs_prev=Zs_prev, dZ=dZ)
             dps.append(dp)
         return self.Gradient(dParams=tuple(reversed(dps)))  # type: ignore[arg-type] # TODO: Fix-types

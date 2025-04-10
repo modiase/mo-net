@@ -118,7 +118,7 @@ class ModelTrainer:
             X_train_batch = next(X_train_batched)
             Y_train_batch = next(Y_train_batched)
 
-            optimizer.update(model, X_train_batch, Y_train_batch)
+            optimizer.training_step(model, X_train_batch, Y_train_batch)
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
                 permutation = np.random.permutation(train_set_size)

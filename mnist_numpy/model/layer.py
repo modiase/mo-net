@@ -273,6 +273,10 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
             dim_in=self._previous_layer.neurons, dim_out=self._neurons
         )
 
+    @property
+    def parameters(self) -> DenseParameters:
+        return self._parameters
+
 
 class RawOutputLayer(SoftmaxOutputLayer):
     def __init__(

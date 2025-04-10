@@ -60,7 +60,7 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
     def learning_rate(self) -> float:
         return self._learning_rate
 
-    def update(
+    def training_step(
         self,
         model: ModelT,
         X_train_batch: np.ndarray,

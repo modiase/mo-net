@@ -133,11 +133,19 @@ def cli(): ...
     help="Set the path to the model file",
     type=Path,
 )
+@click.option(
+    "-k",
+    "--dropout-keep-prob",
+    type=float,
+    help="Set the dropout keep probability",
+    default=1.0,
+)
 def train(
     *,
     batch_size: int | None,
     data_path: Path,
     dims: Sequence[int],
+    dropout_keep_prob: float,
     learning_rate: float,
     learning_rate_rescale_factor_per_epoch: float,
     learning_rate_limits: tuple[float, float],
@@ -194,6 +202,7 @@ def train(
             optimizer = AdamOptimizer(
                 model=model,
                 config=AdamOptimizer.Config(
+                    dropout_keep_prob=dropout_keep_prob,
                     learning_rate=learning_rate,
                     scheduler=DecayScheduler(
                         batch_size=batch_size,

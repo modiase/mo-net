@@ -14,7 +14,7 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
         self._config = config
 
     @abstractmethod
-    def update(
+    def training_step(
         self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
     ) -> None: ...
 
@@ -34,7 +34,7 @@ class NoConfig:
 class NoOptimizer(OptimizerBase[ModelT, NoConfig]):
     Config = NoConfig
 
-    def update(
+    def training_step(
         self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
     ) -> None:
         A_train_batch, Z_train_batch = model._forward_prop(X_train_batch)
