@@ -6,7 +6,6 @@ from typing import Generic, Self, TypeVar, cast
 
 import numpy as np
 
-from mnist_numpy.functional import Thunk, evaluate
 from mnist_numpy.functions import eye, softmax
 from mnist_numpy.types import ActivationFn, Activations, D, PreActivations
 
@@ -138,17 +137,20 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         *,
         neurons: int,
         activation_fn: ActivationFn,
-        parameters: DenseParameters | Thunk[DenseParameters] = Parameters.empty,
+        parameters: DenseParameters | None = None,
     ):
         super().__init__(neurons=neurons, activation_fn=activation_fn)
-        self._parameters = evaluate(parameters)
+        self._parameters = parameters
 
     def _init(self, previous_layer: LayerBase | None, next_layer: LayerBase | None):
         if previous_layer is None or next_layer is None:
             raise ValueError("DenseLayerBase must have a previous and next layer")
         self._previous_layer = previous_layer
         self._next_layer = next_layer
-        self._parameters = self.Parameters.random(previous_layer.neurons, self._neurons)
+        if self._parameters is None:
+            self._parameters = self.Parameters.random(
+                previous_layer.neurons, self._neurons
+            )
 
     def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
         preactivations = As @ self._parameters._W + self._parameters._B
@@ -218,9 +220,10 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
     def __init__(
         self,
         neurons: int,
+        parameters: DenseParameters | None = None,
     ):
         super().__init__(neurons=neurons, activation_fn=softmax)
-        self._parameters = self.Parameters.empty()
+        self._parameters = parameters
 
     def _init(
         self, *, previous_layer: LayerBase | None, next_layer: LayerBase | None = None
@@ -230,7 +233,10 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         self._previous_layer = previous_layer
         if next_layer is not None:
             raise ValueError("OutputLayer must have a next layer")
-        self._parameters = DenseParameters.random(previous_layer.neurons, self._neurons)
+        if self._parameters is None:
+            self._parameters = self.Parameters.random(
+                previous_layer.neurons, self._neurons
+            )
 
     def _backward_prop(
         self,

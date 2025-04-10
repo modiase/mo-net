@@ -163,8 +163,7 @@ def train(
         else:
             raise ValueError(f"Invalid model type: {model_type}")
     else:
-        # TODO: implement load
-        model = DeprecatedMultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+        model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{seed}_{model.get_name()}_model.pkl"
@@ -236,6 +235,7 @@ def train(
         optimizer=optimizer,
         training_log_path=training_log_path,
     ).rename(model_path)
+
     logger.info(f"Saved output to {model_path}.")
 
 
@@ -258,7 +258,7 @@ def infer(*, model_path: Path, data_path: Path):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
     # TODO: Dispatch on model type
-    model = DeprecatedMultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+    model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
     Y_pred = model.predict(X_train)
     Y_true = np.argmax(Y_train, axis=1)

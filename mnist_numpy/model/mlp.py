@@ -439,7 +439,7 @@ class MultiLayerPerceptron(ModelBase):
                         (layer.neurons, layer._parameters)
                         for layer in self.hidden_layers
                     ),  # type: ignore[attr-defined]
-                    (self.output_layer.neurons, self.output_layer._parameters),  # type: ignore[attr-defined]
+                    ((self.output_layer.neurons, self.output_layer._parameters),),  # type: ignore[attr-defined]
                 )
             ),
             io,
@@ -447,20 +447,30 @@ class MultiLayerPerceptron(ModelBase):
 
     @classmethod
     def load(cls, source: IO[bytes]) -> Self:
-        hidden_layers, output_layer = pickle.load(source)
+        layers = pickle.load(source)
+        hidden_layers, output_layer = layers[:-1], layers[-1]
         return cls(
             tuple(
                 chain(
+                    (
+                        InputLayer(
+                            neurons=784
+                        ),  # TODO: Generalize - perhaps store in pickled object
+                    ),
                     (
                         DenseLayer(
                             neurons=neurons, activation_fn=ReLU, parameters=parameters
                         )
                         for (neurons, parameters) in hidden_layers
                     ),
-                    (SoftmaxOutputLayer(neurons=output_layer[0]),),
+                    (
+                        SoftmaxOutputLayer(  # TODO: Generalize - perhaps store in pickled object
+                            neurons=output_layer[0], parameters=output_layer[1]
+                        ),
+                    ),
                 )
             )
-        )  # TODO: Generalize
+        )
 
     @classmethod
     def initialize(cls, *dims: int) -> Self:
