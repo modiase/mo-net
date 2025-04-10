@@ -5,12 +5,12 @@ from more_itertools import one
 from mnist_numpy.functions import ReLU
 from mnist_numpy.model import (
     DenseLayer,
-    MultiLayerPerceptronV2,
+    MultiLayerPerceptron,
 )
 
 
 def test_init():
-    model = MultiLayerPerceptronV2.of(layer_neuron_counts=(2, 2, 2))
+    model = MultiLayerPerceptron.of(layer_neuron_counts=(2, 2, 2))
 
     assert model.input_layer.neurons == 2
     assert tuple(layer.neurons for layer in model.hidden_layers) == (2,)
@@ -26,7 +26,7 @@ def test_init():
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
 @pytest.mark.parametrize("n_neurons", [2, 3, 4])
 def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
-    model = MultiLayerPerceptronV2.of(
+    model = MultiLayerPerceptron.of(
         layer_neuron_counts=[n_neurons] * (n_hidden_layers + 2), output_layer_type="raw"
     )
 
@@ -43,7 +43,7 @@ def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
 def test_foward_prop_basic_math(factor: int):
     bias_1 = np.array([1, 2])
     bias_2 = np.array([1, 1])
-    model = MultiLayerPerceptronV2.of(
+    model = MultiLayerPerceptron.of(
         layer_neuron_counts=(5, 2, 2, 1), output_layer_type="raw"
     )
     model.hidden_layers[0]._parameters = DenseLayer.Parameters(
@@ -64,7 +64,7 @@ def test_foward_prop_basic_math(factor: int):
     ("input_", "expected"), [(np.array([1]), 1), (np.array([-1]), 0)]
 )
 def test_ReLU(input_: np.ndarray, expected: float):
-    model = MultiLayerPerceptronV2.of(
+    model = MultiLayerPerceptron.of(
         layer_neuron_counts=(1, 1, 1), activation_fn=ReLU, output_layer_type="raw"
     )
     one(model.hidden_layers)._parameters = DenseLayer.Parameters.eye(1)
@@ -74,8 +74,8 @@ def test_ReLU(input_: np.ndarray, expected: float):
 
 
 @pytest.fixture
-def m1() -> MultiLayerPerceptronV2:
-    model = MultiLayerPerceptronV2.of(
+def m1() -> MultiLayerPerceptron:
+    model = MultiLayerPerceptron.of(
         layer_neuron_counts=(1, 1, 1, 1), output_layer_type="raw"
     )
     hidden_layer_1, hidden_layer_2 = model.hidden_layers
@@ -91,7 +91,7 @@ def m1() -> MultiLayerPerceptronV2:
     return model
 
 
-def test_backward_prop_basic_math(m1: MultiLayerPerceptronV2):
+def test_backward_prop_basic_math(m1: MultiLayerPerceptron):
     input = np.array([[1]])
     m1.forward_prop(input)
     backprop = m1.backward_prop(np.array([1]))
@@ -104,8 +104,8 @@ def test_backward_prop_basic_math(m1: MultiLayerPerceptronV2):
 
 
 @pytest.fixture
-def m2() -> MultiLayerPerceptronV2:
-    model = MultiLayerPerceptronV2.of(
+def m2() -> MultiLayerPerceptron:
+    model = MultiLayerPerceptron.of(
         layer_neuron_counts=(2, 2, 2),
     )
     hidden_layer = one(model.hidden_layers)
@@ -118,7 +118,7 @@ def m2() -> MultiLayerPerceptronV2:
     return model
 
 
-def test_backward_prop_update(m2: MultiLayerPerceptronV2):
+def test_backward_prop_update(m2: MultiLayerPerceptron):
     Y_true = np.array([[0, 1], [1, 0]])
     input_ = np.array([[1, 0], [0, 1]])
     learning_rate = 0.1
@@ -126,14 +126,14 @@ def test_backward_prop_update(m2: MultiLayerPerceptronV2):
     for i in range(1000):
         m2.forward_prop(input_)
         backprop = m2.backward_prop(Y_true)
-        m2.update_params(-learning_rate * backprop)
+        m2.update_parameters(-learning_rate * backprop)
 
     assert np.allclose(m2.forward_prop(input_), Y_true, atol=1e-2)
 
 
 @pytest.fixture
-def m3() -> MultiLayerPerceptronV2:
-    model = MultiLayerPerceptronV2.of(
+def m3() -> MultiLayerPerceptron:
+    model = MultiLayerPerceptron.of(
         layer_neuron_counts=(2, 2, 2, 2),
     )
     hidden_layer_1, hidden_layer_2 = model.hidden_layers
@@ -149,7 +149,7 @@ def m3() -> MultiLayerPerceptronV2:
     return model
 
 
-def test_backward_prop_update_deeper(m3: MultiLayerPerceptronV2):
+def test_backward_prop_update_deeper(m3: MultiLayerPerceptron):
     Y_true = np.array([[0.2, 0.8], [0.8, 0.2]])
     input_ = np.array([[1, 0], [0, 1]])
     learning_rate = 0.1
@@ -157,7 +157,7 @@ def test_backward_prop_update_deeper(m3: MultiLayerPerceptronV2):
     for i in range(1000):
         m3.forward_prop(input_)
         backprop = m3.backward_prop(Y_true)
-        boost = 0.1 / np.max(np.concat([dP._W.flatten() for dP in backprop.dParams]))
-        m3.update_params(-learning_rate * backprop * boost)
+        boost = 0.1 / np.max(np.concat([dP._W.flatten() for dP in backprop.dParams]))  # type: ignore[attr-defined] # TODO: fix-types
+        m3.update_parameters(-learning_rate * backprop * boost)
 
     assert np.allclose(m3.forward_prop(input_), Y_true, atol=0.1)

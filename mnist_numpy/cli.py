@@ -13,9 +13,10 @@ from matplotlib import pyplot as plt
 from more_itertools import sample
 
 from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
+from mnist_numpy.functions import ReLU
 from mnist_numpy.model import (
-    ModelBase,
-    MultilayerPerceptron,
+    DeprecatedMultilayerPerceptron,
+    MultiLayerPerceptron,
 )
 from mnist_numpy.model.scheduler import DecayScheduler
 from mnist_numpy.optimizer import (
@@ -38,6 +39,7 @@ DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.000001, 1"
 DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
 DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.05
+N_DIGITS: Final[int] = 10
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
@@ -114,9 +116,9 @@ def cli(): ...
 @click.option(
     "-t",
     "--model-type",
-    type=click.Choice([MultilayerPerceptron.Serialized._tag]),
+    type=click.Choice([MultiLayerPerceptron.get_name()]),
     help="The type of model to train",
-    default=MultilayerPerceptron.Serialized._tag,
+    default=MultiLayerPerceptron.get_name(),
 )
 @click.option(
     "-i",
@@ -151,15 +153,18 @@ def train(
     np.random.seed(seed)
     logger.info(f"Training model with {seed=}.")
 
-    model: ModelBase
+    model: MultiLayerPerceptron
     if model_path is None:
-        match model_type:
-            case MultilayerPerceptron.Serialized._tag:
-                model = MultilayerPerceptron.initialize(X_train.shape[1], *dims, 10)
-            case _:
-                raise ValueError(f"Invalid model type: {model_type}")
+        if model_type == MultiLayerPerceptron.get_name():
+            model = MultiLayerPerceptron.of(
+                layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
+                activation_fn=ReLU,
+            )
+        else:
+            raise ValueError(f"Invalid model type: {model_type}")
     else:
-        model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+        # TODO: implement load
+        model = DeprecatedMultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{seed}_{model.get_name()}_model.pkl"
@@ -253,7 +258,7 @@ def infer(*, model_path: Path, data_path: Path):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
     # TODO: Dispatch on model type
-    model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+    model = DeprecatedMultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
 
     Y_pred = model.predict(X_train)
     Y_true = np.argmax(Y_train, axis=1)
@@ -317,7 +322,7 @@ def infer(*, model_path: Path, data_path: Path):
 def explain(*, model_path: Path, data_path: Path):
     X_train = load_data(data_path)[0]
     # TODO: Dispatch on model type
-    model = MultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+    model = DeprecatedMultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
     W = model._W[0].reshape(28, 28, 10)
     avg = np.average(X_train, axis=0).reshape(28, 28)
 

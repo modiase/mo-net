@@ -45,13 +45,8 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         Y_train_batch: np.ndarray,
     ) -> None:
         self._iterations += 1
-        Z_train_batch, A_train_batch = model._forward_prop(X_train_batch)
-        gradient = model._backward_prop(
-            X_train_batch,
-            Y_train_batch,
-            Z_train_batch,
-            A_train_batch,
-        )
+        model.forward_prop(X_train_batch)
+        gradient = model.backward_prop(Y_train_batch)
         self._current_learning_rate = self._scheduler(
             self._iterations, self._current_learning_rate, gradient
         )
@@ -69,25 +64,11 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         second_moment_corrected = self._second_moment / (
             1 - self._config.beta_2**self._iterations
         )
-
-        update = model.Gradient(
-            dWs=tuple(
-                -self._config.learning_rate
-                * first_moment_corrected
-                / (np.sqrt(second_moment_corrected) + self._config.epsilon)
-                for first_moment_corrected, second_moment_corrected in zip(
-                    first_moment_corrected.dWs, second_moment_corrected.dWs
-                )
-            ),
-            dbs=tuple(
-                -self._config.learning_rate
-                * first_moment_corrected
-                / (np.sqrt(second_moment_corrected) + self._config.epsilon)
-                for first_moment_corrected, second_moment_corrected in zip(
-                    first_moment_corrected.dbs, second_moment_corrected.dbs
-                )
-            ),
+        update = -self._config.learning_rate * (
+            first_moment_corrected
+            / (second_moment_corrected**0.5 + self._config.epsilon)
         )
+
         model.update_parameters(update)
 
     @property

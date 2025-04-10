@@ -9,7 +9,7 @@ from loguru import logger
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from mnist_numpy.functions import cross_entropy, softmax
+from mnist_numpy.functions import cross_entropy
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
 
@@ -101,12 +101,8 @@ class ModelTrainer:
         test_set_size = X_test.shape[0]
         k_test = 1 / test_set_size
 
-        L_train_min = k_train * cross_entropy(
-            softmax(model._forward_prop(X_train)[1][-1]), Y_train
-        )
-        L_test_min = k_test * cross_entropy(
-            softmax(model._forward_prop(X_test)[1][-1]), Y_test
-        )
+        L_train_min = k_train * cross_entropy(model.forward_prop(X_train), Y_train)
+        L_test_min = k_test * cross_entropy(model.forward_prop(X_test), Y_test)
 
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
@@ -139,10 +135,8 @@ class ModelTrainer:
                         Y_train, train_set_size // training_parameters.batch_size
                     )
                 )
-                _, A_train = model._forward_prop(X_train)
-                L_train = k_train * cross_entropy(softmax(A_train[-1]), Y_train)
-                _, A_test = model._forward_prop(X_test)
-                L_test = k_test * cross_entropy(softmax(A_test[-1]), Y_test)
+                L_train = k_train * cross_entropy(model.forward_prop(X_train), Y_train)
+                L_test = k_test * cross_entropy(model.forward_prop(X_test), Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
 
                 L_train_min = min(L_train_min, L_train)

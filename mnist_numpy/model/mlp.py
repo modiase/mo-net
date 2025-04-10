@@ -8,9 +8,10 @@ from typing import IO, ClassVar, Literal, Protocol, Self, Sequence, cast
 
 import numpy as np
 from more_itertools import first, last, pairwise, triplewise
+from typing_extensions import deprecated
 
 from mnist_numpy.functions import ReLU, eye, softmax
-from mnist_numpy.model import ModelBase
+from mnist_numpy.model import DeprecatedModelBase, ModelBase
 from mnist_numpy.model.layer import (
     DenseLayer,
     HiddenLayerBase,
@@ -107,7 +108,8 @@ class MLP_Parameters:
                 return self.W[i][*rest], self.b[i][*rest]
 
 
-class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
+@deprecated("Superseded by new class.", category=None)
+class DeprecatedMultilayerPerceptron(DeprecatedModelBase[MLP_Parameters, MLP_Gradient]):
     Gradient = MLP_Gradient
 
     @dataclass(frozen=True, kw_only=True)
@@ -212,24 +214,96 @@ class MultilayerPerceptron(ModelBase[MLP_Parameters, MLP_Gradient]):
         return MLP_Parameters(W=tuple(self._W), b=tuple(self._b))
 
 
-class SupportsMultiplyByFloat(Protocol):
-    def __mul__(self, scalar: float): ...
+class GradientProto(Protocol):
+    def __mul__(self, other: Self | float): ...
 
-    def __rmul__(self, scalar: float): ...
+    def __rmul__(self, other: Self | float): ...
+
+    def __add__(self, other: Self | float): ...
+
+    def __radd__(self, other: Self | float): ...
+
+    def __neg__(self): ...
+
+    def __sub__(self, other: Self | float): ...
+
+    def __truediv__(self, other: Self | float): ...
+
+    def __pow__(self, other: float): ...
 
 
-class MultiLayerPerceptronV2:
+class MultiLayerPerceptron(ModelBase):
     @dataclass
     class Gradient:
-        dParams: Sequence[SupportsMultiplyByFloat]  # TODO: improve-types
+        dParams: Sequence[GradientProto]  # TODO: improve-types
 
-        def __mul__(self, scalar: float):
-            return self.__class__(
-                dParams=tuple(scalar * param for param in self.dParams)
-            )
+        def __mul__(self, other: Self | float):
+            match other:
+                case self.__class__():
+                    return self.__class__(
+                        dParams=tuple(other * param for param in self.dParams)
+                    )
+                case float():
+                    return self.__class__(
+                        dParams=tuple(other * param for param in self.dParams)
+                    )
+                case _:
+                    return NotImplemented
 
-        def __rmul__(self, scalar: float):
-            return self.__mul__(scalar)
+        def __rmul__(self, other: Self | float):
+            return self.__mul__(other)
+
+        def __add__(self, other: Self | float):
+            match other:
+                case self.__class__():
+                    return self.__class__(
+                        dParams=tuple(
+                            param1 + param2
+                            for param1, param2 in zip(self.dParams, other.dParams)
+                        )
+                    )
+                case float():
+                    return self.__class__(
+                        dParams=tuple(param + other for param in self.dParams)
+                    )
+                case _:
+                    return NotImplemented
+
+        def __radd__(self, other: Self):
+            return self.__add__(other)
+
+        def __neg__(self):
+            return self.__class__(dParams=tuple(-param for param in self.dParams))
+
+        def __sub__(self, other: Self):
+            return self.__add__(-other)
+
+        def __truediv__(self, other: Self | float):
+            match other:
+                case self.__class__():
+                    return self.__class__(
+                        dParams=tuple(
+                            param1 / param2
+                            for param1, param2 in zip(self.dParams, other.dParams)
+                        )
+                    )
+                case float():
+                    return self.__class__(
+                        dParams=tuple(param / other for param in self.dParams)
+                    )
+                case _:
+                    return NotImplemented
+
+        def __pow__(self, other: float):
+            return self.__class__(dParams=tuple(param**other for param in self.dParams))
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "mlp"
+
+    @classmethod
+    def get_description(cls) -> str:
+        return "MultiLayer Perceptron"
 
     @classmethod
     def of(
@@ -311,7 +385,7 @@ class MultiLayerPerceptronV2:
             chain((self.input_layer,), self.hidden_layers, (self.output_layer,))
         )
 
-    def forward_prop(self, X: np.ndarray) -> np.ndarray:
+    def forward_prop(self, X: np.ndarray) -> Activations:
         self._Zs.clear()
         self._As.clear()
 
@@ -323,9 +397,9 @@ class MultiLayerPerceptronV2:
             Z, A = layer._forward_prop(As=self._As[-1])
             self._Zs.append(Z)
             self._As.append(A)
-        return A
+        return Activations(A)
 
-    def backward_prop(self, Y_true: np.ndarray) -> MultiLayerPerceptronV2.Gradient:
+    def backward_prop(self, Y_true: np.ndarray) -> MultiLayerPerceptron.Gradient:
         dps = []
         dp, dZ = self.output_layer._backward_prop(
             Y_pred=self._As[-1],
@@ -343,7 +417,7 @@ class MultiLayerPerceptronV2:
             dps.append(dp)
         return self.Gradient(dParams=tuple(reversed(dps)))  # type: ignore[arg-type] # TODO: Fix-types
 
-    def update_params(self, update: MultiLayerPerceptronV2.Gradient) -> None:
+    def update_parameters(self, update: MultiLayerPerceptron.Gradient) -> None:
         def _it():
             return zip(update.dParams, self.non_input_layers)
 
@@ -355,3 +429,47 @@ class MultiLayerPerceptronV2:
             )
         for dP, layer in _it():
             layer._update_parameters(dP)
+
+    def dump(self, io: IO[bytes]) -> None:
+        pickle.dump(
+            tuple(
+                chain(
+                    # TODO: Generalize
+                    (
+                        (layer.neurons, layer._parameters)
+                        for layer in self.hidden_layers
+                    ),  # type: ignore[attr-defined]
+                    (self.output_layer.neurons, self.output_layer._parameters),  # type: ignore[attr-defined]
+                )
+            ),
+            io,
+        )
+
+    @classmethod
+    def load(cls, source: IO[bytes]) -> Self:
+        hidden_layers, output_layer = pickle.load(source)
+        return cls(
+            tuple(
+                chain(
+                    (
+                        DenseLayer(
+                            neurons=neurons, activation_fn=ReLU, parameters=parameters
+                        )
+                        for (neurons, parameters) in hidden_layers
+                    ),
+                    (SoftmaxOutputLayer(neurons=output_layer[0]),),
+                )
+            )
+        )  # TODO: Generalize
+
+    @classmethod
+    def initialize(cls, *dims: int) -> Self:
+        return cls.of(layer_neuron_counts=dims, activation_fn=ReLU)
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return self.forward_prop(X).argmax(axis=1)
+
+    def empty_gradient(self) -> MultiLayerPerceptron.Gradient:
+        return self.Gradient(
+            dParams=tuple(layer.empty_parameters() for layer in self.non_input_layers)
+        )

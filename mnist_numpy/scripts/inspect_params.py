@@ -6,13 +6,13 @@ import click
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mnist_numpy.model.mlp import MultilayerPerceptron
+from mnist_numpy.model.mlp import DeprecatedMultilayerPerceptron
 
 
 @click.command()
 @click.argument("model_path", type=Path)
 def main(model_path: Path):
-    model = MultilayerPerceptron.load(pickle.load(model_path.open("rb")))
+    model = DeprecatedMultilayerPerceptron.load(pickle.load(model_path.open("rb")))
     weights, biases = map(chain.from_iterable, model.parameters.unroll())
 
     weights_array = np.abs(np.array(list(weights)))
