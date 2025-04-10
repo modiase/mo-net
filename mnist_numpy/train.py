@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Final
@@ -13,11 +14,14 @@ from mnist_numpy.functions import cross_entropy
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
 
+ABORT_TRAINING_THRESHOLD: Final[float] = -np.log(0.1)
+ABORT_TRAINING_STD_THRESHOLD: Final[float] = 0.001
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
 
 class TrainingParameters(BaseModel):
     batch_size: int
+    dropout_keep_prob: float
     learning_rate: float
     learning_rate_limits: tuple[float, float]
     learning_rate_rescale_factor_per_epoch: float
@@ -104,6 +108,8 @@ class ModelTrainer:
         L_train_min = k_train * cross_entropy(model.forward_prop(X_train), Y_train)
         L_test_min = k_test * cross_entropy(model.forward_prop(X_test), Y_test)
 
+        L_train_queue = deque(maxlen=100)
+
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
         batches_per_epoch = train_set_size // training_parameters.batch_size
@@ -136,6 +142,14 @@ class ModelTrainer:
                     )
                 )
                 L_train = k_train * cross_entropy(model.forward_prop(X_train), Y_train)
+                L_train_queue.append(L_train)
+                if len(L_train_queue) == L_train_queue.maxlen:
+                    std_loss = np.std(L_train_queue)
+                    if (
+                        L_train_min > ABORT_TRAINING_THRESHOLD
+                        and std_loss < ABORT_TRAINING_STD_THRESHOLD
+                    ):
+                        raise RuntimeError("Aborting training. Model is not learning.")
                 L_test = k_test * cross_entropy(model.forward_prop(X_test), Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
 

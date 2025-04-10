@@ -188,6 +188,7 @@ def train(
     batch_size = batch_size if batch_size is not None else train_set_size
     training_parameters = TrainingParameters(
         batch_size=batch_size,
+        dropout_keep_prob=dropout_keep_prob,
         learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
         learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
