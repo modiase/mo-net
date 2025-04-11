@@ -10,17 +10,12 @@ from mnist_numpy.functions import eye, softmax
 from mnist_numpy.types import ActivationFn, Activations, D, PreActivations
 
 _ParamType = TypeVar("_ParamType")
-_PreviousLayerType_co = TypeVar(
-    "_PreviousLayerType_co", "LayerBase", None, covariant=True
-)
-_NextLayerType_co = TypeVar("_NextLayerType_co", "LayerBase", None, covariant=True)
 
 
-class LayerBase(ABC, Generic[_ParamType, _PreviousLayerType_co, _NextLayerType_co]):
+class _LayerBase(ABC, Generic[_ParamType]):
     Parameters: type[_ParamType]
     _parameters: _ParamType
-    _previous_layer: _PreviousLayerType_co
-    _next_layer: _NextLayerType_co
+    _previous_layer: Layer
 
     def __init__(
         self,
@@ -39,18 +34,12 @@ class LayerBase(ABC, Generic[_ParamType, _PreviousLayerType_co, _NextLayerType_c
     def _update_parameters(self, params: D[_ParamType]) -> None:
         self._parameters = params + self._parameters
 
-    def _init(
-        self,
-        *,
-        previous_layer: _PreviousLayerType_co,
-        next_layer: _NextLayerType_co,
-    ) -> None:
-        self._previous_layer = previous_layer
-        self._next_layer = next_layer
-
     @property
     @abstractmethod
     def neurons(self) -> int: ...
+
+    @abstractmethod
+    def empty_parameters(self) -> _ParamType: ...
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -113,7 +102,7 @@ class DenseParameters:
 
 
 class HiddenLayerBase(
-    LayerBase[_ParamType, LayerBase, LayerBase]
+    _LayerBase[_ParamType]
 ):  # TODO: Consider merging this with OutputLayerBase
     @abstractmethod
     def _backward_prop(
@@ -123,9 +112,6 @@ class HiddenLayerBase(
         Zs_prev: PreActivations,
         dZ: D[PreActivations],
     ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
-
-    @abstractmethod
-    def empty_parameters(self) -> _ParamType: ...
 
 
 class DenseLayer(HiddenLayerBase[DenseParameters]):
@@ -138,19 +124,15 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         neurons: int,
         activation_fn: ActivationFn,
         parameters: DenseParameters | None = None,
+        previous_layer: Layer,
     ):
         super().__init__(neurons=neurons, activation_fn=activation_fn)
-        self._parameters = parameters
-
-    def _init(self, previous_layer: LayerBase | None, next_layer: LayerBase | None):
-        if previous_layer is None or next_layer is None:
-            raise ValueError("DenseLayerBase must have a previous and next layer")
         self._previous_layer = previous_layer
-        self._next_layer = next_layer
-        if self._parameters is None:
-            self._parameters = self.Parameters.random(
-                previous_layer.neurons, self._neurons
-            )
+        self._parameters = (
+            parameters
+            if parameters is not None
+            else self.Parameters.random(previous_layer.neurons, self._neurons)
+        )
 
     def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
         preactivations = As @ self._parameters._W + self._parameters._B
@@ -190,7 +172,7 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         return self._parameters
 
 
-class OutputLayerBase(LayerBase[_ParamType, LayerBase, None]):
+class OutputLayerBase(_LayerBase[_ParamType]):
     @abstractmethod
     def _backward_prop(
         self,
@@ -201,42 +183,24 @@ class OutputLayerBase(LayerBase[_ParamType, LayerBase, None]):
         Zs_prev: PreActivations,
     ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
 
-    @abstractmethod
-    def _init(
-        self,
-        *,
-        previous_layer: LayerBase,
-        next_layer: None = None,
-    ) -> None:
-        LayerBase._init(self, previous_layer=previous_layer, next_layer=None)
-
-    @abstractmethod
-    def empty_parameters(self) -> _ParamType: ...
-
 
 class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
     Parameters = DenseParameters
 
     def __init__(
         self,
+        *,
         neurons: int,
         parameters: DenseParameters | None = None,
+        previous_layer: Layer,
     ):
         super().__init__(neurons=neurons, activation_fn=softmax)
-        self._parameters = parameters
-
-    def _init(
-        self, *, previous_layer: LayerBase | None, next_layer: LayerBase | None = None
-    ):
-        if previous_layer is None:
-            raise ValueError("OutputLayer must have a previous layer")
         self._previous_layer = previous_layer
-        if next_layer is not None:
-            raise ValueError("OutputLayer must have a next layer")
-        if self._parameters is None:
-            self._parameters = self.Parameters.random(
-                previous_layer.neurons, self._neurons
-            )
+        self._parameters = (
+            parameters
+            if parameters is not None
+            else self.Parameters.random(previous_layer.neurons, self._neurons)
+        )
 
     def _backward_prop(
         self,
@@ -281,36 +245,27 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
 class RawOutputLayer(SoftmaxOutputLayer):
     def __init__(
         self,
+        *,
         neurons: int,
+        previous_layer: Layer,
     ):
-        OutputLayerBase.__init__(self, neurons=neurons, activation_fn=eye)  # type: ignore[arg-type] # TODO: fix-types
-        self._parameters = self.Parameters.empty()
+        super().__init__(neurons=neurons, previous_layer=previous_layer)
+        self._activation_fn = eye
 
 
-class InputLayer(LayerBase[None, None, LayerBase]):
-    def __init__(self, neurons: int):
+class InputLayer:
+    def __init__(self, *, neurons: int):
         # TODO: fix-types
-        super().__init__(neurons=neurons, activation_fn=eye)  # type: ignore[arg-type] # TODO: fix-types
-        self._parameters = None
-
-    def _init(self, previous_layer: LayerBase | None, next_layer: LayerBase | None):
-        if previous_layer is not None:
-            raise ValueError("InputLayer must not have a previous layer")
-        self._previous_layer = None
-
-        if next_layer is None:
-            raise ValueError("InputLayer must have a next layer")
-        self._next_layer = next_layer
-
-        self._parameters = None
+        self._neurons = neurons
+        self._activation_fn = eye
 
     def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
         return cast(tuple[PreActivations, Activations], (As, As))
 
-    def _update_parameters(self, params: D[None]) -> None:
-        del params  # unused
-        raise NotImplementedError("InputLayer cannot update parameters")
-
     @property
     def neurons(self) -> int:
         return self._neurons
+
+
+Layer = InputLayer | _LayerBase
+NonInputLayer = _LayerBase

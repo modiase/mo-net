@@ -7,7 +7,6 @@ from itertools import chain
 from typing import IO, Literal, Protocol, Self, Sequence, cast
 
 import numpy as np
-from more_itertools import first, last, triplewise
 
 from mnist_numpy.functions import ReLU, eye
 from mnist_numpy.model import ModelBase
@@ -15,7 +14,8 @@ from mnist_numpy.model.layer import (
     DenseLayer,
     HiddenLayerBase,
     InputLayer,
-    LayerBase,
+    Layer,
+    NonInputLayer,
     OutputLayerBase,
     RawOutputLayer,
     SoftmaxOutputLayer,
@@ -127,20 +127,24 @@ class MultiLayerPerceptron(ModelBase):
         OutputLayerClass = (
             SoftmaxOutputLayer if output_layer_type == "softmax" else RawOutputLayer
         )
-        return cls(
-            tuple(
-                (
-                    InputLayer(layer_neuron_counts[0]),
-                    *(
-                        DenseLayer(neurons=layer, activation_fn=activation_fn)
-                        for layer in layer_neuron_counts[1:-1]
-                    ),
-                    OutputLayerClass(layer_neuron_counts[-1]),
+        layers: MutableSequence[Layer] = [InputLayer(neurons=layer_neuron_counts[0])]
+        for layer in layer_neuron_counts[1:-1]:
+            layers.append(
+                DenseLayer(
+                    neurons=layer,
+                    activation_fn=activation_fn,
+                    previous_layer=layers[-1],
                 )
             )
+        layers.append(
+            OutputLayerClass(
+                neurons=layer_neuron_counts[-1],
+                previous_layer=layers[-1],
+            )
         )
+        return cls(tuple(layers))
 
-    def __init__(self, layers: Sequence[LayerBase]):
+    def __init__(self, layers: Sequence[Layer]):  # noqa: F821
         if len(layers) < 2:
             raise ValueError(f"{self.__class__.__name__} must have at least 2 layers.")
         if not isinstance(layers[-1], OutputLayerBase):
@@ -153,33 +157,22 @@ class MultiLayerPerceptron(ModelBase):
             )
         if not all(isinstance(layer, HiddenLayerBase) for layer in layers[1:-1]):
             raise ValueError(
-                f"Hidden layers must have type {HiddenLayerBase.__name__}."
+                f"Expected all layers except input and output layers to be {HiddenLayerBase.__name__}."
             )
         self._hidden_layers = cast(Sequence[HiddenLayerBase], layers[1:-1])
         self._As: MutableSequence[Activations] = []
         self._Zs: MutableSequence[PreActivations] = []
-        self._dropout_masks: MutableSequence[np.ndarray] = []
+        self._dropout_masks: MutableSequence[np.ndarray | None] = []
         self._input_layer = layers[0]
         self._output_layer = layers[-1]
 
-        self._input_layer._init(
-            previous_layer=None,
-            next_layer=first(chain(self._hidden_layers, (self._output_layer,))),  # type: ignore[arg-type]
-        )
-        for previous_layer, hidden_layer, next_layer in triplewise(layers):
-            hidden_layer._init(previous_layer=previous_layer, next_layer=next_layer)
-        self._output_layer._init(
-            previous_layer=last(chain((self._input_layer,), self._hidden_layers)),  # type: ignore[arg-type]
-            next_layer=None,
-        )
+    @property
+    def non_input_layers(self) -> Sequence[NonInputLayer]:
+        return tuple(chain(self._hidden_layers, (self._output_layer,)))
 
     @property
     def hidden_layers(self) -> Sequence[HiddenLayerBase]:
         return self._hidden_layers
-
-    @property
-    def non_input_layers(self) -> Sequence[HiddenLayerBase | OutputLayerBase]:
-        return tuple(chain(self._hidden_layers, (self._output_layer,)))
 
     @property
     def input_layer(self) -> InputLayer:
@@ -190,7 +183,7 @@ class MultiLayerPerceptron(ModelBase):
         return self._output_layer
 
     @property
-    def layers(self) -> Sequence[LayerBase]:
+    def layers(self) -> Sequence[Layer]:
         return tuple(
             chain((self.input_layer,), self.hidden_layers, (self.output_layer,))
         )
@@ -217,8 +210,8 @@ class MultiLayerPerceptron(ModelBase):
                 dropout_mask = (np.random.rand(*A.shape) < dropout_keep_prob).astype(
                     A.dtype
                 )
-                A *= dropout_mask
-                A /= dropout_keep_prob
+                A = Activations(A * dropout_mask)
+                A = Activations(A / dropout_keep_prob)
                 self._dropout_masks.append(dropout_mask)
             else:
                 self._dropout_masks.append(None)
@@ -287,28 +280,24 @@ class MultiLayerPerceptron(ModelBase):
     def load(cls, source: IO[bytes]) -> Self:
         layers = pickle.load(source)
         hidden_layers, output_layer = layers[:-1], layers[-1]
-        return cls(
-            tuple(
-                chain(
-                    (
-                        InputLayer(
-                            neurons=784
-                        ),  # TODO: Generalize - perhaps store in pickled object
-                    ),
-                    (
-                        DenseLayer(
-                            neurons=neurons, activation_fn=ReLU, parameters=parameters
-                        )
-                        for (neurons, parameters) in hidden_layers
-                    ),
-                    (
-                        SoftmaxOutputLayer(  # TODO: Generalize - perhaps store in pickled object
-                            neurons=output_layer[0], parameters=output_layer[1]
-                        ),
-                    ),
+        layers = [InputLayer(neurons=784)]
+        for neurons, parameters in hidden_layers:
+            layers.append(
+                DenseLayer(
+                    neurons=neurons,
+                    activation_fn=ReLU,
+                    parameters=parameters,
+                    previous_layer=layers[-1],
                 )
             )
+        layers.append(
+            SoftmaxOutputLayer(
+                neurons=output_layer[0],
+                parameters=output_layer[1],
+                previous_layer=layers[-1],
+            )
         )
+        return cls(tuple(layers))
 
     @classmethod
     def initialize(cls, *dims: int) -> Self:

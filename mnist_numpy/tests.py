@@ -16,7 +16,6 @@ def test_init():
     assert tuple(layer.neurons for layer in model.hidden_layers) == (2,)
     assert model.output_layer.neurons == 2
 
-    assert model.input_layer.parameters is None
     assert model.hidden_layers[0].parameters._W.shape == (2, 2)
     assert model.hidden_layers[0].parameters._B.shape == (2,)
     assert model.output_layer.parameters._W.shape == (2, 2)
@@ -34,7 +33,7 @@ def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
     for layer in model.hidden_layers:
         layer._parameters = DenseLayer.Parameters.eye(n_neurons)
 
-    input_ = np.array(list(range(n_neurons)))
+    input_ = np.atleast_2d(np.array(list(range(n_neurons))))
     output = model.forward_prop(input_)
     assert np.allclose(output, input_)
 
