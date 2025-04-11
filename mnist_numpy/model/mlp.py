@@ -8,7 +8,7 @@ from typing import IO, Literal, Protocol, Self, Sequence, cast
 
 import numpy as np
 
-from mnist_numpy.functions import ReLU, eye
+from mnist_numpy.functions import ReLU, identity
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.layer import (
     DenseLayer,
@@ -119,7 +119,7 @@ class MultiLayerPerceptron(ModelBase):
         cls,
         *,
         layer_neuron_counts: Sequence[int],
-        activation_fn: ActivationFn = eye,
+        activation_fn: ActivationFn = identity,
         output_layer_type: Literal["softmax", "raw"] = "softmax",
     ) -> Self:
         if len(layer_neuron_counts) < 2:

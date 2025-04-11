@@ -6,7 +6,7 @@ from typing import Generic, Self, TypeVar, cast
 
 import numpy as np
 
-from mnist_numpy.functions import eye, softmax
+from mnist_numpy.functions import identity, softmax
 from mnist_numpy.types import ActivationFn, Activations, D, PreActivations
 
 _ParamType = TypeVar("_ParamType")
@@ -250,14 +250,14 @@ class RawOutputLayer(SoftmaxOutputLayer):
         previous_layer: Layer,
     ):
         super().__init__(neurons=neurons, previous_layer=previous_layer)
-        self._activation_fn = eye
+        self._activation_fn = identity
 
 
 class InputLayer:
     def __init__(self, *, neurons: int):
         # TODO: fix-types
         self._neurons = neurons
-        self._activation_fn = eye
+        self._activation_fn = identity
 
     def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
         return cast(tuple[PreActivations, Activations], (As, As))

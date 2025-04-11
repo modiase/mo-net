@@ -60,7 +60,7 @@ class _ReLU:
 ReLU = _ReLU()
 
 
-class _Eye:
+class _Identity:
     def __call__(self, x: _X) -> _X:
         return x
 
@@ -73,4 +73,4 @@ class _Eye:
             return cast(_X, 1.0)
 
 
-eye = _Eye()
+identity = _Identity()
