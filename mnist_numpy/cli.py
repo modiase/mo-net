@@ -1,5 +1,4 @@
 import functools
-import pickle
 import re
 import time
 from collections.abc import Sequence
@@ -14,10 +13,7 @@ from more_itertools import sample
 
 from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
 from mnist_numpy.functions import ReLU
-from mnist_numpy.model import (
-    DeprecatedMultilayerPerceptron,
-    MultiLayerPerceptron,
-)
+from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.scheduler import DecayScheduler
 from mnist_numpy.optimizer import (
     AdalmOptimizer,
@@ -332,7 +328,7 @@ def infer(*, model_path: Path, data_path: Path):
 def explain(*, model_path: Path, data_path: Path):
     X_train = load_data(data_path)[0]
     # TODO: Dispatch on model type
-    model = DeprecatedMultilayerPerceptron.load(pickle.load(open(model_path, "rb")))
+    model = MultiLayerPerceptron.load(open(model_path, "rb"))
     W = model._W[0].reshape(28, 28, 10)
     avg = np.average(X_train, axis=0).reshape(28, 28)
 

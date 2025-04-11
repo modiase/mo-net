@@ -1,12 +1,9 @@
-from .base import DeprecatedModelBase, ModelBase
+from .base import ModelBase
 from .layer import DenseLayer, InputLayer, SoftmaxOutputLayer
-from .mlp import DeprecatedMultilayerPerceptron, MultiLayerPerceptron
+from .mlp import MultiLayerPerceptron
 
 __all__ = [
     "DenseLayer",
-    "DeprecatedModelBaseDeprecatedMultilayerPerceptron",
-    "DeprecatedMultilayerPerceptron",
-    "DeprecatedModelBase",
     "InputLayer",
     "ModelBase",
     "MultiLayerPerceptron",
