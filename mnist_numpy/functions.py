@@ -1,3 +1,4 @@
+import math
 from typing import TypeVar, cast
 
 import numpy as np
@@ -56,8 +57,35 @@ class _ReLU:
             # TODO: fix-types
             return cast(_X, 1 if x > 0 else 0)
 
+    def get_name(self) -> str:
+        return "relu"
+
 
 ReLU = _ReLU()
+
+
+class _Tanh:
+    def __call__(self, x: _X) -> _X:
+        if isinstance(x, np.ndarray):
+            # TODO: fix-types
+            return cast(_X, np.tanh(x))
+        else:
+            # TODO: fix-types
+            return cast(_X, math.tanh(x))
+
+    def deriv(self, x: _X) -> _X:
+        if isinstance(x, np.ndarray):
+            # TODO: fix-types
+            return cast(_X, 1 - np.tanh(x) ** 2)
+        else:
+            # TODO: fix-types
+            return cast(_X, 1 - math.tanh(x) ** 2)
+
+    def get_name(self) -> str:
+        return "tanh"
+
+
+Tanh = _Tanh()
 
 
 class _Identity:
@@ -71,6 +99,9 @@ class _Identity:
         else:
             # TODO: fix-types
             return cast(_X, 1.0)
+
+    def get_name(self) -> str:
+        return "identity"
 
 
 identity = _Identity()

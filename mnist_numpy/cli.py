@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 from more_itertools import sample
 
 from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
-from mnist_numpy.functions import ReLU
+from mnist_numpy.functions import ReLU, Tanh
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.scheduler import DecayScheduler
 from mnist_numpy.optimizer import (
@@ -25,6 +25,7 @@ from mnist_numpy.train import (
     ModelTrainer,
     TrainingParameters,
 )
+from mnist_numpy.types import ActivationFn
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -136,8 +137,16 @@ def cli(): ...
     help="Set the dropout keep probability",
     default=1.0,
 )
+@click.option(
+    "-f",
+    "--activation-fn",
+    type=click.Choice([ReLU.get_name(), Tanh.get_name()]),
+    help="Set the activation function",
+    default=ReLU.get_name(),
+)
 def train(
     *,
+    activation_fn: str,
     batch_size: int | None,
     data_path: Path,
     dims: Sequence[int],
@@ -157,12 +166,20 @@ def train(
     np.random.seed(seed)
     logger.info(f"Training model with {seed=}.")
 
+    _activation_fn: ActivationFn
+    if activation_fn == ReLU.get_name():
+        _activation_fn = ReLU
+    elif activation_fn == Tanh.get_name():
+        _activation_fn = Tanh
+    else:
+        raise ValueError(f"Invalid activation function: {activation_fn}")
+
     model: MultiLayerPerceptron
     if model_path is None:
         if model_type == MultiLayerPerceptron.get_name():
             model = MultiLayerPerceptron.of(
                 layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
-                activation_fn=ReLU,
+                activation_fn=_activation_fn,
             )
         else:
             raise ValueError(f"Invalid model type: {model_type}")
