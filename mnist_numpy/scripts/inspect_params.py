@@ -12,10 +12,10 @@ from mnist_numpy.model.mlp import MultiLayerPerceptron
 def main(model_path: Path):
     model = MultiLayerPerceptron.load(model_path.open("rb"))
     weights = np.concatenate(
-        tuple(layer.parameters._W.flatten() for layer in model.non_input_layers)
+        tuple(layer._parameters._W.flatten() for layer in model.non_input_layers)
     )
     biases = np.concatenate(
-        tuple(layer.parameters._B for layer in model.non_input_layers)
+        tuple(layer._parameters._B for layer in model.non_input_layers)
     )
 
     weights_array = np.abs(np.array(list(weights)))

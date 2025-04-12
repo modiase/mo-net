@@ -47,5 +47,12 @@ class ModelBase(ABC, Generic[_GradientT]):
         Y_true: np.ndarray,
     ) -> _GradientT: ...
 
+    @abstractmethod
+    def empty_gradient(self) -> _GradientT: ...
+
+    """
+    Returns an empty gradient. Used to initialize optimizers.
+    """
+
 
 ModelT = TypeVar("ModelT", bound=ModelBase)

@@ -47,12 +47,8 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         Y_train_batch: np.ndarray,
     ) -> None:
         self._iterations += 1
-        model.forward_prop(
-            X_train_batch,
-            training=True,
-            dropout_keep_prob=self._dropout_keep_prob,
-        )
-        gradient = model.backward_prop(Y_train_batch)
+        model.forward_prop(X=X_train_batch)
+        gradient = model.backward_prop(Y_true=Y_train_batch)
         self._current_learning_rate = self._scheduler(
             self._iterations, self._current_learning_rate, gradient
         )

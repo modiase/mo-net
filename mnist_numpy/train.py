@@ -105,10 +105,12 @@ class ModelTrainer:
         test_set_size = X_test.shape[0]
         k_test = 1 / test_set_size
 
-        L_train_min = k_train * cross_entropy(model.forward_prop(X_train), Y_train)
-        L_test_min = k_test * cross_entropy(model.forward_prop(X_test), Y_test)
+        L_train_min = k_train * cross_entropy(
+            model.forward_prop(X=X_train), Y_true=Y_train
+        )
+        L_test_min = k_test * cross_entropy(model.forward_prop(X=X_test), Y_true=Y_test)
 
-        L_train_queue = deque(maxlen=100)
+        L_train_queue: deque[float] = deque(maxlen=100)
 
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
@@ -141,7 +143,9 @@ class ModelTrainer:
                         Y_train, train_set_size // training_parameters.batch_size
                     )
                 )
-                L_train = k_train * cross_entropy(model.forward_prop(X_train), Y_train)
+                L_train = k_train * cross_entropy(
+                    model.forward_prop(X=X_train), Y_true=Y_train
+                )
                 L_train_queue.append(L_train)
                 if len(L_train_queue) == L_train_queue.maxlen:
                     std_loss = np.std(L_train_queue)
@@ -150,7 +154,7 @@ class ModelTrainer:
                         and std_loss < ABORT_TRAINING_STD_THRESHOLD
                     ):
                         raise RuntimeError("Aborting training. Model is not learning.")
-                L_test = k_test * cross_entropy(model.forward_prop(X_test), Y_test)
+                L_test = k_test * cross_entropy(model.forward_prop(X=X_test), Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
 
                 L_train_min = min(L_train_min, L_train)

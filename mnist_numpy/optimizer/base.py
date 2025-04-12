@@ -37,11 +37,9 @@ class NoOptimizer(OptimizerBase[ModelT, NoConfig]):
     def training_step(
         self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
     ) -> None:
-        A_train_batch, Z_train_batch = model._forward_prop(X_train_batch)
-        gradient = model._backward_prop(
-            X_train_batch, Y_train_batch, Z_train_batch, A_train_batch
-        )
-        model.update_parameters(-self._config.learning_rate * gradient)
+        model.forward_prop(X=X_train_batch)
+        gradient = model.backward_prop(Y_true=Y_train_batch)
+        model.update_parameters(update=-self._config.learning_rate * gradient)
 
     def report(self) -> str:
         return ""

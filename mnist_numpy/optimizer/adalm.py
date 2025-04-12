@@ -66,11 +66,10 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
     ) -> None:
-        A_train_batch = model.forward_prop(X_train_batch)
         L_batch_before = self._k_batch * cross_entropy(
-            np.argmax(A_train_batch[-1], axis=1), Y_train_batch
+            model.forward_prop(X=X_train_batch), Y_true=Y_train_batch
         )
-        gradient = model.backward_prop(Y_train_batch)
+        gradient = model.backward_prop(Y_true=Y_train_batch)
 
         prev_update = self._history[-1]
 
@@ -93,7 +92,7 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
         model.update_parameters(update)
         self._history.append(update)
 
-        _, A_train_batch = model._forward_prop(X_train_batch)
+        A_train_batch = model.forward_prop(X=X_train_batch)
         L_batch_after = self._k_batch * cross_entropy(
             softmax(A_train_batch[-1]), Y_train_batch
         )

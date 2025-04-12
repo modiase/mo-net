@@ -310,36 +310,6 @@ def infer(*, model_path: Path, data_path: Path):
     plt.show()
 
 
-@cli.command(help="Run explainability analysis")
-@click.option(
-    "-m",
-    "--model-path",
-    help="Set the path to the model file",
-    required=True,
-    type=Path,
-)
-@click.option(
-    "-d",
-    "--data-path",
-    type=Path,
-    help="Set the path to the data file",
-    default=DEFAULT_DATA_PATH,
-)
-def explain(*, model_path: Path, data_path: Path):
-    X_train = load_data(data_path)[0]
-    # TODO: Dispatch on model type
-    model = MultiLayerPerceptron.load(open(model_path, "rb"))
-    W = model._W[0].reshape(28, 28, 10)
-    avg = np.average(X_train, axis=0).reshape(28, 28)
-
-    for i in range(10):
-        plt.subplot(2, 5, i + 1)
-        plt.imshow(np.multiply(W[:, :, i], avg), cmap="gray")
-        plt.title(str(i))
-        plt.axis("off")
-    plt.show()
-
-
 @cli.command(help="Sample input data", name="sample")
 @click.option(
     "-d",
