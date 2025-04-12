@@ -24,6 +24,11 @@ class AdalmConfig:
 
 
 class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
+    """
+    Naive implementation of an optimizer with an adaptive learning rate
+    (adal) and momentum (m).
+    """
+
     Config = AdalmConfig
 
     def __init__(
