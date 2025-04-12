@@ -275,7 +275,7 @@ def infer(*, model_path: Path, data_path: Path):
     logger.info(f"Test Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
 
     plt.figure(figsize=(15, 8))
-    plt.suptitle("Mislabelled Samples", fontsize=16)
+    plt.suptitle("Mislabelled Examples (Sample)", fontsize=16)
 
     sample_indices = sample(np.where(Y_true != Y_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
