@@ -135,7 +135,7 @@ class ModelTrainer:
         )
         L_test_min = k_test * cross_entropy(model.forward_prop(X=X_test), Y_true=Y_test)
 
-        L_train_queue: deque[float] = deque(maxlen=100)
+        L_train_history: deque[float] = deque(maxlen=100)
 
         batcher = Batcher(X_train, Y_train, training_parameters.batch_size)
         batches_per_epoch = train_set_size // training_parameters.batch_size
@@ -158,9 +158,9 @@ class ModelTrainer:
                 L_train = k_train * cross_entropy(
                     model.forward_prop(X=X_train), Y_true=Y_train
                 )
-                L_train_queue.append(L_train)
-                if len(L_train_queue) == L_train_queue.maxlen:
-                    std_loss = np.std(L_train_queue)
+                L_train_history.append(L_train)
+                if len(L_train_history) == L_train_history.maxlen:
+                    std_loss = np.std(L_train_history)
                     if (
                         L_train_min > ABORT_TRAINING_THRESHOLD
                         and std_loss < ABORT_TRAINING_STD_THRESHOLD
