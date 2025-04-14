@@ -21,15 +21,15 @@ def main(training_log_path: Path):
     plt.plot(df["epoch"], df["test_loss"], label="Test Loss", color="red")
     plt.plot(
         df["epoch"],
-        df["moving_average_training_loss"],
-        label="Moving Average Training Loss",
-        color="green",
-    )
-    plt.plot(
-        df["epoch"],
         df["monotonic_training_loss"],
         label="Monotonic Training Loss",
         color="orange",
+    )
+    plt.plot(
+        df["epoch"],
+        df["monotonic_test_loss"],
+        label="Monotonic Test Loss",
+        color="green",
     )
 
     # Customize the plot
