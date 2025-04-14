@@ -1,4 +1,5 @@
 import functools
+import os
 import re
 import time
 from collections.abc import Sequence
@@ -162,7 +163,7 @@ def train(
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
-    seed = int(time.time())
+    seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)
     logger.info(f"Training model with {seed=}.")
 
@@ -187,7 +188,7 @@ def train(
         model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
     if training_log_path is None:
-        model_path = OUTPUT_PATH / f"{seed}_{model.get_name()}_model.pkl"
+        model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
         training_log_path = RUN_PATH / (f"{model_path.stem}_training_log.csv")
     else:
         if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
