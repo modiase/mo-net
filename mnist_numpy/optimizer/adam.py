@@ -60,18 +60,17 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
             self._config.beta_2 * self._second_moment
             + (1 - self._config.beta_2) * gradient**2
         )
-        first_moment_corrected = self._first_moment / (
-            1 - self._config.beta_1**self._iterations
-        )
-        second_moment_corrected = self._second_moment / (
-            1 - self._config.beta_2**self._iterations
-        )
-        update = -self._config.learning_rate * (
-            first_moment_corrected
-            / (second_moment_corrected**0.5 + self._config.epsilon)
+        model.update_parameters(
+            -self.alpha_t
+            * (self._first_moment / (self._second_moment**0.5 + self._config.epsilon))
         )
 
-        model.update_parameters(update)
+    @property
+    def alpha_t(self) -> float:
+        return self._config.learning_rate * (
+            (1 - self._config.beta_2**self._iterations) ** 0.5
+            / (1 - self._config.beta_1**self._iterations)
+        )
 
     @property
     def learning_rate(self) -> float:
