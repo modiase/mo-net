@@ -34,7 +34,7 @@ R = TypeVar("R")
 DEFAULT_BATCH_SIZE: Final[int] = 100
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 1"
-DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
+DEFAULT_MOMENTUM_COEFFICIENT: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
 DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.01
 N_DIGITS: Final[int] = 10
@@ -206,7 +206,7 @@ def train(
         learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
         learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-        momentum_parameter=DEFAULT_MOMENTUM_PARAMETER,
+        momentum_coefficient=DEFAULT_MOMENTUM_COEFFICIENT,
         num_epochs=num_epochs,
         total_epochs=num_epochs,
     )
@@ -239,7 +239,7 @@ def train(
                     learning_rate=learning_rate,
                     learning_rate_limits=learning_rate_limits,
                     learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-                    momentum_parameter=DEFAULT_MOMENTUM_PARAMETER,
+                    momentum_coefficient=DEFAULT_MOMENTUM_COEFFICIENT,
                 ),
             )
         case "no":

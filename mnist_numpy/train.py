@@ -25,7 +25,7 @@ class TrainingParameters(BaseModel):
     learning_rate: float
     learning_rate_limits: tuple[float, float]
     learning_rate_rescale_factor_per_epoch: float
-    momentum_parameter: float
+    momentum_coefficient: float
     num_epochs: int
     total_epochs: int
 
