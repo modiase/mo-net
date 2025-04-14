@@ -136,7 +136,7 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
 
     def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
         preactivations = As @ self._parameters._W + self._parameters._B
-        return preactivations, self._activation_fn(preactivations)
+        return PreActivations(preactivations), self._activation_fn(preactivations)
 
     def _backward_prop(
         self,
@@ -268,4 +268,4 @@ class InputLayer:
 
 
 Layer = InputLayer | _LayerBase
-NonInputLayer = _LayerBase
+NonInputLayer = HiddenLayerBase | OutputLayerBase

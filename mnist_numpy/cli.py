@@ -22,6 +22,7 @@ from mnist_numpy.optimizer import (
     NoOptimizer,
     OptimizerBase,
 )
+from mnist_numpy.regulariser.dropout import DropoutVisitor
 from mnist_numpy.train import (
     ModelTrainer,
     TrainingParameters,
@@ -136,7 +137,8 @@ def cli(): ...
     "--dropout-keep-prob",
     type=float,
     help="Set the dropout keep probability",
-    default=1.0,
+    multiple=True,
+    default=(),
 )
 @click.option(
     "-f",
@@ -151,7 +153,7 @@ def train(
     batch_size: int | None,
     data_path: Path,
     dims: Sequence[int],
-    dropout_keep_prob: float,
+    dropout_keep_prob: tuple[float, ...],
     learning_rate: float,
     learning_rate_rescale_factor_per_epoch: float,
     learning_rate_limits: tuple[float, float],
@@ -181,6 +183,9 @@ def train(
             model = MultiLayerPerceptron.of(
                 layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
                 activation_fn=_activation_fn,
+            )
+            model.accept_hidden_layer_visitor(
+                DropoutVisitor(model=model, keep_prob=dropout_keep_prob)
             )
         else:
             raise ValueError(f"Invalid model type: {model_type}")
@@ -217,7 +222,6 @@ def train(
             optimizer = AdamOptimizer(
                 model=model,
                 config=AdamOptimizer.Config(
-                    dropout_keep_prob=dropout_keep_prob,
                     learning_rate=learning_rate,
                     scheduler=DecayScheduler(
                         batch_size=batch_size,

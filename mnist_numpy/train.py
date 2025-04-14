@@ -21,7 +21,7 @@ DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
 class TrainingParameters(BaseModel):
     batch_size: int
-    dropout_keep_prob: float
+    dropout_keep_prob: tuple[float, ...]
     learning_rate: float
     learning_rate_limits: tuple[float, float]
     learning_rate_rescale_factor_per_epoch: float
