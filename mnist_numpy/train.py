@@ -2,7 +2,7 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Final
+from typing import Final, Self
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,39 @@ class TrainingParameters(BaseModel):
     momentum_parameter: float
     num_epochs: int
     total_epochs: int
+
+
+class Batcher:
+    def __init__(self, X: np.ndarray, Y: np.ndarray, batch_size: int):
+        self.X = X
+        self.Y = Y
+        self.batch_size = batch_size
+        self.train_set_size = X.shape[0]
+        self.iterations_per_epoch = self.train_set_size / self.batch_size
+        self.iterations = 0
+        self._shuffle()
+        self._internal_iterator = zip(
+            iter(np.array_split(self.X, self.train_set_size / self.batch_size)),
+            iter(np.array_split(self.Y, self.train_set_size / self.batch_size)),
+        )
+
+    def _shuffle(self) -> None:
+        permutation = np.random.permutation(self.train_set_size)
+        self.X = self.X[permutation]
+        self.Y = self.Y[permutation]
+
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
+        if self.iterations % self.iterations_per_epoch == 0:
+            self._shuffle()
+            self._internal_iterator = zip(
+                iter(np.array_split(self.X, self.train_set_size / self.batch_size)),
+                iter(np.array_split(self.Y, self.train_set_size / self.batch_size)),
+            )
+        self.iterations += 1
+        return next(self._internal_iterator)
 
 
 class ModelTrainer:
@@ -65,15 +98,6 @@ class ModelTrainer:
             f" using optimizer {optimizer.__class__.__name__}."
         )
 
-        train_set_size = X_train.shape[0]
-
-        X_train_batched = iter(
-            np.array_split(X_train, train_set_size // training_parameters.batch_size)
-        )
-        Y_train_batched = iter(
-            np.array_split(Y_train, train_set_size // training_parameters.batch_size)
-        )
-
         model_checkpoint_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "partial.pkl")
         )
@@ -100,6 +124,7 @@ class ModelTrainer:
 
         start_epoch = training_parameters.total_epochs - training_parameters.num_epochs
 
+        train_set_size = X_train.shape[0]
         k_train = 1 / train_set_size
 
         test_set_size = X_test.shape[0]
@@ -112,9 +137,11 @@ class ModelTrainer:
 
         L_train_queue: deque[float] = deque(maxlen=100)
 
+        batcher = Batcher(X_train, Y_train, training_parameters.batch_size)
+        batches_per_epoch = train_set_size // training_parameters.batch_size
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
-        batches_per_epoch = train_set_size // training_parameters.batch_size
+
         for i in tqdm(
             range(
                 start_epoch * batches_per_epoch,
@@ -123,26 +150,11 @@ class ModelTrainer:
             initial=start_epoch * batches_per_epoch,
             total=training_parameters.total_epochs * batches_per_epoch,
         ):
-            X_train_batch = next(X_train_batched)
-            Y_train_batch = next(Y_train_batched)
+            X_train_batch, Y_train_batch = next(batcher)
 
             optimizer.training_step(model, X_train_batch, Y_train_batch)
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
-                permutation = np.random.permutation(train_set_size)
-                X_train = X_train[permutation]
-                Y_train = Y_train[permutation]
-
-                X_train_batched = iter(
-                    np.array_split(
-                        X_train, train_set_size // training_parameters.batch_size
-                    )
-                )
-                Y_train_batched = iter(
-                    np.array_split(
-                        Y_train, train_set_size // training_parameters.batch_size
-                    )
-                )
                 L_train = k_train * cross_entropy(
                     model.forward_prop(X=X_train), Y_true=Y_train
                 )
