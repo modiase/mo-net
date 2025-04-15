@@ -19,17 +19,20 @@ def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]
 
         dropout_mask: np.ndarray | None = None
 
-        original_forward_prop = layer._forward_prop
+        original_forward_prop = layer.forward_prop
 
         @functools.wraps(original_forward_prop)
         def forward_prop(
             *,
-            As: Activations,
-        ) -> tuple[PreActivations, Activations]:
+            As_prev: Activations,
+        ) -> tuple[Activations, ...]:
+            # TODO: Fix dropping out the wrong layer
             nonlocal dropout_mask
-            dropout_mask = (np.random.rand(*As.shape) < keep_prob).astype(As.dtype)
-            As = Activations((As * dropout_mask) / keep_prob)
-            return original_forward_prop(As=As)
+            dropout_mask = (np.random.rand(*As_prev.shape) < keep_prob).astype(
+                As_prev.dtype
+            )
+            As = Activations((As_prev * dropout_mask) / keep_prob)
+            return original_forward_prop(As_prev=As)
 
         layer._forward_prop = forward_prop  # type: ignore[method-assign, assignment]
 

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import reduce
+from itertools import chain
 from typing import Generic, Self, TypeVar, cast
 
 import numpy as np
+from more_itertools import last
 
 from mnist_numpy.functions import identity, softmax
 from mnist_numpy.types import ActivationFn, Activations, D, PreActivations
@@ -22,14 +26,23 @@ class _LayerBase(ABC, Generic[_ParamType]):
         *,
         neurons: int,
         activation_fn: ActivationFn,
+        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
         self._activation_fn = activation_fn
         self._neurons = neurons
+        self._preactivation_handlers = tuple(preactivation_handlers)
+
+    def forward_prop(self, *, As_prev: Activations) -> tuple[Activations, ...]:
+        return tuple(
+            reduce(
+                lambda acc, handler: acc + [handler(last(acc))],  # type: ignore[operator]
+                chain(self._preactivation_handlers, (self._activation_fn,)),
+                [self._forward_prop(As_prev=As_prev)],
+            )
+        )
 
     @abstractmethod
-    def _forward_prop(
-        self, *, As: Activations
-    ) -> tuple[PreActivations, Activations]: ...
+    def _forward_prop(self, *, As_prev: Activations) -> Activations: ...
 
     def _update_parameters(self, params: D[_ParamType]) -> None:
         self._parameters = params + self._parameters
@@ -125,8 +138,13 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         activation_fn: ActivationFn,
         parameters: DenseParameters | None = None,
         previous_layer: Layer,
+        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
-        super().__init__(neurons=neurons, activation_fn=activation_fn)
+        super().__init__(
+            neurons=neurons,
+            activation_fn=activation_fn,
+            preactivation_handlers=preactivation_handlers,
+        )
         self._previous_layer = previous_layer
         self._parameters = (
             parameters
@@ -134,9 +152,8 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
             else self.Parameters.random(previous_layer.neurons, self._neurons)
         )
 
-    def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
-        preactivations = As @ self._parameters._W + self._parameters._B
-        return PreActivations(preactivations), self._activation_fn(preactivations)
+    def _forward_prop(self, *, As_prev: Activations) -> Activations:
+        return As_prev @ self._parameters._W + self._parameters._B
 
     def _backward_prop(
         self,
@@ -192,9 +209,14 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         *,
         neurons: int,
         parameters: DenseParameters | None = None,
+        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
         previous_layer: Layer,
     ):
-        super().__init__(neurons=neurons, activation_fn=softmax)
+        super().__init__(
+            neurons=neurons,
+            activation_fn=softmax,
+            preactivation_handlers=preactivation_handlers,
+        )
         self._previous_layer = previous_layer
         self._parameters = (
             parameters
@@ -224,9 +246,8 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
             ),
         ), dZ @ self._parameters._W.T * self._activation_fn.deriv(Zs_prev)
 
-    def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
-        As = As @ self._parameters._W + self._parameters._B
-        return PreActivations(As), self._activation_fn(As)
+    def _forward_prop(self, *, As_prev: Activations) -> Activations:
+        return As_prev @ self._parameters._W + self._parameters._B
 
     @property
     def neurons(self) -> int:
@@ -248,19 +269,32 @@ class RawOutputLayer(SoftmaxOutputLayer):
         *,
         neurons: int,
         previous_layer: Layer,
+        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
-        super().__init__(neurons=neurons, previous_layer=previous_layer)
+        super().__init__(
+            neurons=neurons,
+            previous_layer=previous_layer,
+            preactivation_handlers=preactivation_handlers,
+        )
         self._activation_fn = identity
 
 
 class InputLayer:
-    def __init__(self, *, neurons: int):
-        # TODO: fix-types
+    def __init__(
+        self,
+        *,
+        neurons: int,
+        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
+    ):
         self._neurons = neurons
+        self._preactivation_handlers = tuple(preactivation_handlers)
         self._activation_fn = identity
 
-    def _forward_prop(self, As: Activations) -> tuple[PreActivations, Activations]:
-        return cast(tuple[PreActivations, Activations], (As, As))
+    def forward_prop(self, *, As_prev: Activations) -> tuple[Activations, ...]:
+        return _LayerBase.forward_prop(self, As_prev=As_prev)  # type: ignore[arg-type]
+
+    def _forward_prop(self, *, As_prev: Activations) -> Activations:
+        return As_prev
 
     @property
     def neurons(self) -> int:

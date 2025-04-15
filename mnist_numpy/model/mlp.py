@@ -4,9 +4,11 @@ import pickle
 from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 from itertools import chain
+from operator import itemgetter
 from typing import IO, Literal, Protocol, Self, Sequence, cast
 
 import numpy as np
+from more_itertools import last, one
 
 from mnist_numpy.functions import ReLU, identity
 from mnist_numpy.model import ModelBase
@@ -198,17 +200,21 @@ class MultiLayerPerceptron(ModelBase):
         self._Zs.clear()
         self._As.clear()
 
-        Z, A = self.input_layer._forward_prop(As=Activations(X))
-        self._Zs.append(Z)
+        Z, A = itemgetter(slice(-1), -1)(
+            self.input_layer.forward_prop(As_prev=Activations(X))
+        )
+        self._Zs.append(one(Z))  # TODO: generalise
         self._As.append(A)
 
         for layer in self.hidden_layers:
-            Z, A = layer._forward_prop(As=self._As[-1])
-            self._Zs.append(Z)
+            Z, A = itemgetter(slice(-1), -1)(layer.forward_prop(As_prev=last(self._As)))
+            self._Zs.append(one(Z))  # TODO: generalise
             self._As.append(A)
 
-        Z, A = self.output_layer._forward_prop(As=self._As[-1])
-        self._Zs.append(Z)
+        Z, A = itemgetter(slice(-1), -1)(
+            self.output_layer.forward_prop(As_prev=last(self._As))
+        )
+        self._Zs.append(one(Z))  # TODO: generalise
         self._As.append(A)
 
         return Activations(A)
@@ -216,10 +222,10 @@ class MultiLayerPerceptron(ModelBase):
     def backward_prop(self, Y_true: np.ndarray) -> MultiLayerPerceptron.Gradient:
         dps = []
         dp, dZ = self.output_layer._backward_prop(
-            Y_pred=self._As[-1],
+            Y_pred=last(self._As),
             Y_true=Y_true,
-            As_prev=self._As[-2],
-            Zs_prev=self._Zs[-2],
+            As_prev=last(self._As[:-1]),
+            Zs_prev=last(self._Zs[:-1]),
         )
         dps.append(dp)
         for layer, As_prev, Zs_prev in zip(
