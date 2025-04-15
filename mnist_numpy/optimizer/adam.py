@@ -4,6 +4,7 @@ from typing import Final
 import numpy as np
 
 from mnist_numpy.model.base import ModelT
+from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.model.scheduler import NoopScheduler, Scheduler
 from mnist_numpy.optimizer.base import OptimizerBase
 
@@ -38,12 +39,12 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         self._scheduler = config.scheduler
         self._second_moment = model.empty_gradient()
 
-    def training_step(
+    def _training_step(
         self,
         model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
-    ) -> None:
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         self._iterations += 1
         model.forward_prop(X=X_train_batch)
         gradient = model.backward_prop(Y_true=Y_train_batch)
@@ -59,9 +60,10 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
             + (1 - self._config.beta_2) * gradient**2
         )
         model.update_parameters(
-            -self.alpha_t
+            update := -self.alpha_t
             * (self._first_moment / (self._second_moment**0.5 + self._config.epsilon))
         )
+        return gradient, update
 
     @property
     def alpha_t(self) -> float:

@@ -1,22 +1,53 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeAlias, TypeVar
 
 import numpy as np
 
 from mnist_numpy.model.base import ModelT
+from mnist_numpy.model.mlp import MultiLayerPerceptron
 
 ConfigT = TypeVar("ConfigT")
+AfterTrainingStepHandler: TypeAlias = Callable[
+    [MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient], None
+]
 
 
 class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
     def __init__(self, config: ConfigT):
         self._config = config
+        self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
+
+    def training_step(
+        self,
+        model: ModelT,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
+    ) -> None:
+        gradient, update = self._training_step(
+            model=model, X_train_batch=X_train_batch, Y_train_batch=Y_train_batch
+        )
+        for after_training_step in self._after_training_step:
+            after_training_step(gradient, update)
+
+    def register_after_training_step_handler(
+        self,
+        after_training_step: AfterTrainingStepHandler,
+    ) -> None:
+        self._after_training_step = (
+            *self._after_training_step,
+            after_training_step,
+        )
 
     @abstractmethod
-    def training_step(
+    def _training_step(
         self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
-    ) -> None: ...
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]: ...
+
+    """
+    Returns the raw gradient and the update that was applied to the model.
+    """
 
     @abstractmethod
     def report(self) -> str: ...
@@ -34,12 +65,15 @@ class NoConfig:
 class NoOptimizer(OptimizerBase[ModelT, NoConfig]):
     Config = NoConfig
 
-    def training_step(
+    def _training_step(
         self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
-    ) -> None:
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         model.forward_prop(X=X_train_batch)
         gradient = model.backward_prop(Y_true=Y_train_batch)
-        model.update_parameters(update=-self._config.learning_rate * gradient)
+        model.update_parameters(
+            update=(update := -self._config.learning_rate * gradient)
+        )
+        return gradient, update
 
     def report(self) -> str:
         return ""

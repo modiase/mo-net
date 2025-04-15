@@ -7,6 +7,7 @@ import numpy as np
 
 from mnist_numpy.functions import cross_entropy, softmax
 from mnist_numpy.model.base import ModelT
+from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer.base import OptimizerBase
 
 MAX_HISTORY_LENGTH: Final[int] = 2
@@ -65,12 +66,12 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
     def learning_rate(self) -> float:
         return self._learning_rate
 
-    def training_step(
+    def _training_step(
         self,
         model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
-    ) -> None:
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         L_batch_before = self._k_batch * cross_entropy(
             model.forward_prop(X=X_train_batch), Y_true=Y_train_batch
         )
@@ -125,6 +126,7 @@ class AdalmOptimizer(OptimizerBase[ModelT, AdalmConfig]):
         self._iterations += 1
         if self._iterations % self._iterations_per_epoch == 0:
             self._max_learning_rate *= self._learning_rate_decay_factor
+        return gradient, update
 
     def report(self) -> str:
         return (

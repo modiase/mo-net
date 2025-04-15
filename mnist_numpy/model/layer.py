@@ -72,6 +72,15 @@ class DenseParameters:
     def __radd__(self, other: Self | float) -> Self:
         return self.__add__(other)
 
+    def __neg__(self) -> Self:
+        return self.__class__(_W=-self._W, _B=-self._B)
+
+    def __sub__(self, other: Self | float) -> Self:
+        return self.__add__(-other)
+
+    def __rsub__(self, other: Self | float) -> Self:
+        return self.__sub__(other)
+
     def __mul__(self, other: float) -> Self:
         if not isinstance(other, float):
             return NotImplemented

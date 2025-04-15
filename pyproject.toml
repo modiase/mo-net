@@ -18,20 +18,25 @@ dependencies = [
   "networkx>=3.4.2",
   "taplo>=0.9.3",
   "pydantic>=2.11.1",
+  "h5py>=3.13.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pandas-stubs>=2.2.3.250308",
-    "pytest>=8.3.5",
-    "ruff<1.0.0,>=0.9.7",
-    "taskipy>=1.14.1",
-    "types-tqdm>=4.67.0.20250301",
+  "inquirerpy>=0.3.4",
+  "pandas-stubs>=2.2.3.250308",
+  "pytest>=8.3.5",
+  "ruff<1.0.0,>=0.9.7",
+  "taskipy>=1.14.1",
+  "types-tqdm>=4.67.0.20250301",
 ]
 
 [uv.tool]
 default-groups = []
 
+[[tool.mypy.overrides]]
+module = "h5py"
+ignore_missing_imports = true
 
 [tool.setuptools]
 packages = ["mnist_numpy"]
@@ -48,3 +53,4 @@ plot_loss = "mnist_numpy.scripts.plot_loss:main"
 resume = "mnist_numpy.cli:resume"
 sample_data = "mnist_numpy.cli:sample_data"
 train = "mnist_numpy.cli:train"
+trace_statistics = "mnist_numpy.scripts.trace_statistics:main"

@@ -2,7 +2,7 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Final, Self
+from typing import Final, Self, cast
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,9 @@ from tqdm import tqdm
 
 from mnist_numpy.functions import cross_entropy
 from mnist_numpy.model.base import ModelT
+from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
+from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
 ABORT_TRAINING_THRESHOLD: Final[float] = -np.log(0.1)
 ABORT_TRAINING_STD_THRESHOLD: Final[float] = 0.001
@@ -28,6 +30,7 @@ class TrainingParameters(BaseModel):
     momentum_coefficient: float
     num_epochs: int
     total_epochs: int
+    trace_logging: bool
 
 
 class Batcher:
@@ -141,6 +144,19 @@ class ModelTrainer:
         batches_per_epoch = train_set_size // training_parameters.batch_size
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
+
+        if training_parameters.trace_logging:
+            tracer = Tracer(
+                model=cast(MultiLayerPerceptron, model),  # TODO: Fix-types
+                training_log_path=training_log_path,
+                tracer_config=TracerConfig(
+                    trace_strategy=PerEpochTracerStrategy(
+                        training_set_size=train_set_size,
+                        batch_size=training_parameters.batch_size,
+                    ),
+                ),
+            )
+            optimizer.register_after_training_step_handler(tracer)
 
         for i in tqdm(
             range(

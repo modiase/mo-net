@@ -23,7 +23,7 @@ from mnist_numpy.optimizer import (
     OptimizerBase,
 )
 from mnist_numpy.regulariser.dropout import DropoutVisitor
-from mnist_numpy.train import (
+from mnist_numpy.trainer import (
     ModelTrainer,
     TrainingParameters,
 )
@@ -147,6 +147,14 @@ def cli(): ...
     help="Set the activation function",
     default=ReLU.get_name(),
 )
+@click.option(
+    "-t",
+    "--trace-logging",
+    type=bool,
+    is_flag=True,
+    help="Set the trace logging",
+    default=False,
+)
 def train(
     *,
     activation_fn: str,
@@ -162,6 +170,7 @@ def train(
     num_epochs: int,
     optimizer_type: str,
     training_log_path: Path | None,
+    trace_logging: bool,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
@@ -216,6 +225,7 @@ def train(
         momentum_coefficient=DEFAULT_MOMENTUM_COEFFICIENT,
         num_epochs=num_epochs,
         total_epochs=num_epochs,
+        trace_logging=trace_logging,
     )
 
     optimizer: OptimizerBase
