@@ -5,8 +5,7 @@ import numpy as np
 
 
 def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
-    Y_pred = np.clip(Y_pred, 1e-15, 1 - 1e-15)
-    return -np.sum(Y_true * np.log(Y_pred))
+    return -np.sum(Y_true * np.log(np.clip(Y_pred, 1e-15, 1 - 1e-15)))
 
 
 _X = TypeVar("_X", bound=np.ndarray | float)
