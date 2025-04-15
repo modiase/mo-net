@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 from more_itertools import sample
 
 from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
-from mnist_numpy.functions import ReLU, Tanh
+from mnist_numpy.functions import LeakyReLU, ReLU, Tanh
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.scheduler import DecayScheduler
 from mnist_numpy.optimizer import (
@@ -143,7 +143,7 @@ def cli(): ...
 @click.option(
     "-f",
     "--activation-fn",
-    type=click.Choice([ReLU.get_name(), Tanh.get_name()]),
+    type=click.Choice([ReLU.get_name(), Tanh.get_name(), LeakyReLU.get_name()]),
     help="Set the activation function",
     default=ReLU.get_name(),
 )
@@ -174,6 +174,8 @@ def train(
         _activation_fn = ReLU
     elif activation_fn == Tanh.get_name():
         _activation_fn = Tanh
+    elif activation_fn == LeakyReLU.get_name():
+        _activation_fn = LeakyReLU
     else:
         raise ValueError(f"Invalid activation function: {activation_fn}")
 

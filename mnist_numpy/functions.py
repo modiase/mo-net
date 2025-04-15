@@ -64,6 +64,30 @@ class _ReLU:
 ReLU = _ReLU()
 
 
+class _LeakyReLU:
+    def __call__(self, x: _X) -> _X:
+        if isinstance(x, np.ndarray):
+            # TODO: fix-types
+            return cast(_X, np.where(x > 0, x, 0.01 * x))
+        else:
+            # TODO: fix-types
+            return cast(_X, max(0.01 * x, 0))
+
+    def deriv(self, x: _X) -> _X:
+        if isinstance(x, np.ndarray):
+            # TODO: fix-types
+            return cast(_X, np.where(x > 0, 1, 0.01))
+        else:
+            # TODO: fix-types
+            return cast(_X, 1 if x > 0 else 0.01)
+
+    def get_name(self) -> str:
+        return "leaky_relu"
+
+
+LeakyReLU = _LeakyReLU()
+
+
 class _Tanh:
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
