@@ -1,5 +1,7 @@
 import functools
 from collections.abc import Callable
+from itertools import chain
+from operator import itemgetter
 
 import numpy as np
 from more_itertools import one
@@ -28,13 +30,20 @@ def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]
         ) -> tuple[Activations, ...]:
             # TODO: Fix dropping out the wrong layer
             nonlocal dropout_mask
-            dropout_mask = (np.random.rand(*As_prev.shape) < keep_prob).astype(
-                As_prev.dtype
+            preactivations, og_activations = itemgetter(slice(-1), 1)(
+                original_forward_prop(As_prev=As_prev)
             )
-            As = Activations((As_prev * dropout_mask) / keep_prob)
-            return original_forward_prop(As_prev=As)
+            dropout_mask = (np.random.rand(*og_activations.shape) < keep_prob).astype(
+                og_activations.dtype
+            )
+            return tuple(
+                chain(
+                    preactivations,
+                    (og_activations * dropout_mask / keep_prob,),
+                )
+            )
 
-        layer._forward_prop = forward_prop  # type: ignore[method-assign, assignment]
+        layer.forward_prop = forward_prop  # type: ignore[method-assign, assignment]
 
         original_backward_prop = layer._backward_prop
 
@@ -46,10 +55,10 @@ def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]
             dZ: D[PreActivations],
         ) -> tuple[D[DenseParameters], D[PreActivations]]:
             nonlocal dropout_mask
-            dp, dZ = original_backward_prop(As_prev=As_prev, Zs_prev=Zs_prev, dZ=dZ)
             if dropout_mask is not None:
                 dZ *= dropout_mask
                 dZ /= dropout_mask.mean()
+            dp, dZ = original_backward_prop(As_prev=As_prev, Zs_prev=Zs_prev, dZ=dZ)
             return dp, dZ
 
         layer._backward_prop = backward_prop  # type: ignore[method-assign, assignment]
