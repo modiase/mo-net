@@ -3,6 +3,8 @@ from typing import TypeVar, cast
 
 import numpy as np
 
+from mnist_numpy.types import ActivationFn
+
 
 def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
     return -np.sum(Y_true * np.log(np.clip(Y_pred, 1e-15, 1 - 1e-15)))
@@ -12,6 +14,8 @@ _X = TypeVar("_X", bound=np.ndarray | float)
 
 
 class _Softmax:
+    name: str = "softmax"
+
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
             x = np.atleast_2d(cast(np.ndarray, x))
@@ -40,6 +44,8 @@ softmax = _Softmax()
 
 
 class _ReLU:
+    name: str = "relu"
+
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
             # TODO: fix-types
@@ -56,14 +62,13 @@ class _ReLU:
             # TODO: fix-types
             return cast(_X, 1 if x > 0 else 0)
 
-    def get_name(self) -> str:
-        return "relu"
-
 
 ReLU = _ReLU()
 
 
 class _LeakyReLU:
+    name: str = "leaky_relu"
+
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
             # TODO: fix-types
@@ -80,14 +85,13 @@ class _LeakyReLU:
             # TODO: fix-types
             return cast(_X, 1 if x > 0 else 0.01)
 
-    def get_name(self) -> str:
-        return "leaky_relu"
-
 
 LeakyReLU = _LeakyReLU()
 
 
 class _Tanh:
+    name: str = "tanh"
+
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
             # TODO: fix-types
@@ -104,14 +108,13 @@ class _Tanh:
             # TODO: fix-types
             return cast(_X, 1 - math.tanh(x) ** 2)
 
-    def get_name(self) -> str:
-        return "tanh"
-
 
 Tanh = _Tanh()
 
 
 class _Identity:
+    name: str = "identity"
+
     def __call__(self, x: _X) -> _X:
         return x
 
@@ -123,8 +126,18 @@ class _Identity:
             # TODO: fix-types
             return cast(_X, 1.0)
 
-    def get_name(self) -> str:
-        return "identity"
-
 
 identity = _Identity()
+
+
+def get_activation_fn(name: str) -> ActivationFn:
+    if name == ReLU.name:
+        return ReLU
+    elif name == Tanh.name:
+        return Tanh
+    elif name == LeakyReLU.name:
+        return LeakyReLU
+    elif name == identity.name:
+        return identity
+    else:
+        raise ValueError(f"Unknown activation function: {name}")

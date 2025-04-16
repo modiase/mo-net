@@ -10,7 +10,7 @@ from typing import IO, Literal, Protocol, Self, Sequence, cast
 import numpy as np
 from more_itertools import last, one
 
-from mnist_numpy.functions import ReLU, identity
+from mnist_numpy.functions import ReLU, get_activation_fn, identity, softmax
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.layer import (
     DenseLayer,
@@ -50,6 +50,16 @@ class GradientProto(Protocol):
 
 
 class MultiLayerPerceptron(ModelBase):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        @dataclass(frozen=True, kw_only=True)
+        class Layer:
+            activation_fn_name: str
+            neurons: int
+            parameters: tuple[np.ndarray, np.ndarray]
+
+        layers: tuple[Layer, ...]
+
     @dataclass
     class Gradient:
         dParams: Sequence[GradientProto]  # TODO: improve-types
@@ -252,37 +262,50 @@ class MultiLayerPerceptron(ModelBase):
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(
-            tuple(
-                chain(
-                    # TODO: Generalize
-                    (
-                        (layer.neurons, layer._parameters)
-                        for layer in self.hidden_layers
-                    ),  # type: ignore[attr-defined]
-                    ((self.output_layer.neurons, self.output_layer._parameters),),  # type: ignore[attr-defined]
-                )
+            self.Serialized(
+                layers=tuple(
+                    chain(
+                        # TODO: Generalize
+                        (
+                            self.Serialized.Layer(
+                                activation_fn_name=layer._activation_fn.name,  # TODO: Relies on private member
+                                neurons=layer.neurons,
+                                parameters=layer._parameters,
+                            )
+                            for layer in self.hidden_layers
+                        ),
+                        (
+                            self.Serialized.Layer(
+                                activation_fn_name=softmax.name,  # TODO: Generalize
+                                neurons=self.output_layer.neurons,
+                                parameters=self.output_layer._parameters,
+                            ),
+                        ),
+                    ),
+                ),
             ),
             io,
         )
 
     @classmethod
     def load(cls, source: IO[bytes]) -> Self:
-        layers = pickle.load(source)
-        hidden_layers, output_layer = layers[:-1], layers[-1]
-        layers = [InputLayer(neurons=784)]
-        for neurons, parameters in hidden_layers:
+        serialized = pickle.load(source)
+        hidden_layers, output_layer = itemgetter(slice(-1), -1)(serialized.layers)
+
+        layers: MutableSequence[Layer] = [InputLayer(neurons=784)]
+        for layer in hidden_layers:
             layers.append(
                 DenseLayer(
-                    neurons=neurons,
-                    activation_fn=ReLU,
-                    parameters=parameters,
+                    neurons=layer.neurons,
+                    activation_fn=get_activation_fn(layer.activation_fn_name),
+                    parameters=layer.parameters,
                     previous_layer=layers[-1],
                 )
             )
         layers.append(
             SoftmaxOutputLayer(
-                neurons=output_layer[0],
-                parameters=output_layer[1],
+                neurons=output_layer.neurons,
+                parameters=output_layer.parameters,
                 previous_layer=layers[-1],
             )
         )
