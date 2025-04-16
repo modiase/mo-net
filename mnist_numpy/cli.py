@@ -23,6 +23,7 @@ from mnist_numpy.optimizer import (
     OptimizerBase,
 )
 from mnist_numpy.regulariser.dropout import DropoutVisitor
+from mnist_numpy.regulariser.ridge import L2Regulariser
 from mnist_numpy.trainer import (
     ModelTrainer,
     TrainingParameters,
@@ -34,9 +35,7 @@ R = TypeVar("R")
 DEFAULT_BATCH_SIZE: Final[int] = 100
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 1"
-DEFAULT_MOMENTUM_COEFFICIENT: Final[float] = 0.9
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
-DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.01
 N_DIGITS: Final[int] = 10
 
 
@@ -69,13 +68,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=Path,
         help="Set the path to the data file",
         default=DEFAULT_DATA_PATH,
-    )
-    @click.option(
-        "-r",
-        "--learning-rate-rescale-factor-per-epoch",
-        type=float,
-        help="Set the learning rate rescale factor per epoch",
-        default=DEFAULT_RESCALE_FACTOR_PER_EPOCH,
     )
     @click.option(
         "-s",
@@ -154,6 +146,13 @@ def cli(): ...
     help="Set the trace logging",
     default=False,
 )
+@click.option(
+    "-l",
+    "--regulariser-lambda",
+    type=float,
+    help="Set the regulariser lambda",
+    default=0.0,
+)
 def train(
     *,
     activation_fn: str,
@@ -162,12 +161,12 @@ def train(
     dims: Sequence[int],
     dropout_keep_prob: tuple[float, ...],
     learning_rate: float,
-    learning_rate_rescale_factor_per_epoch: float,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
     model_type: str,
     num_epochs: int,
     optimizer_type: str,
+    regulariser_lambda: float,
     training_log_path: Path | None,
     trace_logging: bool,
 ) -> None:
@@ -183,6 +182,11 @@ def train(
             model = MultiLayerPerceptron.of(
                 layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
                 activation_fn=get_activation_fn(activation_fn),
+                regularisers=(
+                    (L2Regulariser(lambda_=regulariser_lambda),)
+                    if regulariser_lambda > 0
+                    else ()
+                ),
             )
             model.accept_hidden_layer_visitor(
                 DropoutVisitor(model=model, keep_prob=dropout_keep_prob)
@@ -210,9 +214,8 @@ def train(
         dropout_keep_prob=dropout_keep_prob,
         learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
-        learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-        momentum_coefficient=DEFAULT_MOMENTUM_COEFFICIENT,
         num_epochs=num_epochs,
+        regulariser_lambda=regulariser_lambda,
         total_epochs=num_epochs,
         trace_logging=trace_logging,
     )
@@ -244,8 +247,6 @@ def train(
                     ),
                     learning_rate=learning_rate,
                     learning_rate_limits=learning_rate_limits,
-                    learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-                    momentum_coefficient=DEFAULT_MOMENTUM_COEFFICIENT,
                 ),
             )
         case "no":

@@ -8,9 +8,15 @@ from operator import itemgetter
 from typing import IO, Literal, Protocol, Self, Sequence, cast
 
 import numpy as np
-from more_itertools import last, one
+from more_itertools import last
 
-from mnist_numpy.functions import ReLU, get_activation_fn, identity, softmax
+from mnist_numpy.functions import (
+    ReLU,
+    cross_entropy,
+    get_activation_fn,
+    identity,
+    softmax,
+)
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.layer import (
     DenseLayer,
@@ -22,7 +28,12 @@ from mnist_numpy.model.layer import (
     RawOutputLayer,
     SoftmaxOutputLayer,
 )
-from mnist_numpy.types import ActivationFn, Activations, PreActivations
+from mnist_numpy.types import (
+    ActivationFn,
+    Activations,
+    LossContributor,
+    PreActivations,
+)
 
 
 class GradientProto(Protocol):
@@ -139,6 +150,7 @@ class MultiLayerPerceptron(ModelBase):
         layer_neuron_counts: Sequence[int],
         activation_fn: ActivationFn = identity,
         output_layer_type: Literal["softmax", "raw"] = "softmax",
+        regularisers: Sequence[Callable[[Self], None]] = (),
     ) -> Self:
         if len(layer_neuron_counts) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
@@ -160,7 +172,10 @@ class MultiLayerPerceptron(ModelBase):
                 previous_layer=layers[-1],
             )
         )
-        return cls(tuple(layers))
+        model = cls(tuple(layers))
+        for regulariser in regularisers:
+            regulariser(model)
+        return model
 
     def __init__(self, layers: Sequence[Layer]):  # noqa: F821
         if len(layers) < 2:
@@ -182,6 +197,14 @@ class MultiLayerPerceptron(ModelBase):
         self._Zs: MutableSequence[PreActivations] = []
         self._input_layer = layers[0]
         self._output_layer = layers[-1]
+        self._loss_contributors: MutableSequence[LossContributor] = []
+
+    @property
+    def loss_contributors(self) -> Sequence[LossContributor]:
+        return self._loss_contributors
+
+    def register_loss_contributor(self, contributor: LossContributor) -> None:
+        self._loss_contributors.append(contributor)
 
     @property
     def non_input_layers(self) -> Sequence[NonInputLayer]:
@@ -219,19 +242,21 @@ class MultiLayerPerceptron(ModelBase):
         Z, A = itemgetter(slice(-1), -1)(
             self.input_layer.forward_prop(As_prev=Activations(X))
         )
-        self._Zs.append(one(Z))  # TODO: generalise
+        self._Zs.append(
+            last(Z)
+        )  # If we ever need the pre-transformed pre-activations they are stored in Z
         self._As.append(A)
 
         for layer in self.non_input_layers:
             Z, A = itemgetter(slice(-1), -1)(layer.forward_prop(As_prev=last(self._As)))
-            self._Zs.append(one(Z))  # TODO: generalise
+            self._Zs.append(last(Z))
             self._As.append(A)
 
         return Activations(A)
 
     def backward_prop(self, Y_true: np.ndarray) -> MultiLayerPerceptron.Gradient:
         dps = []
-        dp, dZ = self.output_layer._backward_prop(
+        dp, dZ = self.output_layer.backward_prop(
             Y_pred=last(self._As),
             Y_true=Y_true,
             As_prev=last(self._As[:-1]),
@@ -243,7 +268,7 @@ class MultiLayerPerceptron(ModelBase):
             reversed(self._As[:-2]),
             reversed(self._Zs[:-2]),
         ):
-            dp, dZ = layer._backward_prop(As_prev=As_prev, Zs_prev=Zs_prev, dZ=dZ)
+            dp, dZ = layer.backward_prop(As_prev=As_prev, Zs_prev=Zs_prev, dZ=dZ)
             dps.append(dp)
         return self.Gradient(dParams=tuple(reversed(dps)))  # type: ignore[arg-type] # TODO: Fix-types
 
@@ -321,4 +346,10 @@ class MultiLayerPerceptron(ModelBase):
     def empty_gradient(self) -> MultiLayerPerceptron.Gradient:
         return self.Gradient(
             dParams=tuple(layer.empty_parameters() for layer in self.non_input_layers)
+        )
+
+    def compute_loss(self, X: np.ndarray, Y_true: np.ndarray) -> float:
+        return sum(
+            (loss_contributor() for loss_contributor in self.loss_contributors),
+            start=1 / X.shape[0] * cross_entropy(self.forward_prop(X), Y_true),
         )

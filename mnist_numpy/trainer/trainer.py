@@ -10,7 +10,6 @@ from loguru import logger
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from mnist_numpy.functions import cross_entropy
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
@@ -26,9 +25,8 @@ class TrainingParameters(BaseModel):
     dropout_keep_prob: tuple[float, ...]
     learning_rate: float
     learning_rate_limits: tuple[float, float]
-    learning_rate_rescale_factor_per_epoch: float
-    momentum_coefficient: float
     num_epochs: int
+    regulariser_lambda: float
     total_epochs: int
     trace_logging: bool
 
@@ -127,20 +125,13 @@ class ModelTrainer:
 
         start_epoch = training_parameters.total_epochs - training_parameters.num_epochs
 
-        train_set_size = X_train.shape[0]
-        k_train = 1 / train_set_size
-
-        test_set_size = X_test.shape[0]
-        k_test = 1 / test_set_size
-
-        L_train_min = k_train * cross_entropy(
-            model.forward_prop(X=X_train), Y_true=Y_train
-        )
-        L_test_min = k_test * cross_entropy(model.forward_prop(X=X_test), Y_true=Y_test)
+        L_train_min = model.compute_loss(X=X_train, Y_true=Y_train)
+        L_test_min = model.compute_loss(X=X_test, Y_true=Y_test)
 
         L_train_history: deque[float] = deque(maxlen=100)
 
         batcher = Batcher(X_train, Y_train, training_parameters.batch_size)
+        train_set_size = X_train.shape[0]
         batches_per_epoch = train_set_size // training_parameters.batch_size
         last_log_time = time.time()
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
@@ -171,9 +162,7 @@ class ModelTrainer:
             optimizer.training_step(model, X_train_batch, Y_train_batch)
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
-                L_train = k_train * cross_entropy(
-                    model.forward_prop(X=X_train), Y_true=Y_train
-                )
+                L_train = model.compute_loss(X=X_train, Y_true=Y_train)
                 L_train_history.append(L_train)
                 if len(L_train_history) == L_train_history.maxlen:
                     std_loss = np.std(L_train_history)
@@ -182,7 +171,7 @@ class ModelTrainer:
                         and std_loss < ABORT_TRAINING_STD_THRESHOLD
                     ):
                         raise RuntimeError("Aborting training. Model is not learning.")
-                L_test = k_test * cross_entropy(model.forward_prop(X=X_test), Y_test)
+                L_test = model.compute_loss(X=X_test, Y_true=Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
 
                 L_train_min = min(L_train_min, L_train)

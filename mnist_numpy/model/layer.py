@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import reduce
 from itertools import chain
@@ -11,7 +10,13 @@ import numpy as np
 from more_itertools import last
 
 from mnist_numpy.functions import identity, softmax
-from mnist_numpy.types import ActivationFn, Activations, D, PreActivations
+from mnist_numpy.types import (
+    ActivationFn,
+    Activations,
+    D,
+    PreActivations,
+    TrainingStepHandler,
+)
 
 _ParamType = TypeVar("_ParamType")
 
@@ -26,17 +31,22 @@ class _LayerBase(ABC, Generic[_ParamType]):
         *,
         neurons: int,
         activation_fn: ActivationFn,
-        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
         self._activation_fn = activation_fn
         self._neurons = neurons
-        self._preactivation_handlers = tuple(preactivation_handlers)
+        self._training_step_handlers = ()
+
+    def register_training_step_handler(self, handler: TrainingStepHandler) -> None:
+        self._training_step_handlers = self._training_step_handlers + (handler,)
 
     def forward_prop(self, *, As_prev: Activations) -> tuple[Activations, ...]:
         return tuple(
             reduce(
                 lambda acc, handler: acc + [handler(last(acc))],  # type: ignore[operator]
-                chain(self._preactivation_handlers, (self._activation_fn,)),
+                chain(
+                    (handler.forward for handler in self._training_step_handlers),
+                    (self._activation_fn,),
+                ),
                 [self._forward_prop(As_prev=As_prev)],
             )
         )
@@ -126,6 +136,30 @@ class DenseParameters:
 class HiddenLayerBase(
     _LayerBase[_ParamType]
 ):  # TODO: Consider merging this with OutputLayerBase
+    def backward_prop(
+        self, *, As_prev: Activations, Zs_prev: PreActivations, dZ: D[PreActivations]
+    ) -> tuple[D[DenseParameters], D[PreActivations]]:
+        return reduce(
+            lambda acc, handler: handler(*acc),
+            reversed(
+                tuple(handler.post_backward for handler in self._training_step_handlers)
+            ),
+            self._backward_prop(
+                As_prev=As_prev,
+                Zs_prev=Zs_prev,
+                dZ=reduce(
+                    lambda acc, handler: handler(acc),
+                    reversed(
+                        tuple(
+                            handler.pre_backward
+                            for handler in self._training_step_handlers
+                        )
+                    ),
+                    dZ,
+                ),
+            ),
+        )
+
     @abstractmethod
     def _backward_prop(
         self,
@@ -147,12 +181,10 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         activation_fn: ActivationFn,
         parameters: DenseParameters | None = None,
         previous_layer: Layer,
-        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
         super().__init__(
             neurons=neurons,
             activation_fn=activation_fn,
-            preactivation_handlers=preactivation_handlers,
         )
         self._previous_layer = previous_layer
         self._parameters = (
@@ -200,7 +232,7 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
 
 class OutputLayerBase(_LayerBase[_ParamType]):
     @abstractmethod
-    def _backward_prop(
+    def backward_prop(
         self,
         *,
         Y_pred: Activations,
@@ -208,6 +240,17 @@ class OutputLayerBase(_LayerBase[_ParamType]):
         As_prev: Activations,
         Zs_prev: PreActivations,
     ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
+
+    @abstractmethod
+    def _backward_prop(
+        self,
+        *,
+        As_prev: Activations,
+        Zs_prev: PreActivations,
+        dZ: D[PreActivations],
+    ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
+
+    # TODO: This can now be unified with DenseLayer
 
 
 class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
@@ -218,13 +261,11 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         *,
         neurons: int,
         parameters: DenseParameters | None = None,
-        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
         previous_layer: Layer,
     ):
         super().__init__(
             neurons=neurons,
             activation_fn=softmax,
-            preactivation_handlers=preactivation_handlers,
         )
         self._previous_layer = previous_layer
         self._parameters = (
@@ -233,7 +274,7 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
             else self.Parameters.random(previous_layer.neurons, self._neurons)
         )
 
-    def _backward_prop(
+    def backward_prop(
         self,
         *,
         Y_pred: Activations,
@@ -241,7 +282,35 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         As_prev: Activations,
         Zs_prev: PreActivations,
     ) -> tuple[D[DenseParameters], D[PreActivations]]:
-        dZ = np.atleast_1d(Y_pred - Y_true)
+        return reduce(
+            lambda acc, handler: handler(*acc),
+            reversed(
+                tuple(handler.post_backward for handler in self._training_step_handlers)
+            ),
+            self._backward_prop(
+                As_prev=As_prev,
+                Zs_prev=Zs_prev,
+                dZ=reduce(
+                    lambda acc, handler: handler(acc),
+                    reversed(
+                        tuple(
+                            handler.pre_backward
+                            for handler in self._training_step_handlers
+                        )
+                    ),
+                    np.atleast_1d(Y_pred - Y_true),  # Specific to softmax
+                ),
+            ),
+        )
+
+    def _backward_prop(
+        self,
+        *,
+        As_prev: Activations,
+        Zs_prev: PreActivations,
+        dZ: D[PreActivations],
+    ) -> tuple[D[DenseParameters], D[PreActivations]]:
+        # TODO: This can now be unified with DenseLayer
         return cast(  # TODO: fix-types
             D[DenseParameters],
             self.Parameters.of(
@@ -278,12 +347,10 @@ class RawOutputLayer(SoftmaxOutputLayer):
         *,
         neurons: int,
         previous_layer: Layer,
-        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
         super().__init__(
             neurons=neurons,
             previous_layer=previous_layer,
-            preactivation_handlers=preactivation_handlers,
         )
         self._activation_fn = identity
 
@@ -293,10 +360,9 @@ class InputLayer:
         self,
         *,
         neurons: int,
-        preactivation_handlers: Sequence[Callable[[np.ndarray], np.ndarray]] = (),
     ):
         self._neurons = neurons
-        self._preactivation_handlers = tuple(preactivation_handlers)
+        self._training_step_handlers = ()
         self._activation_fn = identity
 
     def forward_prop(self, *, As_prev: Activations) -> tuple[Activations, ...]:

@@ -54,5 +54,8 @@ class ModelBase(ABC, Generic[_GradientT]):
     Returns an empty gradient. Used to initialize optimizers.
     """
 
+    @abstractmethod
+    def compute_loss(self, X: np.ndarray, Y_true: np.ndarray) -> float: ...
+
 
 ModelT = TypeVar("ModelT", bound=ModelBase)

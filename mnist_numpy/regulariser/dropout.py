@@ -12,6 +12,8 @@ from mnist_numpy.types import Activations, D, PreActivations
 
 
 def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]:
+    # TODO: Instead of wrapping the layer it should register itself on the layer
+    # as part of the forward or backward prop chain
     def wrapped(layer: HiddenLayerBase) -> HiddenLayerBase:
         if keep_prob < 0.0 or keep_prob > 1.0:
             raise ValueError("keep_prob must be between 0.0 and 1.0")
@@ -69,6 +71,7 @@ def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]
 
 
 class DropoutVisitor:
+    # TODO: Replace this with a regulariser as defined in ridge.py
     def __init__(self, *, model: MultiLayerPerceptron, keep_prob: tuple[float, ...]):
         self.model = model
         if len(keep_prob) == 0:
