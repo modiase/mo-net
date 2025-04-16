@@ -125,6 +125,20 @@ class DenseParameters:
         return cls(_W=np.random.randn(dim_in, dim_out), _B=np.zeros(dim_out))
 
     @classmethod
+    def xavier(cls, dim_in: int, dim_out: int) -> Self:
+        return cls(
+            _W=np.random.randn(dim_in, dim_out) * np.sqrt(1 / dim_in),
+            _B=np.zeros(dim_out),
+        )
+
+    @classmethod
+    def he(cls, dim_in: int, dim_out: int) -> Self:
+        return cls(
+            _W=np.random.normal(0, np.sqrt(2 / dim_in), (dim_in, dim_out)),
+            _B=np.zeros(dim_out),
+        )
+
+    @classmethod
     def eye(cls, dim: int) -> Self:
         return cls(_W=np.eye(dim), _B=np.zeros(dim))
 

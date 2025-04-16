@@ -158,18 +158,28 @@ class MultiLayerPerceptron(ModelBase):
             SoftmaxOutputLayer if output_layer_type == "softmax" else RawOutputLayer
         )
         layers: MutableSequence[Layer] = [InputLayer(neurons=layer_neuron_counts[0])]
-        for layer in layer_neuron_counts[1:-1]:
+        for layer_neuron_count in layer_neuron_counts[1:-1]:
             layers.append(
                 DenseLayer(
-                    neurons=layer,
+                    neurons=layer_neuron_count,
                     activation_fn=activation_fn,
                     previous_layer=layers[-1],
+                    parameters=DenseLayer.Parameters.he(
+                        dim_in=layers[-1].neurons, dim_out=layer_neuron_count
+                    )
+                    if activation_fn == ReLU
+                    else DenseLayer.Parameters.xavier(
+                        dim_in=layers[-1].neurons, dim_out=layer_neuron_count
+                    ),
                 )
             )
         layers.append(
             OutputLayerClass(
                 neurons=layer_neuron_counts[-1],
                 previous_layer=layers[-1],
+                parameters=DenseLayer.Parameters.xavier(
+                    dim_in=layers[-1].neurons, dim_out=layer_neuron_counts[-1]
+                ),
             )
         )
         model = cls(tuple(layers))
