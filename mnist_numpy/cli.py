@@ -15,7 +15,7 @@ from more_itertools import sample
 from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
 from mnist_numpy.functions import LeakyReLU, ReLU, Tanh
 from mnist_numpy.model import MultiLayerPerceptron
-from mnist_numpy.model.scheduler import DecayScheduler
+from mnist_numpy.model.scheduler import CosineScheduler
 from mnist_numpy.optimizer import (
     AdalmOptimizer,
     AdamOptimizer,
@@ -235,10 +235,11 @@ def train(
                 model=model,
                 config=AdamOptimizer.Config(
                     learning_rate=learning_rate,
-                    scheduler=DecayScheduler(
+                    scheduler=CosineScheduler(
                         batch_size=batch_size,
                         learning_rate_limits=learning_rate_limits,
-                        learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
+                        num_epochs=num_epochs,
+                        start_learning_rate=learning_rate,
                         train_set_size=train_set_size,
                     ),
                 ),
