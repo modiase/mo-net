@@ -9,6 +9,8 @@ import numpy as np
 from InquirerPy import inquirer
 from loguru import logger
 
+from mnist_numpy.data import DATA_DIR
+
 
 def print_group_statistics(group: h5py.Group, prefix: str = "") -> None:
     """Print statistics for a given HDF5 group recursively."""
@@ -243,16 +245,24 @@ def extract_iteration_number(key: str) -> int:
 
 
 @click.command()
-@click.argument("trace_log_path", type=Path)
+@click.option("--trace_log_path", "-t", type=Path, help="Path to the trace log file")
 @click.option("--iteration", "-i", type=int, help="Specific iteration to analyze")
 @click.option(
     "--list-iterations", "-l", is_flag=True, help="List all available iterations"
 )
 def main(
-    trace_log_path: Path,
+    trace_log_path: Path | None = None,
     iteration: int | None = None,
     list_iterations: bool = False,
 ) -> None:
+    if trace_log_path is None:
+        run_dir = DATA_DIR / "run"
+        hdf5_files = tuple(run_dir.glob("*.hdf5"))
+        if not hdf5_files:
+            logger.error(f"No .hdf5 files found in {run_dir}")
+            sys.exit(1)
+        trace_log_path = max(hdf5_files, key=lambda p: p.stat().st_mtime)
+        logger.info(f"Using latest trace log file: {trace_log_path}")
     if not trace_log_path.exists():
         logger.error(f"File not found: {trace_log_path}")
         sys.exit(1)

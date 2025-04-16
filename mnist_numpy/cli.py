@@ -1,6 +1,7 @@
 import functools
 import os
 import re
+import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,7 +13,13 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
 
-from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
+from mnist_numpy.data import (
+    DATA_DIR,
+    DEFAULT_DATA_PATH,
+    OUTPUT_PATH,
+    RUN_PATH,
+    load_data,
+)
 from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.scheduler import CosineScheduler
@@ -276,7 +283,6 @@ def train(
     "--model-path",
     help="Set the path to the model file",
     type=Path,
-    required=True,
 )
 @click.option(
     "-d",
@@ -285,8 +291,16 @@ def train(
     help="Set the path to the data file",
     default=DEFAULT_DATA_PATH,
 )
-def infer(*, model_path: Path, data_path: Path):
+def infer(*, model_path: Path | None, data_path: Path):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
+
+    if model_path is None:
+        output_dir = DATA_DIR / "output"
+        model_path = max(output_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime)
+        logger.info(f"Using latest model file: {model_path}")
+    if not model_path.exists():
+        logger.error(f"File not found: {model_path}")
+        sys.exit(1)
 
     # TODO: Dispatch on model type
     model = MultiLayerPerceptron.load(open(model_path, "rb"))
