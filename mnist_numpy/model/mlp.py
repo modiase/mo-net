@@ -206,16 +206,10 @@ class MultiLayerPerceptron(ModelBase):
         self._Zs.append(one(Z))  # TODO: generalise
         self._As.append(A)
 
-        for layer in self.hidden_layers:
+        for layer in self.non_input_layers:
             Z, A = itemgetter(slice(-1), -1)(layer.forward_prop(As_prev=last(self._As)))
             self._Zs.append(one(Z))  # TODO: generalise
             self._As.append(A)
-
-        Z, A = itemgetter(slice(-1), -1)(
-            self.output_layer.forward_prop(As_prev=last(self._As))
-        )
-        self._Zs.append(one(Z))  # TODO: generalise
-        self._As.append(A)
 
         return Activations(A)
 
