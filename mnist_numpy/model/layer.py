@@ -205,17 +205,6 @@ class HiddenLayerBase(
         dZ: D[Activations],
     ) -> tuple[D[_ParamType], D[Activations]]: ...
 
-    def reinitialise(self) -> None:
-        self._parameters = (
-            self.Parameters.he(
-                dim_in=self._previous_layer.neurons, dim_out=self._neurons
-            )
-            if self._activation_fn == ReLU
-            else self.Parameters.xavier(
-                dim_in=self._previous_layer.neurons, dim_out=self._neurons
-            )
-        )
-
 
 class DenseLayer(HiddenLayerBase[DenseParameters]):
     Parameters = DenseParameters
@@ -272,6 +261,17 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
             dim_in=self._previous_layer.neurons, dim_out=self._neurons
         )
 
+    def reinitialise(self) -> None:
+        self._parameters = (
+            self.Parameters.he(
+                dim_in=self._previous_layer.neurons, dim_out=self._neurons
+            )
+            if self._activation_fn == ReLU
+            else self.Parameters.xavier(
+                dim_in=self._previous_layer.neurons, dim_out=self._neurons
+            )
+        )
+
 
 class OutputLayerBase(_LayerBase[_ParamType]):
     @abstractmethod
@@ -297,11 +297,6 @@ class OutputLayerBase(_LayerBase[_ParamType]):
     @property
     def parameters(self) -> _ParamType:
         return self._parameters
-
-    def reinitialise(self) -> None:
-        self._parameters = self.Parameters.xavier(
-            dim_in=self._previous_layer.neurons, dim_out=self._neurons
-        )
 
 
 class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
@@ -390,6 +385,11 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
     @property
     def parameters(self) -> DenseParameters:
         return self._parameters
+
+    def reinitialise(self) -> None:
+        self._parameters = self.Parameters.xavier(
+            dim_in=self._previous_layer.neurons, dim_out=self._neurons
+        )
 
 
 class RawOutputLayer(SoftmaxOutputLayer):

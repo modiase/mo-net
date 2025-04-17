@@ -272,6 +272,10 @@ def train(
         case _:
             raise ValueError(f"Invalid optimizer: {optimizer}")
 
+    def save_model(model_checkpoint_path: Path) -> None:
+        model_checkpoint_path.rename(model_path)
+        logger.info(f"Saved output to {model_path}.")
+
     restarts = 0
     while restarts < max_restarts:
         training_result = ModelTrainer.train(
@@ -284,15 +288,12 @@ def train(
             optimizer=optimizer,
             training_log_path=training_log_path,
         )
-        if training_result.aborted:
-            if training_result.training_progress > 0.1:
-                break
-            model.reinitialise()
-            restarts += 1
-        else:
-            training_result.model_checkpoint_path.rename(model_path)
-            logger.info(f"Saved output to {model_path}.")
+        if not training_result.aborted or training_result.training_progress > 0.1:
             break
+        model.reinitialise()
+        restarts += 1
+
+    save_model(training_result.model_checkpoint_path)
 
 
 @cli.command(help="Run inference using the model")

@@ -142,12 +142,13 @@ class ModelTrainer:
                 ),
             )
             optimizer.register_after_training_step_handler(tracer)
-        optimizer.register_after_training_step_handler(
-            Monitor(
-                low_gradient_abort_threshold=training_parameters.low_gradient_abort_threshold,
-                high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
-            )
+        monitor = Monitor(
+            X_train=X_train,
+            Y_train=Y_train,
+            low_gradient_abort_threshold=training_parameters.low_gradient_abort_threshold,
+            high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
         )
+        optimizer.register_after_training_step_handler(monitor.post_update)
 
         for i in tqdm(
             range(
@@ -175,6 +176,17 @@ class ModelTrainer:
                 L_train = model.compute_loss(X=X_train, Y_true=Y_train)
                 L_test = model.compute_loss(X=X_test, Y_true=Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
+                try:
+                    monitor.post_epoch(L_test)
+                except AbortTraining as e:
+                    logger.exception(e)
+                    return TrainingResult(
+                        aborted=True,
+                        training_progress=(
+                            i / (training_parameters.total_epochs * batches_per_epoch)
+                        ),
+                        model_checkpoint_path=model_checkpoint_path,
+                    )
 
                 L_train_min = min(L_train_min, L_train)
                 if L_test < L_test_min:
