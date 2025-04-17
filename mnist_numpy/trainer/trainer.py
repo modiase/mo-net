@@ -11,8 +11,10 @@ from tqdm import tqdm
 from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.monitor.exceptions import AbortTraining
+from mnist_numpy.monitor.monitor import Monitor
+from mnist_numpy.monitor.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
-from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
@@ -132,6 +134,12 @@ class ModelTrainer:
                 ),
             )
             optimizer.register_after_training_step_handler(tracer)
+        optimizer.register_after_training_step_handler(
+            Monitor(
+                low_gradient_abort_threshold=training_parameters.low_gradient_abort_threshold,
+                high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
+            )
+        )
 
         for i in tqdm(
             range(
@@ -143,7 +151,11 @@ class ModelTrainer:
         ):
             X_train_batch, Y_train_batch = next(batcher)
 
-            optimizer.training_step(model, X_train_batch, Y_train_batch)
+            try:
+                optimizer.training_step(model, X_train_batch, Y_train_batch)
+            except AbortTraining as e:
+                logger.exception(e)
+                return model_checkpoint_path
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
                 L_train = model.compute_loss(X=X_train, Y_true=Y_train)
