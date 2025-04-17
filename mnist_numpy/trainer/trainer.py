@@ -6,26 +6,15 @@ from typing import Final, Self, cast
 import numpy as np
 import pandas as pd
 from loguru import logger
-from pydantic import BaseModel
 from tqdm import tqdm
 
+from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
 from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
-
-
-class TrainingParameters(BaseModel):
-    batch_size: int
-    dropout_keep_prob: tuple[float, ...]
-    learning_rate: float
-    learning_rate_limits: tuple[float, float]
-    num_epochs: int
-    regulariser_lambda: float
-    total_epochs: int
-    trace_logging: bool
 
 
 class Batcher:
@@ -92,7 +81,7 @@ class ModelTrainer:
 
         logger.info(
             f"Training model {model.__class__.__name__}"
-            f" for {training_parameters.num_epochs=} iterations with {training_parameters.learning_rate=}"
+            f" for {training_parameters.num_epochs=} iterations"
             f" using optimizer {optimizer.__class__.__name__}."
         )
 

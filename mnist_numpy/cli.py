@@ -233,6 +233,8 @@ def train(
         regulariser_lambda=regulariser_lambda,
         total_epochs=num_epochs,
         trace_logging=trace_logging,
+        train_set_size=train_set_size,
+        warmup_epochs=warmup_epochs,
     )
 
     optimizer: OptimizerBase
@@ -242,18 +244,10 @@ def train(
                 model=model,
                 config=AdamOptimizer.Config(
                     learning_rate=learning_rate,
-                    scheduler=WarmupScheduler(
-                        batch_size=batch_size,
-                        train_set_size=train_set_size,
-                        learning_rate_limits=learning_rate_limits,
-                        num_epochs=num_epochs,
-                        warmup_epochs=warmup_epochs,
-                        next_scheduler=CosineScheduler(
-                            batch_size=batch_size,
-                            learning_rate_limits=learning_rate_limits,
-                            num_epochs=num_epochs,
-                            start_learning_rate=learning_rate_limits[1],
-                            train_set_size=train_set_size,
+                    scheduler=WarmupScheduler.of(
+                        training_parameters=training_parameters,
+                        next_scheduler=CosineScheduler.of(
+                            training_parameters=training_parameters,
                         ),
                     ),
                 ),

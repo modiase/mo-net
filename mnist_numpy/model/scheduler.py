@@ -1,6 +1,7 @@
 import math
-from typing import Protocol
+from typing import Protocol, Self
 
+from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model import MultiLayerPerceptron
 
 
@@ -30,6 +31,15 @@ def _apply_limits(learning_rate: float, limits: tuple[float, float]) -> float:
 
 
 class DecayScheduler:
+    @classmethod
+    def of(cls, *, training_parameters: TrainingParameters) -> Self:
+        return cls(
+            batch_size=training_parameters.batch_size,
+            learning_rate_limits=training_parameters.learning_rate_limits,
+            learning_rate_rescale_factor_per_epoch=training_parameters.learning_rate_rescale_factor_per_epoch,
+            train_set_size=training_parameters.train_set_size,
+        )
+
     def __init__(
         self,
         *,
@@ -62,6 +72,16 @@ class DecayScheduler:
 
 
 class CosineScheduler:
+    @classmethod
+    def of(cls, *, training_parameters: TrainingParameters) -> Self:
+        return cls(
+            batch_size=training_parameters.batch_size,
+            num_epochs=training_parameters.num_epochs,
+            train_set_size=training_parameters.train_set_size,
+            start_learning_rate=training_parameters.learning_rate_limits[1],
+            learning_rate_limits=training_parameters.learning_rate_limits,
+        )
+
     def __init__(
         self,
         *,
@@ -106,6 +126,22 @@ class CosineScheduler:
 
 
 class WarmupScheduler:
+    @classmethod
+    def of(
+        cls,
+        *,
+        training_parameters: TrainingParameters,
+        next_scheduler: Scheduler,
+    ) -> Self:
+        return cls(
+            batch_size=training_parameters.batch_size,
+            num_epochs=training_parameters.num_epochs,
+            train_set_size=training_parameters.train_set_size,
+            warmup_epochs=training_parameters.warmup_epochs,
+            learning_rate_limits=training_parameters.learning_rate_limits,
+            next_scheduler=next_scheduler,
+        )
+
     def __init__(
         self,
         *,
