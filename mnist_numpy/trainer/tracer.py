@@ -93,8 +93,8 @@ class Tracer:
         update: MultiLayerPerceptron.Gradient,
     ) -> None:
         activations = self.model._As[1:]  # Ignore input layer activations.
-        self._iterations += 1
         if not self._tracer_config.trace_strategy.should_trace(self._iterations):
+            self._iterations += 1
             return
 
         with h5py.File(self.trace_logging_path, "a") as f:
@@ -236,3 +236,5 @@ class Tracer:
                     bias_group.attrs["std"] = np.std(update_gradient._B)
                     bias_group.attrs["min"] = np.min(update_gradient._B)
                     bias_group.attrs["max"] = np.max(update_gradient._B)
+
+        self._iterations += 1
