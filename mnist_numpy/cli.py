@@ -22,7 +22,7 @@ from mnist_numpy.data import (
 )
 from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
 from mnist_numpy.model import MultiLayerPerceptron
-from mnist_numpy.model.scheduler import CosineScheduler
+from mnist_numpy.model.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.optimizer import (
     AdalmOptimizer,
     AdamOptimizer,
@@ -234,12 +234,19 @@ def train(
                 model=model,
                 config=AdamOptimizer.Config(
                     learning_rate=learning_rate,
-                    scheduler=CosineScheduler(
+                    scheduler=WarmupScheduler(
                         batch_size=batch_size,
+                        train_set_size=train_set_size,
                         learning_rate_limits=learning_rate_limits,
                         num_epochs=num_epochs,
-                        start_learning_rate=learning_rate,
-                        train_set_size=train_set_size,
+                        warmup_epochs=100,
+                        next_scheduler=CosineScheduler(
+                            batch_size=batch_size,
+                            learning_rate_limits=learning_rate_limits,
+                            num_epochs=num_epochs,
+                            start_learning_rate=learning_rate_limits[1],
+                            train_set_size=train_set_size,
+                        ),
                     ),
                 ),
             )

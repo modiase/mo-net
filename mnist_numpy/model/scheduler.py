@@ -73,7 +73,7 @@ class CosineScheduler:
     ):
         self._num_epochs = num_epochs
         self._batches_per_epoch = math.ceil(train_set_size / batch_size)
-        self._current_epoch = 0
+        self._current_iteration = 0
         self._start_learning_rate = start_learning_rate
         self._current_learning_rate = start_learning_rate
         self._learning_rate_limits = (
@@ -82,6 +82,10 @@ class CosineScheduler:
             else (-float("inf"), float("inf"))
         )
 
+    @property
+    def _current_epoch(self) -> int:
+        return self._current_iteration // self._batches_per_epoch
+
     def __call__(
         self,
         current_iteration: int,
@@ -89,13 +93,55 @@ class CosineScheduler:
         gradient: MultiLayerPerceptron.Gradient,
     ) -> float:
         del current_learning_rate, gradient  # unused
+        self._current_iteration = current_iteration
         if current_iteration % self._batches_per_epoch == 0:
-            self._current_epoch += 1
             self._current_learning_rate = _apply_limits(
                 self._start_learning_rate
                 * (1 + math.cos(self._current_epoch / self._num_epochs * math.pi))
                 / 2,
                 self._learning_rate_limits,
             )
+
+        return self._current_learning_rate
+
+
+class WarmupScheduler:
+    def __init__(
+        self,
+        *,
+        batch_size: int,
+        num_epochs: int,
+        train_set_size: int,
+        warmup_epochs: int,
+        learning_rate_limits: tuple[float, float],
+        next_scheduler: Scheduler,
+    ):
+        self._num_epochs = num_epochs
+        self._batches_per_epoch = math.ceil(train_set_size / batch_size)
+        self._warmup_epochs = warmup_epochs
+        self._start_learning_rate, self._end_learning_rate = learning_rate_limits
+        self._current_learning_rate = self._start_learning_rate
+        self._current_iteration = 0
+        self._next_scheduler = next_scheduler
+
+    @property
+    def _current_epoch(self) -> int:
+        return self._current_iteration // self._batches_per_epoch
+
+    def __call__(
+        self,
+        current_iteration: int,
+        current_learning_rate: float,
+        gradient: MultiLayerPerceptron.Gradient,
+    ) -> float:
+        self._current_iteration = current_iteration
+        if self._current_epoch > self._warmup_epochs:
+            return self._next_scheduler(
+                current_iteration, current_learning_rate, gradient
+            )
+        if current_iteration % self._batches_per_epoch == 0:
+            self._current_learning_rate = (
+                self._end_learning_rate - self._start_learning_rate
+            ) * (self._current_epoch / self._warmup_epochs)
 
         return self._current_learning_rate
