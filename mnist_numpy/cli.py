@@ -24,7 +24,6 @@ from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.optimizer import (
-    AdalmOptimizer,
     AdamOptimizer,
     NoOptimizer,
     OptimizerBase,
@@ -251,19 +250,6 @@ def train(
                             training_parameters=training_parameters,
                         ),
                     ),
-                ),
-            )
-        case "adalm":
-            optimizer = AdalmOptimizer(
-                model=model,
-                config=AdalmOptimizer.Config(
-                    num_epochs=num_epochs,
-                    train_set_size=(train_set_size := X_train.shape[0]),
-                    batch_size=(
-                        batch_size if batch_size is not None else train_set_size
-                    ),
-                    learning_rate=learning_rate,
-                    learning_rate_limits=learning_rate_limits,
                 ),
             )
         case "no":

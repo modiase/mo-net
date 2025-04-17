@@ -3,8 +3,21 @@ from typing import Generic, NewType, Protocol, TypeAlias, TypeVar
 
 import numpy as np
 
+
+class HasWeights(Protocol):
+    _W: np.ndarray
+
+
+class HasBiases(Protocol):
+    _B: np.ndarray
+
+
+class HasWeightsAndBiases(HasWeights, HasBiases):
+    def __init__(self, _W: np.ndarray, _B: np.ndarray): ...
+
+
 _Quantity = TypeVar("_Quantity")
-_ParamType = TypeVar("_ParamType")
+_ParamType = TypeVar("_ParamType", bound=HasWeightsAndBiases)
 
 
 class D(Protocol, Generic[_Quantity]):
@@ -12,7 +25,6 @@ class D(Protocol, Generic[_Quantity]):
 
 
 Activations = NewType("Activations", np.ndarray)
-PreActivations = NewType("PreActivations", np.ndarray)
 
 
 _X = TypeVar("_X", bound=np.ndarray | float)

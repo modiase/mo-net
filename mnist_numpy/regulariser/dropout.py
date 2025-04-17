@@ -8,7 +8,7 @@ from more_itertools import one
 
 from mnist_numpy.model.layer import DenseParameters, HiddenLayerBase
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import Activations, D, PreActivations
+from mnist_numpy.types import Activations, D
 
 
 def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]:
@@ -53,9 +53,9 @@ def dropout(*, keep_prob: float) -> Callable[[HiddenLayerBase], HiddenLayerBase]
         def backward_prop(
             *,
             As_prev: Activations,
-            Zs_prev: PreActivations,
-            dZ: D[PreActivations],
-        ) -> tuple[D[DenseParameters], D[PreActivations]]:
+            Zs_prev: Activations,
+            dZ: D[Activations],
+        ) -> tuple[D[DenseParameters], D[Activations]]:
             nonlocal dropout_mask
             if dropout_mask is not None:
                 dZ *= dropout_mask

@@ -32,7 +32,6 @@ from mnist_numpy.types import (
     ActivationFn,
     Activations,
     LossContributor,
-    PreActivations,
 )
 
 
@@ -204,7 +203,7 @@ class MultiLayerPerceptron(ModelBase):
             )
         self._hidden_layers = cast(Sequence[HiddenLayerBase], layers[1:-1])
         self._As: MutableSequence[Activations] = []
-        self._Zs: MutableSequence[PreActivations] = []
+        self._Zs: MutableSequence[Activations] = []
         self._input_layer = layers[0]
         self._output_layer = layers[-1]
         self._loss_contributors: MutableSequence[LossContributor] = []

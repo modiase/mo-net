@@ -33,10 +33,14 @@ def _apply_limits(learning_rate: float, limits: tuple[float, float]) -> float:
 class DecayScheduler:
     @classmethod
     def of(cls, *, training_parameters: TrainingParameters) -> Self:
+        min_learning_rate, max_learning_rate = training_parameters.learning_rate_limits
         return cls(
             batch_size=training_parameters.batch_size,
             learning_rate_limits=training_parameters.learning_rate_limits,
-            learning_rate_rescale_factor_per_epoch=training_parameters.learning_rate_rescale_factor_per_epoch,
+            learning_rate_rescale_factor_per_epoch=math.exp(
+                math.log(max_learning_rate / min_learning_rate)
+                / training_parameters.num_epochs
+            ),
             train_set_size=training_parameters.train_set_size,
         )
 

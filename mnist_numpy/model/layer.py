@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import reduce
 from itertools import chain
-from typing import Generic, Self, TypeVar, cast
+from typing import Generic, Self, cast
 
 import numpy as np
 from more_itertools import last
@@ -14,11 +15,10 @@ from mnist_numpy.types import (
     ActivationFn,
     Activations,
     D,
-    PreActivations,
+    HasWeightsAndBiases,
     TrainingStepHandler,
+    _ParamType,
 )
-
-_ParamType = TypeVar("_ParamType")
 
 
 class _LayerBase(ABC, Generic[_ParamType]):
@@ -34,10 +34,12 @@ class _LayerBase(ABC, Generic[_ParamType]):
     ):
         self._activation_fn = activation_fn
         self._neurons = neurons
-        self._training_step_handlers = ()
+        self._training_step_handlers: Sequence[TrainingStepHandler] = ()
 
     def register_training_step_handler(self, handler: TrainingStepHandler) -> None:
-        self._training_step_handlers = self._training_step_handlers + (handler,)
+        self._training_step_handlers = tuple(
+            chain(self._training_step_handlers, (handler,))
+        )
 
     def forward_prop(self, *, As_prev: Activations) -> tuple[Activations, ...]:
         return tuple(
@@ -64,9 +66,13 @@ class _LayerBase(ABC, Generic[_ParamType]):
     @abstractmethod
     def empty_parameters(self) -> _ParamType: ...
 
+    @property
+    def parameters(self) -> _ParamType:
+        return self._parameters
+
 
 @dataclass(kw_only=True, frozen=True)
-class DenseParameters:
+class DenseParameters(HasWeightsAndBiases):
     _W: np.ndarray
     _B: np.ndarray
 
@@ -151,8 +157,8 @@ class HiddenLayerBase(
     _LayerBase[_ParamType]
 ):  # TODO: Consider merging this with OutputLayerBase
     def backward_prop(
-        self, *, As_prev: Activations, Zs_prev: PreActivations, dZ: D[PreActivations]
-    ) -> tuple[D[DenseParameters], D[PreActivations]]:
+        self, *, As_prev: Activations, Zs_prev: Activations, dZ: D[Activations]
+    ) -> tuple[D[_ParamType], D[Activations]]:
         return reduce(
             lambda acc, handler: handler(*acc),
             reversed(
@@ -179,9 +185,9 @@ class HiddenLayerBase(
         self,
         *,
         As_prev: Activations,
-        Zs_prev: PreActivations,
-        dZ: D[PreActivations],
-    ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
+        Zs_prev: Activations,
+        dZ: D[Activations],
+    ) -> tuple[D[_ParamType], D[Activations]]: ...
 
 
 class DenseLayer(HiddenLayerBase[DenseParameters]):
@@ -214,9 +220,9 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         self,
         *,
         As_prev: Activations,
-        Zs_prev: PreActivations,
-        dZ: D[PreActivations],
-    ) -> tuple[D[DenseParameters], D[PreActivations]]:
+        Zs_prev: Activations,
+        dZ: D[Activations],
+    ) -> tuple[D[DenseParameters], D[Activations]]:
         return cast(  # TODO: fix-types
             D[DenseParameters],
             self.Parameters.of(
@@ -239,10 +245,6 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
             dim_in=self._previous_layer.neurons, dim_out=self._neurons
         )
 
-    @property
-    def parameters(self) -> DenseParameters:
-        return self._parameters
-
 
 class OutputLayerBase(_LayerBase[_ParamType]):
     @abstractmethod
@@ -252,19 +254,22 @@ class OutputLayerBase(_LayerBase[_ParamType]):
         Y_pred: Activations,
         Y_true: np.ndarray,
         As_prev: Activations,
-        Zs_prev: PreActivations,
-    ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
+        Zs_prev: Activations,
+    ) -> tuple[D[DenseParameters], D[Activations]]: ...
 
     @abstractmethod
     def _backward_prop(
         self,
         *,
         As_prev: Activations,
-        Zs_prev: PreActivations,
-        dZ: D[PreActivations],
-    ) -> tuple[D[DenseParameters], D[PreActivations]]: ...
+        Zs_prev: Activations,
+        dZ: D[Activations],
+    ) -> tuple[D[DenseParameters], D[Activations]]: ...
 
     # TODO: This can now be unified with DenseLayer
+    @property
+    def parameters(self) -> _ParamType:
+        return self._parameters
 
 
 class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
@@ -294,8 +299,8 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         Y_pred: Activations,
         Y_true: np.ndarray,
         As_prev: Activations,
-        Zs_prev: PreActivations,
-    ) -> tuple[D[DenseParameters], D[PreActivations]]:
+        Zs_prev: Activations,
+    ) -> tuple[D[DenseParameters], D[Activations]]:
         return reduce(
             lambda acc, handler: handler(*acc),
             reversed(
@@ -321,9 +326,9 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         self,
         *,
         As_prev: Activations,
-        Zs_prev: PreActivations,
-        dZ: D[PreActivations],
-    ) -> tuple[D[DenseParameters], D[PreActivations]]:
+        Zs_prev: Activations,
+        dZ: D[Activations],
+    ) -> tuple[D[DenseParameters], D[Activations]]:
         # TODO: This can now be unified with DenseLayer
         return cast(  # TODO: fix-types
             D[DenseParameters],
@@ -361,10 +366,12 @@ class RawOutputLayer(SoftmaxOutputLayer):
         *,
         neurons: int,
         previous_layer: Layer,
+        parameters: DenseParameters | None = None,
     ):
         super().__init__(
             neurons=neurons,
             previous_layer=previous_layer,
+            parameters=parameters,
         )
         self._activation_fn = identity
 
