@@ -46,10 +46,23 @@ class _LayerBase(ABC, Generic[_ParamType]):
             reduce(
                 lambda acc, handler: acc + [handler(last(acc))],  # type: ignore[operator]
                 chain(
-                    (handler.forward for handler in self._training_step_handlers),
+                    (handler.post_forward for handler in self._training_step_handlers),
                     (self._activation_fn,),
                 ),
-                [self._forward_prop(As_prev=As_prev)],
+                [
+                    self._forward_prop(
+                        As_prev=(
+                            reduce(
+                                lambda acc, handler: handler(acc),
+                                tuple(
+                                    handler.pre_forward
+                                    for handler in self._training_step_handlers
+                                ),
+                                As_prev,
+                            )
+                        )
+                    )
+                ],
             )
         )
 

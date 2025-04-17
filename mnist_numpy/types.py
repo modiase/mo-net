@@ -39,16 +39,20 @@ class ActivationFn(Protocol):
     def name(self) -> str: ...
 
 
-class ForwardStepHandler(Protocol):
-    def forward(self, x: Activations) -> Activations: ...
+class TrainingStepHandler:
+    def pre_forward(self, As_prev: Activations) -> Activations:
+        return As_prev
 
+    def post_forward(self, As: Activations) -> Activations:
+        return As
 
-class TrainingStepHandler(ForwardStepHandler, Protocol):  # TODO: rationalise protocols
-    def pre_backward(self, dZ: D[Activations]) -> D[Activations]: ...
+    def pre_backward(self, dZ: D[Activations]) -> D[Activations]:
+        return dZ
 
     def post_backward(
         self, dP: D[_ParamType], dZ: D[Activations]
-    ) -> tuple[D[_ParamType], D[Activations]]: ...
+    ) -> tuple[D[_ParamType], D[Activations]]:
+        return dP, dZ
 
 
 LossContributor: TypeAlias = Callable[[], float]

@@ -4,6 +4,7 @@ import re
 import sys
 import time
 from collections.abc import Sequence
+from itertools import chain
 from pathlib import Path
 from typing import Callable, Final, ParamSpec, TypeVar
 
@@ -28,7 +29,7 @@ from mnist_numpy.optimizer import (
     NoOptimizer,
     OptimizerBase,
 )
-from mnist_numpy.regulariser.dropout import DropoutVisitor
+from mnist_numpy.regulariser.dropout import DropoutRegulariser
 from mnist_numpy.regulariser.ridge import L2Regulariser
 from mnist_numpy.trainer import (
     ModelTrainer,
@@ -196,14 +197,18 @@ def train(
             model = MultiLayerPerceptron.of(
                 layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
                 activation_fn=get_activation_fn(activation_fn),
-                regularisers=(
-                    (L2Regulariser(lambda_=regulariser_lambda),)
-                    if regulariser_lambda > 0
-                    else ()
+                regularisers=tuple(
+                    chain(
+                        (L2Regulariser(lambda_=regulariser_lambda),)
+                        if regulariser_lambda > 0
+                        else (),
+                        (
+                            (DropoutRegulariser(keep_probs=dropout_keep_prob),)
+                            if dropout_keep_prob
+                            else ()
+                        ),
+                    )
                 ),
-            )
-            model.accept_hidden_layer_visitor(
-                DropoutVisitor(model=model, keep_prob=dropout_keep_prob)
             )
         else:
             raise ValueError(f"Invalid model type: {model_type}")

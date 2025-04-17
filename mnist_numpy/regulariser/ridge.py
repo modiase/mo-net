@@ -12,12 +12,6 @@ class LayerL2Regulariser(TrainingStepHandler):
         self._lambda = lambda_
         self._layer = layer
 
-    def forward(self, As: Activations) -> Activations:
-        return As
-
-    def pre_backward(self, dZ: D[Activations]) -> D[Activations]:
-        return dZ
-
     def post_backward(
         self, dP: D[_ParamType], dZ: D[Activations]
     ) -> tuple[D[_ParamType], D[Activations]]:
