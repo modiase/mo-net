@@ -200,32 +200,33 @@ def train(
     logger.info(f"Training model with {seed=}.")
 
     model: MultiLayerPerceptron
+    regularisers = tuple(
+        (
+            chain(
+                (L2Regulariser(lambda_=regulariser_lambda, batch_size=batch_size),)
+                if regulariser_lambda > 0
+                else (),
+                (
+                    (DropoutRegulariser(keep_probs=dropout_keep_prob),)
+                    if dropout_keep_prob
+                    else ()
+                ),
+            )
+        )
+    )
     if model_path is None:
         if model_type == MultiLayerPerceptron.get_name():
             model = MultiLayerPerceptron.of(
                 layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
                 activation_fn=get_activation_fn(activation_fn),
-                regularisers=tuple(
-                    chain(
-                        (
-                            L2Regulariser(
-                                lambda_=regulariser_lambda, batch_size=batch_size
-                            ),
-                        )
-                        if regulariser_lambda > 0
-                        else (),
-                        (
-                            (DropoutRegulariser(keep_probs=dropout_keep_prob),)
-                            if dropout_keep_prob
-                            else ()
-                        ),
-                    )
-                ),
             )
         else:
             raise ValueError(f"Invalid model type: {model_type}")
     else:
         model = MultiLayerPerceptron.load(open(model_path, "rb"))
+
+    for regulariser in regularisers:
+        regulariser(model)
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
