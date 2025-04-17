@@ -277,6 +277,9 @@ def train(
         logger.info(f"Saved output to {model_path}.")
 
     restarts = 0
+    if training_parameters.trace_logging:
+        # Disable restarts when tracing
+        max_restarts = 1
     while restarts < max_restarts:
         training_result = ModelTrainer.train(
             model=model,
