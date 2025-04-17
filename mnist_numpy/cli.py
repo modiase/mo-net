@@ -160,6 +160,13 @@ def cli(): ...
     help="Set the regulariser lambda",
     default=0.0,
 )
+@click.option(
+    "-w",
+    "--warmup-epochs",
+    type=int,
+    help="Set the number of warmup epochs",
+    default=100,
+)
 def train(
     *,
     activation_fn: str,
@@ -176,6 +183,7 @@ def train(
     regulariser_lambda: float,
     training_log_path: Path | None,
     trace_logging: bool,
+    warmup_epochs: int,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
@@ -239,7 +247,7 @@ def train(
                         train_set_size=train_set_size,
                         learning_rate_limits=learning_rate_limits,
                         num_epochs=num_epochs,
-                        warmup_epochs=100,
+                        warmup_epochs=warmup_epochs,
                         next_scheduler=CosineScheduler(
                             batch_size=batch_size,
                             learning_rate_limits=learning_rate_limits,
