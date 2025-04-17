@@ -207,7 +207,11 @@ def train(
                 activation_fn=get_activation_fn(activation_fn),
                 regularisers=tuple(
                     chain(
-                        (L2Regulariser(lambda_=regulariser_lambda),)
+                        (
+                            L2Regulariser(
+                                lambda_=regulariser_lambda, batch_size=batch_size
+                            ),
+                        )
                         if regulariser_lambda > 0
                         else (),
                         (
