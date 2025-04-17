@@ -167,6 +167,13 @@ def cli(): ...
     help="Set the number of warmup epochs",
     default=100,
 )
+@click.option(
+    "-r",
+    "--max-restarts",
+    type=int,
+    help="Set the maximum number of restarts",
+    default=10,
+)
 def train(
     *,
     activation_fn: str,
@@ -177,6 +184,7 @@ def train(
     learning_rate: float,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
+    max_restarts: int,
     model_type: str,
     num_epochs: int,
     optimizer_type: str,
@@ -264,18 +272,27 @@ def train(
         case _:
             raise ValueError(f"Invalid optimizer: {optimizer}")
 
-    ModelTrainer.train(
-        model=model,
-        X_test=X_test,
-        X_train=X_train,
-        Y_test=Y_test,
-        Y_train=Y_train,
-        training_parameters=training_parameters,
-        optimizer=optimizer,
-        training_log_path=training_log_path,
-    ).rename(model_path)
-
-    logger.info(f"Saved output to {model_path}.")
+    restarts = 0
+    while restarts < max_restarts:
+        training_result = ModelTrainer.train(
+            model=model,
+            X_test=X_test,
+            X_train=X_train,
+            Y_test=Y_test,
+            Y_train=Y_train,
+            training_parameters=training_parameters,
+            optimizer=optimizer,
+            training_log_path=training_log_path,
+        )
+        if training_result.aborted:
+            if training_result.training_progress > 0.1:
+                break
+            model.reinitialise()
+            restarts += 1
+        else:
+            training_result.model_checkpoint_path.rename(model_path)
+            logger.info(f"Saved output to {model_path}.")
+            break
 
 
 @cli.command(help="Run inference using the model")

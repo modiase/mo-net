@@ -10,7 +10,7 @@ from typing import Generic, Self, cast
 import numpy as np
 from more_itertools import last
 
-from mnist_numpy.functions import identity, softmax
+from mnist_numpy.functions import ReLU, identity, softmax
 from mnist_numpy.types import (
     ActivationFn,
     Activations,
@@ -78,6 +78,9 @@ class _LayerBase(ABC, Generic[_ParamType]):
 
     @abstractmethod
     def empty_parameters(self) -> _ParamType: ...
+
+    @abstractmethod
+    def reinitialise(self) -> None: ...
 
     @property
     def parameters(self) -> _ParamType:
@@ -202,6 +205,17 @@ class HiddenLayerBase(
         dZ: D[Activations],
     ) -> tuple[D[_ParamType], D[Activations]]: ...
 
+    def reinitialise(self) -> None:
+        self._parameters = (
+            self.Parameters.he(
+                dim_in=self._previous_layer.neurons, dim_out=self._neurons
+            )
+            if self._activation_fn == ReLU
+            else self.Parameters.xavier(
+                dim_in=self._previous_layer.neurons, dim_out=self._neurons
+            )
+        )
+
 
 class DenseLayer(HiddenLayerBase[DenseParameters]):
     Parameters = DenseParameters
@@ -283,6 +297,11 @@ class OutputLayerBase(_LayerBase[_ParamType]):
     @property
     def parameters(self) -> _ParamType:
         return self._parameters
+
+    def reinitialise(self) -> None:
+        self._parameters = self.Parameters.xavier(
+            dim_in=self._previous_layer.neurons, dim_out=self._neurons
+        )
 
 
 class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):

@@ -1,4 +1,5 @@
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Final, Self, cast
@@ -17,6 +18,13 @@ from mnist_numpy.monitor.tracer import PerEpochTracerStrategy, Tracer, TracerCon
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrainingResult:
+    aborted: bool
+    model_checkpoint_path: Path
+    training_progress: float
 
 
 class Batcher:
@@ -64,7 +72,7 @@ class ModelTrainer:
         Y_train: np.ndarray,
         X_test: np.ndarray,
         Y_test: np.ndarray,
-    ) -> Path:
+    ) -> TrainingResult:
         if not training_log_path.exists():
             training_log = pd.DataFrame(
                 columns=[
@@ -155,7 +163,13 @@ class ModelTrainer:
                 optimizer.training_step(model, X_train_batch, Y_train_batch)
             except AbortTraining as e:
                 logger.exception(e)
-                return model_checkpoint_path
+                return TrainingResult(
+                    aborted=True,
+                    training_progress=(
+                        i / (training_parameters.total_epochs * batches_per_epoch)
+                    ),
+                    model_checkpoint_path=model_checkpoint_path,
+                )
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
                 L_train = model.compute_loss(X=X_train, Y_true=Y_train)
@@ -189,4 +203,8 @@ class ModelTrainer:
                 )
                 last_log_time = time.time()
 
-        return model_checkpoint_path
+        return TrainingResult(
+            aborted=False,
+            model_checkpoint_path=model_checkpoint_path,
+            training_progress=1.00,
+        )

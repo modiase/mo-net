@@ -208,6 +208,10 @@ class MultiLayerPerceptron(ModelBase):
         self._output_layer = layers[-1]
         self._loss_contributors: MutableSequence[LossContributor] = []
 
+    def reinitialise(self) -> None:
+        for layer in self.non_input_layers:
+            layer.reinitialise()
+
     @property
     def loss_contributors(self) -> Sequence[LossContributor]:
         return self._loss_contributors
