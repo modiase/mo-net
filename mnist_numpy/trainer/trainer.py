@@ -1,5 +1,4 @@
 import time
-from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Final, Self, cast
@@ -15,8 +14,6 @@ from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
 from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
-ABORT_TRAINING_THRESHOLD: Final[float] = -np.log(0.1)
-ABORT_TRAINING_STD_THRESHOLD: Final[float] = 0.001
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
 
@@ -128,8 +125,6 @@ class ModelTrainer:
         L_train_min = model.compute_loss(X=X_train, Y_true=Y_train)
         L_test_min = model.compute_loss(X=X_test, Y_true=Y_test)
 
-        L_train_history: deque[float] = deque(maxlen=100)
-
         batcher = Batcher(X_train, Y_train, training_parameters.batch_size)
         train_set_size = X_train.shape[0]
         batches_per_epoch = train_set_size // training_parameters.batch_size
@@ -163,14 +158,6 @@ class ModelTrainer:
 
             if i % (train_set_size // training_parameters.batch_size) == 0:
                 L_train = model.compute_loss(X=X_train, Y_true=Y_train)
-                L_train_history.append(L_train)
-                if len(L_train_history) == L_train_history.maxlen:
-                    std_loss = np.std(L_train_history)
-                    if (
-                        L_train_min > ABORT_TRAINING_THRESHOLD
-                        and std_loss < ABORT_TRAINING_STD_THRESHOLD
-                    ):
-                        raise RuntimeError("Aborting training. Model is not learning.")
                 L_test = model.compute_loss(X=X_test, Y_true=Y_test)
                 epoch = i // (train_set_size // training_parameters.batch_size)
 
