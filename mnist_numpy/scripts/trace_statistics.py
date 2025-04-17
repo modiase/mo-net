@@ -1,4 +1,5 @@
 import re
+import signal
 import sys
 from pathlib import Path
 
@@ -244,6 +245,21 @@ def extract_iteration_number(key: str) -> int:
     raise ValueError(f"Invalid iteration key: {key}")
 
 
+def sigint_handler(sig, frame):
+    """Handle SIGINT (Ctrl+C) by asking for confirmation to exit."""
+    confirm = inquirer.confirm(
+        message="Do you want to exit?",
+        default=False,
+    ).execute()
+
+    if confirm:
+        logger.info("Exiting...")
+        sys.exit(0)
+    else:
+        logger.info("Continuing...")
+        return
+
+
 @click.command()
 @click.option("--trace_log_path", "-t", type=Path, help="Path to the trace log file")
 @click.option("--iteration", "-i", type=int, help="Specific iteration to analyze")
@@ -255,6 +271,8 @@ def main(
     iteration: int | None = None,
     list_iterations: bool = False,
 ) -> None:
+    signal.signal(signal.SIGINT, sigint_handler)
+
     if trace_log_path is None:
         run_dir = DATA_DIR / "run"
         hdf5_files = tuple(run_dir.glob("*.hdf5"))
@@ -284,32 +302,35 @@ def main(
                 logger.info(f"  {iter_key} (timestamp: {timestamp})")
             return
 
-        if iteration is None:
-            selection = inquirer.fuzzy(
-                message="Available iterations:",
-                choices=available_iterations,
-            ).execute()
+        while True:
+            if iteration is None:
+                selection = inquirer.fuzzy(
+                    message="Available iterations:",
+                    choices=available_iterations,
+                ).execute()
 
-            try:
-                index = available_iterations.index(selection)
-                if 0 <= index < len(available_iterations):
-                    iteration_key = available_iterations[index]
-                else:
-                    logger.error(f"Invalid selection: {selection}")
+                try:
+                    index = available_iterations.index(selection)
+                    if 0 <= index < len(available_iterations):
+                        iteration_key = available_iterations[index]
+                    else:
+                        logger.error(f"Invalid selection: {selection}")
+                        continue
+                except ValueError:
+                    logger.error(f"Invalid input: {selection}")
+                    continue
+            else:
+                iteration_key = f"iteration_{iteration}"
+                if iteration_key not in f:
+                    logger.error(f"Iteration {iteration} not found in trace log.")
                     sys.exit(1)
-            except ValueError:
-                logger.error(f"Invalid input: {selection}")
-                sys.exit(1)
-        else:
-            iteration_key = f"iteration_{iteration}"
-            if iteration_key not in f:
-                logger.error(f"Iteration {iteration} not found in trace log.")
-                sys.exit(1)
 
-        logger.info(f"Statistics for {iteration_key}:")
-        print_group_statistics(f[iteration_key])
+            logger.info(f"Statistics for {iteration_key}:")
+            print_group_statistics(f[iteration_key])
 
-        plot_histograms(f, iteration_key)
+            plot_histograms(f, iteration_key)
+
+            iteration = None
 
 
 if __name__ == "__main__":
