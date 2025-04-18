@@ -1,8 +1,6 @@
 from collections import deque
-from itertools import pairwise
 
 import numpy as np
-from more_itertools import batched
 
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.monitor.exceptions import AbortTraining
@@ -14,6 +12,7 @@ class Monitor:
         *,
         low_gradient_abort_threshold: float,
         high_gradient_abort_threshold: float,
+        history_max_len: int,
         X_train: np.ndarray,
         Y_train: np.ndarray,
     ):
@@ -21,7 +20,7 @@ class Monitor:
         self._high_gradient_abort_threshold = high_gradient_abort_threshold
         self._X_train = X_train
         self._Y_train = Y_train
-        self._L_history_max_len = 100
+        self._L_history_max_len = history_max_len
         self._L_history: deque[float] = deque(maxlen=self._L_history_max_len)
 
     def post_update(
@@ -40,13 +39,5 @@ class Monitor:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
             return
-        if all(
-            diff > 0
-            for diff in (
-                b2 - b1
-                for b1, b2 in pairwise(
-                    sum(batch) for batch in batched(self._L_history, 10)
-                )
-            )
-        ):
+        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] > 0:
             raise AbortTraining("Model is diverging.")
