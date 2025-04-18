@@ -3,7 +3,7 @@ from collections import deque
 import numpy as np
 
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.monitor.exceptions import AbortTraining
+from mnist_numpy.trainer.exceptions import AbortTraining
 
 
 class Monitor:

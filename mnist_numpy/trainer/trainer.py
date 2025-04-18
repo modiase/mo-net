@@ -12,19 +12,17 @@ from tqdm import tqdm
 from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.monitor.exceptions import AbortTraining
-from mnist_numpy.monitor.monitor import Monitor
-from mnist_numpy.monitor.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
+from mnist_numpy.trainer.context import set_training_context
+from mnist_numpy.trainer.monitor import Monitor
+from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
 
 @dataclass(frozen=True, kw_only=True)
 class TrainingResult:
-    aborted: bool
     model_checkpoint_path: Path
-    training_progress: float
 
 
 class Batcher:
@@ -145,6 +143,7 @@ class ModelTrainer:
         monitor = Monitor(
             X_train=X_train,
             Y_train=Y_train,
+            history_max_len=training_parameters.history_max_len,
             low_gradient_abort_threshold=training_parameters.low_gradient_abort_threshold,
             high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
         )
@@ -158,65 +157,54 @@ class ModelTrainer:
             initial=start_epoch * batches_per_epoch,
             total=training_parameters.total_epochs * batches_per_epoch,
         ):
-            X_train_batch, Y_train_batch = next(batcher)
+            with set_training_context(
+                {
+                    "training_progress": i
+                    / (training_parameters.total_epochs * batches_per_epoch),
+                    "model_checkpoint_path": model_checkpoint_path,
+                }
+            ):
+                X_train_batch, Y_train_batch = next(batcher)
 
-            try:
                 optimizer.training_step(model, X_train_batch, Y_train_batch)
-            except AbortTraining as e:
-                logger.exception(e)
-                return TrainingResult(
-                    aborted=True,
-                    training_progress=(
-                        i / (training_parameters.total_epochs * batches_per_epoch)
-                    ),
-                    model_checkpoint_path=model_checkpoint_path,
-                )
 
-            if i % (train_set_size // training_parameters.batch_size) == 0:
-                L_train = model.compute_loss(X=X_train, Y_true=Y_train)
-                L_test = model.compute_loss(X=X_test, Y_true=Y_test)
-                epoch = i // (train_set_size // training_parameters.batch_size)
-                try:
+                if i % (train_set_size // training_parameters.batch_size) == 0:
+                    L_train = model.compute_loss(X=X_train, Y_true=Y_train)
+                    L_test = model.compute_loss(X=X_test, Y_true=Y_test)
+                    epoch = i // (train_set_size // training_parameters.batch_size)
+
+                    L_train_min = min(L_train_min, L_train)
+                    if L_test < L_test_min:
+                        model.dump(open(model_checkpoint_path, "wb"))
+                        L_test_min = L_test
                     monitor.post_epoch(L_test)
-                except AbortTraining as e:
-                    logger.exception(e)
-                    return TrainingResult(
-                        aborted=True,
-                        training_progress=(
-                            i / (training_parameters.total_epochs * batches_per_epoch)
-                        ),
-                        model_checkpoint_path=model_checkpoint_path,
-                    )
 
-                L_train_min = min(L_train_min, L_train)
-                if L_test < L_test_min:
-                    model.dump(open(model_checkpoint_path, "wb"))
-                    L_test_min = L_test
-
-                pd.DataFrame(
-                    [
+                    pd.DataFrame(
                         [
-                            epoch,
-                            L_train,
-                            L_train_min,
-                            L_test,
-                            L_test_min,
-                            optimizer.learning_rate,
-                            datetime.now(),
-                        ]
-                    ],
-                    columns=training_log.columns,
-                ).to_csv(training_log_path, mode="a", header=False, index=False)
+                            [
+                                epoch,
+                                L_train,
+                                L_train_min,
+                                L_test,
+                                L_test_min,
+                                optimizer.learning_rate,
+                                datetime.now(),
+                            ]
+                        ],
+                        columns=training_log.columns,
+                    ).to_csv(training_log_path, mode="a", header=False, index=False)
 
-            if time.time() - last_log_time > log_interval_seconds:
-                tqdm.write(
-                    f"Iteration {i}, Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
-                    + (f", {report}" if (report := optimizer.report()) != "" else "")
-                )
-                last_log_time = time.time()
+                if time.time() - last_log_time > log_interval_seconds:
+                    tqdm.write(
+                        f"Iteration {i}, Epoch {epoch}, Training Loss = {L_train}, Test Loss = {L_test}"
+                        + (
+                            f", {report}"
+                            if (report := optimizer.report()) != ""
+                            else ""
+                        )
+                    )
+                    last_log_time = time.time()
 
         return TrainingResult(
-            aborted=False,
             model_checkpoint_path=model_checkpoint_path,
-            training_progress=1.00,
         )

@@ -35,6 +35,7 @@ from mnist_numpy.trainer import (
     ModelTrainer,
     TrainingParameters,
 )
+from mnist_numpy.trainer.exceptions import AbortTraining
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -286,22 +287,26 @@ def train(
         # Disable restarts when tracing
         max_restarts = 1
     while restarts < max_restarts:
-        training_result = ModelTrainer.train(
-            model=model,
-            X_test=X_test,
-            X_train=X_train,
-            Y_test=Y_test,
-            Y_train=Y_train,
-            training_parameters=training_parameters,
-            optimizer=optimizer,
-            training_log_path=training_log_path,
-        )
-        if not training_result.aborted or training_result.training_progress > 0.1:
+        try:
+            training_result = ModelTrainer.train(
+                model=model,
+                X_test=X_test,
+                X_train=X_train,
+                Y_test=Y_test,
+                Y_train=Y_train,
+                training_parameters=training_parameters,
+                optimizer=optimizer,
+                training_log_path=training_log_path,
+            )
+        except AbortTraining as e:
+            logger.exception(e)
+            if e.training_progress is not None and e.training_progress >= 0.1:
+                break
+            model.reinitialise()
+            restarts += 1
+        else:
+            save_model(training_result.model_checkpoint_path)
             break
-        model.reinitialise()
-        restarts += 1
-
-    save_model(training_result.model_checkpoint_path)
 
 
 @cli.command(help="Run inference using the model")
