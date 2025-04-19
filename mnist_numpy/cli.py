@@ -173,7 +173,7 @@ def cli(): ...
     "--max-restarts",
     type=int,
     help="Set the maximum number of restarts",
-    default=10,
+    default=0,
 )
 def train(
     *,
@@ -285,8 +285,8 @@ def train(
     restarts = 0
     if training_parameters.trace_logging:
         # Disable restarts when tracing
-        max_restarts = 1
-    while restarts < max_restarts:
+        max_restarts = 0
+    while restarts <= max_restarts:
         try:
             training_result = ModelTrainer.train(
                 model=model,
