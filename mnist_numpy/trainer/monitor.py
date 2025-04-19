@@ -12,7 +12,7 @@ from mnist_numpy.trainer.exceptions import AbortTraining
 # distribution since the likelihood of a Z score of 30 is vanishingly small for
 # a random variable truly normally distributed is 1 - erf(30) which is
 # approximately 0.
-MAX_Z_SCORE: Final[float] = 30.0
+MAX_Z_SCORE: Final[float] = 50.0
 
 
 class Monitor:
@@ -81,5 +81,5 @@ class Monitor:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
             return
-        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] > 0:
+        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] > 0.05:
             raise AbortTraining("Model is diverging.")
