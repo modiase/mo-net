@@ -13,7 +13,7 @@ from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
-from mnist_numpy.trainer.context import set_training_context
+from mnist_numpy.trainer.context import set_training_context, training_context
 from mnist_numpy.trainer.monitor import Monitor
 from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
@@ -148,6 +148,7 @@ class ModelTrainer:
             high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
         )
         optimizer.register_after_training_step_handler(monitor.post_update)
+        training_context.set({"model_checkpoint_path": model_checkpoint_path})
 
         for i in tqdm(
             range(
@@ -161,7 +162,6 @@ class ModelTrainer:
                 {
                     "training_progress": i
                     / (training_parameters.total_epochs * batches_per_epoch),
-                    "model_checkpoint_path": model_checkpoint_path,
                 }
             ):
                 X_train_batch, Y_train_batch = next(batcher)

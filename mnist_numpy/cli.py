@@ -304,9 +304,7 @@ def train(
                 break
             model.reinitialise()
             restarts += 1
-        else:
-            save_model(training_result.model_checkpoint_path)
-            break
+    save_model(training_result.model_checkpoint_path)
 
 
 @cli.command(help="Run inference using the model")

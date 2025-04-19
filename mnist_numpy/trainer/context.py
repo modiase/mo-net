@@ -17,8 +17,9 @@ training_context: ContextVar[TrainingContext | None] = ContextVar(
 
 @contextmanager
 def set_training_context(value: TrainingContext) -> Iterator[None]:
-    training_context.set(value)
+    training_context_copy = cpy if (cpy := training_context.get()) is not None else {}
+    training_context.set(training_context_copy | value)
     try:
         yield
     finally:
-        training_context.set(None)
+        training_context.set(training_context_copy)
