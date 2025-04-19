@@ -301,10 +301,13 @@ def train(
         except AbortTraining as e:
             logger.exception(e)
             if e.training_progress is not None and e.training_progress >= 0.1:
+                save_model(e.model_checkpoint_path)
                 break
             model.reinitialise()
             restarts += 1
-    save_model(training_result.model_checkpoint_path)
+        else:
+            save_model(training_result.model_checkpoint_path)
+            break
 
 
 @cli.command(help="Run inference using the model")

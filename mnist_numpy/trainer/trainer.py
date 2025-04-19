@@ -143,11 +143,12 @@ class ModelTrainer:
         monitor = Monitor(
             X_train=X_train,
             Y_train=Y_train,
+            high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
             history_max_len=training_parameters.history_max_len,
             low_gradient_abort_threshold=training_parameters.low_gradient_abort_threshold,
-            high_gradient_abort_threshold=training_parameters.high_gradient_abort_threshold,
+            warmup_batches=training_parameters.warmup_epochs * batches_per_epoch,
         )
-        optimizer.register_after_training_step_handler(monitor.post_update)
+        optimizer.register_after_training_step_handler(monitor.post_batch)
         training_context.set({"model_checkpoint_path": model_checkpoint_path})
 
         for i in tqdm(
