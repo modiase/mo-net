@@ -225,6 +225,11 @@ def train(
             raise ValueError(f"Invalid model type: {model_type}")
     else:
         model = MultiLayerPerceptron.load(open(model_path, "rb"))
+        if len(model.hidden_layers) != len(dims):
+            raise ValueError(
+                f"Model has {len(model.hidden_layers)} hidden layers, but {len(dims)} dims were provided."
+                f" Did you mean to load a model with different dimensions?"
+            )
 
     for regulariser in regularisers:
         regulariser(model)

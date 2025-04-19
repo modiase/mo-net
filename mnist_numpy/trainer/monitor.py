@@ -81,5 +81,5 @@ class Monitor:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
             return
-        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] > 0.05:
+        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] > 0.001:
             raise AbortTraining("Model is diverging.")
