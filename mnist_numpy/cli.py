@@ -332,7 +332,6 @@ def infer(*, model_path: Path | None, data_path: Path):
         logger.error(f"File not found: {model_path}")
         sys.exit(1)
 
-    # TODO: Dispatch on model type
     model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
     Y_pred = model.predict(X_train)
