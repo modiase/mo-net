@@ -2,7 +2,7 @@ from collections.abc import MutableSequence
 
 import numpy as np
 
-from mnist_numpy.model.layer import NonInputLayer
+from mnist_numpy.model.layer import DenseParameters, NonInputLayer
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.types import Activations, D, TrainingStepHandler, _ParamType
 
@@ -23,6 +23,9 @@ class LayerL2Regulariser(TrainingStepHandler):
         ), dZ
 
     def compute_regularisation_loss(self) -> float:
+        if not isinstance(self._layer.parameters, DenseParameters):
+            # TODO: Remove coupling between layer and regulariser
+            return 0
         return (
             0.5 * self._lambda * np.sum(self._layer.parameters._W**2) / self._batch_size
         )
@@ -39,6 +42,9 @@ class L2Regulariser:
 
     def __call__(self, model: MultiLayerPerceptron) -> None:
         for layer in model.non_input_layers:
+            if not isinstance(layer.parameters, DenseParameters):
+                # TODO: Remove coupling between layer and regulariser
+                continue
             layer_regulariser = LayerL2Regulariser(
                 lambda_=self._lambda, batch_size=self._batch_size, layer=layer
             )

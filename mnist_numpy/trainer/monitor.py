@@ -3,16 +3,17 @@ from typing import Final
 
 import numpy as np
 
+from mnist_numpy.model.layer import DenseParameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.trainer.exceptions import AbortTraining
 
 # This value has been found empirically to be a good threshold for exploding
-# gradients. Obviously, a Z score of 30 is an insanely high value, but it can be
+# gradients. Obviously, a Z score of 10 is an insanely high value, but it can be
 # understood as recognising that the weights are not being modelled by a normal
-# distribution since the likelihood of a Z score of 30 is vanishingly small for
-# a random variable truly normally distributed is 1 - erf(30) which is
+# distribution since the likelihood of a Z score of 10 is vanishingly small for
+# a random variable truly normally distributed is 1 - erf(10) which is
 # approximately 0.
-MAX_Z_SCORE: Final[float] = 50.0
+MAX_Z_SCORE: Final[float] = 10.0
 
 
 class Monitor:
@@ -42,9 +43,12 @@ class Monitor:
         gradient: MultiLayerPerceptron.Gradient,
         update: MultiLayerPerceptron.Gradient,
     ) -> None:
-        del update
+        del update  # unused
+        dense_params = [
+            param for param in gradient.dParams if isinstance(param, DenseParameters)
+        ]
         sums_with_sums_squared = np.array(
-            [(np.sum(param._W), np.sum(param._W**2)) for param in gradient.dParams]
+            [(np.sum(param._W), np.sum(param._W**2)) for param in dense_params]
         )
         self._running_update_count += 1
         if self._running_weights_sums is None:
@@ -62,10 +66,10 @@ class Monitor:
                 1 - 1 / self._running_update_count
             ) + running_weights_sums_squared * (1 / self._running_update_count)
 
-        ns = np.array([param._W.size for param in gradient.dParams])
+        ns = np.array([param._W.size for param in dense_params])
         means = self._running_weights_sums / ns
         variances = self._running_weights_sums_squared / ns - means**2
-        weights = [param._W for param in gradient.dParams]
+        weights = [param._W for param in dense_params]
 
         max_Z_scores = np.array(
             [

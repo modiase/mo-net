@@ -35,20 +35,20 @@ class DropoutRegulariser:
             return
         elif len(self._keep_probs) == 1:
             self._keep_probs = tuple(
-                one(self._keep_probs) for _ in range(len(model.hidden_layers))
+                one(self._keep_probs) for _ in range(len(model.dense_layers))
             )
         elif isinstance(self._keep_probs, tuple) and len(self._keep_probs) != len(
-            model.hidden_layers
+            model.dense_layers
         ):
             raise ValueError(
-                f"Number of keep probabilities ({len(self._keep_probs)}) must match number of hidden layers ({len(model.hidden_layers)})"
+                f"Number of keep probabilities ({len(self._keep_probs)}) must match number of hidden layers ({len(model.dense_layers)})"
             )
         elif not isinstance(self._keep_probs, tuple):
             raise ValueError(
                 f"keep_probs must be a float or a tuple. Got {type(self._keep_probs)}"
             )
 
-        for layer, keep_prob in zip(model.hidden_layers, self._keep_probs):
+        for layer, keep_prob in zip(model.dense_layers, self._keep_probs):
             layer_dropout = LayerDropout(keep_prob=keep_prob)
             layer.register_training_step_handler(layer_dropout)
             self._layer_dropouts.append(layer_dropout)

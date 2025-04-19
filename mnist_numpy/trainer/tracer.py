@@ -8,7 +8,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from mnist_numpy.model.layer import DenseLayer
+from mnist_numpy.model.layer import DenseLayer, DenseParameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 
 
@@ -164,7 +164,9 @@ class Tracer:
 
             if self._tracer_config.trace_raw_gradients:
                 dense_layer_gradients = tuple(
-                    gradient.dParams[i] for i in range(len(self._dense_layers))
+                    params
+                    for params in gradient.dParams
+                    if isinstance(params, DenseParameters)
                 )
                 raw_gradient_group = iter_group.create_group("raw_gradients")
 
@@ -201,7 +203,9 @@ class Tracer:
 
             if self._tracer_config.trace_updates:
                 update_gradients = tuple(
-                    update.dParams[i] for i in range(len(self._dense_layers))
+                    params
+                    for params in update.dParams
+                    if isinstance(params, DenseParameters)
                 )
                 update_group = iter_group.create_group("updates")
                 for i, update_gradient in enumerate(update_gradients):

@@ -227,6 +227,12 @@ class MultiLayerPerceptron(ModelBase):
     def hidden_layers(self) -> Sequence[HiddenLayerBase]:
         return self._hidden_layers
 
+    @property
+    def dense_layers(self) -> Sequence[DenseLayer]:
+        return tuple(
+            layer for layer in self.hidden_layers if isinstance(layer, DenseLayer)
+        )
+
     def accept_hidden_layer_visitor(
         self, visitor: Callable[[HiddenLayerBase, int], HiddenLayerBase]
     ) -> None:

@@ -306,11 +306,17 @@ def main(
             if iteration is None:
                 selection = inquirer.fuzzy(
                     message="Available iterations:",
-                    choices=available_iterations,
+                    choices=[
+                        {
+                            "name": f"[{idx}]: {iteration}",
+                            "value": idx,
+                        }
+                        for idx, iteration in enumerate(available_iterations)
+                    ],
                 ).execute()
 
                 try:
-                    index = available_iterations.index(selection)
+                    index = int(selection)
                     if 0 <= index < len(available_iterations):
                         iteration_key = available_iterations[index]
                     else:

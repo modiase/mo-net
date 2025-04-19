@@ -29,6 +29,7 @@ from mnist_numpy.optimizer import (
     NoOptimizer,
     OptimizerBase,
 )
+from mnist_numpy.regulariser.batch_norm import BatchNormRegulariser
 from mnist_numpy.regulariser.dropout import DropoutRegulariser
 from mnist_numpy.regulariser.ridge import L2Regulariser
 from mnist_numpy.trainer import (
@@ -204,6 +205,7 @@ def train(
     regularisers = tuple(
         (
             chain(
+                (BatchNormRegulariser(batch_size=batch_size),),
                 (L2Regulariser(lambda_=regulariser_lambda, batch_size=batch_size),)
                 if regulariser_lambda > 0
                 else (),
