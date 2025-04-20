@@ -152,18 +152,18 @@ class BatchNormLayer(HiddenLayerBase):
             _beta=d_beta,
         )
 
-        dvar = 0.5 * np.sum(
+        d_batch_variance = -0.5 * np.sum(
             dX_norm * (X - mean) * np.power(var + self._EPSILON, -1.5), axis=0
         )
-        dmean = (
+        d_batch_mean = (
             np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
-            + dvar * np.sum(-2 * (X - mean), axis=0) / self._batch_size
+            + d_batch_variance * np.sum(-2 * (X - mean), axis=0) / self._batch_size
         )
 
         dX = (
             dX_norm / np.sqrt(var + self._EPSILON)
-            + dvar * 2 * (X - mean) / self._batch_size
-            + dmean / self._batch_size
+            + d_batch_variance * 2 * (X - mean) / self._batch_size
+            + d_batch_mean / self._batch_size
         )
 
         return (dP, dX)
