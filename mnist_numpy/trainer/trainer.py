@@ -151,6 +151,8 @@ class ModelTrainer:
         optimizer.register_after_training_step_handler(monitor.post_batch)
         training_context.set({"model_checkpoint_path": model_checkpoint_path})
 
+        # TODO: Parallelise training
+
         for i in tqdm(
             range(
                 start_epoch * batches_per_epoch,

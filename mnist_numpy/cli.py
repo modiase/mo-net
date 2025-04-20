@@ -176,6 +176,13 @@ def cli(): ...
     help="Set the maximum number of restarts",
     default=0,
 )
+@click.option(
+    "-w",
+    "--workers",
+    type=int,
+    help="Set the number of workers",
+    default=0,
+)
 def train(
     *,
     activation_fn: str,
@@ -194,6 +201,7 @@ def train(
     training_log_path: Path | None,
     trace_logging: bool,
     warmup_epochs: int,
+    workers: int,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
@@ -261,6 +269,7 @@ def train(
         trace_logging=trace_logging,
         train_set_size=train_set_size,
         warmup_epochs=warmup_epochs,
+        workers=workers,
     )
 
     optimizer: OptimizerBase
