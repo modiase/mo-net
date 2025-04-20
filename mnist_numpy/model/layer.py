@@ -205,6 +205,18 @@ class HiddenLayerBase(
         dZ: D[Activations],
     ) -> tuple[D[_ParamType], D[Activations]]: ...
 
+    # TODO: Implement ActivationLayer
+    # The current implementaiton of backprop is clumsy because we did not
+    # separate the application of the activation function from the dense layer.
+    # Now that we are defining a convention where a layer can opt to 'participate'
+    # in the backward pass by returning a tuple of (dP, dX), we can separate
+    # the application of the activation function from the dense layer.
+    #
+    # We will define a new class, ActivationLayer, which will apply the activation
+    # function to the output of the previous layer. It will not have any parameters.
+    # It will not participate in the backward pass. We can then dispense with the
+    # 'Zs_prev' argument in the backward_prop method.
+
 
 class DenseLayer(HiddenLayerBase[DenseParameters]):
     Parameters = DenseParameters

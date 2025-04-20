@@ -166,6 +166,11 @@ class BatchNormLayer(HiddenLayerBase):
             + d_batch_mean / self._batch_size
         )
 
+        # TODO: We will define a convention where a layer can opt to 'participate'
+        # in the backward pass by returning a tuple of (dP, dX). If a layer
+        # returns None, it is assumed to not have any parameters and will not
+        # participate in the parameter update. (In this case, the layer is
+        # assumed to have already updated its parameters)
         return (dP, dX)
 
     def empty_gradient(self) -> Parameters:
