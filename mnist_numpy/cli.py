@@ -24,20 +24,15 @@ from mnist_numpy.data import (
 from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.mlp import Regulariser
-from mnist_numpy.model.scheduler import CosineScheduler, WarmupScheduler
-from mnist_numpy.optimizer import (
-    AdamOptimizer,
-    NoOptimizer,
-    OptimizerBase,
-)
 from mnist_numpy.regulariser.batch_norm import BatchNormRegulariser
 from mnist_numpy.regulariser.dropout import DropoutRegulariser
 from mnist_numpy.regulariser.ridge import L2Regulariser
 from mnist_numpy.train import (
-    ModelTrainer,
     TrainingParameters,
 )
 from mnist_numpy.train.exceptions import AbortTraining
+from mnist_numpy.train.trainer.parallel import ParallelTrainer
+from mnist_numpy.train.trainer.trainer import BasicTrainer, get_optimizer
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -273,28 +268,6 @@ def train(
         workers=workers,
     )
 
-    optimizer: OptimizerBase
-    match optimizer_type:
-        case "adam":
-            optimizer = AdamOptimizer(
-                model=model,
-                config=AdamOptimizer.Config(
-                    learning_rate=learning_rate,
-                    scheduler=WarmupScheduler.of(
-                        training_parameters=training_parameters,
-                        next_scheduler=CosineScheduler.of(
-                            training_parameters=training_parameters,
-                        ),
-                    ),
-                ),
-            )
-        case "no":
-            optimizer = NoOptimizer(
-                config=NoOptimizer.Config(learning_rate=learning_rate),
-            )
-        case _:
-            raise ValueError(f"Invalid optimizer: {optimizer}")
-
     def save_model(model_checkpoint_path: Path | None) -> None:
         if model_checkpoint_path is None:
             return
@@ -307,16 +280,19 @@ def train(
         max_restarts = 0
     while restarts <= max_restarts:
         try:
-            training_result = ModelTrainer.train(
+            trainer = (
+                ParallelTrainer if training_parameters.workers > 0 else BasicTrainer
+            )(
                 model=model,
                 X_test=X_test,
                 X_train=X_train,
                 Y_test=Y_test,
                 Y_train=Y_train,
                 training_parameters=training_parameters,
-                optimizer=optimizer,
+                optimizer=get_optimizer(optimizer_type, model, training_parameters),
                 training_log_path=training_log_path,
             )
+            training_result = trainer.train()
         except AbortTraining as e:
             logger.exception(e)
             if e.training_progress is not None and e.training_progress >= 0.1:

@@ -1,3 +1,3 @@
-from .trainer.batch import ModelTrainer, TrainingParameters
+from .trainer.trainer import BasicTrainer, TrainingParameters
 
-__all__ = ["ModelTrainer", "TrainingParameters"]
+__all__ = ["BasicTrainer", "TrainingParameters"]

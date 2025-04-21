@@ -98,14 +98,19 @@ class BatchNormLayer(HiddenLayerBase):
         batch_size: int
         parameters: BatchNormLayer.Parameters
 
-        def deserialize(self, previous_layer: Layer) -> BatchNormLayer:
+        def deserialize(
+            self,
+            *,
+            previous_layer: Layer,
+            training: bool = False,
+        ) -> BatchNormLayer:
             del previous_layer  # unused
             return BatchNormLayer(
                 neurons=self.neurons,
                 momentum=self.momentum,
                 batch_size=self.batch_size,
                 parameters=self.parameters,
-                training=False,  # TODO: Parameterise this
+                training=training,
             )
 
     class Cache(TypedDict):

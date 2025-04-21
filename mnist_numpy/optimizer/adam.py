@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, Literal, overload
 
 import numpy as np
 
@@ -18,7 +18,6 @@ class AdamConfig:
     beta_1: float = DEFAULT_BETA_1
     beta_2: float = DEFAULT_BETA_2
     epsilon: float = DEFAULT_EPSILON
-    learning_rate: float
     scheduler: Scheduler = field(default_factory=NoopScheduler)
 
 
@@ -33,22 +32,49 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
     ):
         super().__init__(config)
 
-        self._current_learning_rate = config.learning_rate
+        self._current_learning_rate: float = 0.0
         self._first_moment = model.empty_gradient()
         self._iterations = 0
         self._scheduler = config.scheduler
         self._second_moment = model.empty_gradient()
+
+    @overload
+    def _training_step(
+        self,
+        model: ModelT,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
+        do_update: Literal[False],
+    ) -> tuple[MultiLayerPerceptron.Gradient, None]: ...
+
+    @overload
+    def _training_step(
+        self,
+        model: ModelT,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
+        do_update: Literal[True],
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]: ...
 
     def _training_step(
         self,
         model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
-        do_update: bool,
+        do_update: bool = True,
     ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
-        self._iterations += 1
         model.forward_prop(X=X_train_batch)
         gradient = model.backward_prop(Y_true=Y_train_batch)
+        if do_update:
+            update = self.compute_update(gradient)
+            model.update_parameters(update)
+            return gradient, update
+        return gradient, None
+
+    def compute_update(
+        self, gradient: MultiLayerPerceptron.Gradient
+    ) -> MultiLayerPerceptron.Gradient:
+        self._iterations += 1
         self._current_learning_rate = self._scheduler(
             self._iterations, self._current_learning_rate, gradient
         )
@@ -60,12 +86,9 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
             self._config.beta_2 * self._second_moment
             + (1 - self._config.beta_2) * gradient**2
         )
-        update = -self.alpha_t * (
+        return -self.alpha_t * (
             self._first_moment / (self._second_moment**0.5 + self._config.epsilon)
         )
-        if do_update:
-            model.update_parameters(update)
-        return gradient, update
 
     @property
     def alpha_t(self) -> float:

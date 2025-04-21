@@ -25,7 +25,12 @@ _LayerType_co = TypeVar("_LayerType_co", bound="_LayerBase", covariant=True)
 
 class SerializedLayer(Protocol, Generic[_LayerType_co]):
     @abstractmethod
-    def deserialize(self, previous_layer: Layer) -> _LayerType_co: ...
+    def deserialize(
+        self,
+        *,
+        previous_layer: Layer,
+        training: bool = False,
+    ) -> _LayerType_co: ...
 
 
 class _LayerBase(ABC, Generic[_ParamType]):
@@ -243,7 +248,13 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
         activation_fn: str
         parameters: DenseParameters
 
-        def deserialize(self, previous_layer: Layer) -> DenseLayer:
+        def deserialize(
+            self,
+            *,
+            previous_layer: Layer,
+            training: bool = False,
+        ) -> DenseLayer:
+            del training  # unused
             return DenseLayer(
                 neurons=self.neurons,
                 activation_fn=get_activation_fn(self.activation_fn),
@@ -356,7 +367,13 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
         activation_fn: str
         parameters: DenseParameters
 
-        def deserialize(self, previous_layer: Layer) -> SoftmaxOutputLayer:
+        def deserialize(
+            self,
+            *,
+            previous_layer: Layer,
+            training: bool = False,
+        ) -> SoftmaxOutputLayer:
+            del training  # unused
             return SoftmaxOutputLayer(
                 neurons=self.neurons,
                 parameters=self.parameters,
@@ -467,7 +484,13 @@ class RawOutputLayer(SoftmaxOutputLayer):
         activation_fn: str
         parameters: DenseParameters
 
-        def deserialize(self, previous_layer: Layer) -> RawOutputLayer:
+        def deserialize(
+            self,
+            *,
+            previous_layer: Layer,
+            training: bool = False,
+        ) -> RawOutputLayer:
+            del training  # unused
             return RawOutputLayer(
                 neurons=self.neurons,
                 parameters=self.parameters,

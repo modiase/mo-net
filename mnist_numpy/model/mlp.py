@@ -34,6 +34,8 @@ from mnist_numpy.types import (
 
 
 class GradientProto(Protocol):
+    # TODO: These properties are not found on all implementations of the
+    # Gradient class and we should remove them from the protocol.
     @property
     def _W(self) -> np.ndarray: ...
 
@@ -310,14 +312,18 @@ class MultiLayerPerceptron(ModelBase):
         )
 
     @classmethod
-    def load(cls, source: IO[bytes]) -> Self:
+    def load(cls, source: IO[bytes], training: bool = False) -> Self:
         serialized = pickle.load(source)
         hidden_layers, output_layer = itemgetter(slice(-1), -1)(serialized.layers)
 
         layers: MutableSequence[Layer] = [InputLayer(neurons=784)]
         for layer in hidden_layers:
-            layers.append(layer.deserialize(previous_layer=layers[-1]))
-        layers.append(output_layer.deserialize(previous_layer=layers[-1]))
+            layers.append(
+                layer.deserialize(previous_layer=layers[-1], training=training)
+            )
+        layers.append(
+            output_layer.deserialize(previous_layer=layers[-1], training=training)
+        )
         return cls(tuple(layers))
 
     @classmethod
