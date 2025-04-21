@@ -1,5 +1,5 @@
 import multiprocessing as mp
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from queue import Empty
 from typing import Self
 
@@ -40,22 +40,59 @@ class Batcher:
             return next(self._internal_iterator)
 
 
+class IndexBatcher:
+    def __init__(self, *, train_set_size: int, batch_size: int):
+        self.batch_size = batch_size
+        self.train_set_size = train_set_size
+        self._internal_iterator = iter(
+            np.array_split(
+                np.random.permutation(self.train_set_size),
+                self.train_set_size / self.batch_size,
+            )
+        )
+
+    def _shuffle(self) -> None:
+        self._internal_iterator = iter(
+            np.array_split(
+                np.random.permutation(self.train_set_size),
+                self.train_set_size / self.batch_size,
+            )
+        )
+
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
+        try:
+            return next(self._internal_iterator)
+        except StopIteration:
+            self._shuffle()
+            self._internal_iterator = iter(
+                np.array_split(
+                    np.random.permutation(self.train_set_size),
+                    self.train_set_size / self.batch_size,
+                )
+            )
+            return next(self._internal_iterator)
+
+
 class SharedBatcher:
     """A batcher that can be shared across multiple processes."""
 
     def __init__(
         self,
         *,
-        X: np.ndarray,
-        Y: np.ndarray,
         batch_size: int,
         batch_queue: mp.Queue,
         result_queue: mp.Queue,
-        update_ready: mp.Event,
+        train_set_size: int,
         update_queue: mp.Queue,
+        update_ready: mp.Event,
         worker_count: int,
     ):
-        self.batcher = Batcher(X=X, Y=Y, batch_size=batch_size // worker_count)
+        self.batcher = IndexBatcher(
+            train_set_size=train_set_size, batch_size=batch_size // worker_count
+        )
         self.batch_queue = batch_queue
         self.result_queue = result_queue
         self.update_ready = update_ready
@@ -73,12 +110,10 @@ class SharedBatcher:
         self._clear_queue(self.batch_queue)
 
         for _ in range(self.worker_count):
-            X_batch, Y_batch = next(self.batcher)
-            self.batch_queue.put((X_batch, Y_batch))
+            indices = next(self.batcher)
+            self.batch_queue.put(indices)
 
-    def worker_get_batch(
-        self, timeout_seconds: float = 1.0
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def worker_get_batch(self, timeout_seconds: float = 1.0) -> Sequence[int]:
         return self.batch_queue.get(timeout=timeout_seconds)
 
     def worker_put_result(self, update: MultiLayerPerceptron.Gradient) -> None:
