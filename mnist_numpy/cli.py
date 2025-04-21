@@ -164,7 +164,7 @@ def cli(): ...
     default=0.0,
 )
 @click.option(
-    "-w",
+    "-e",
     "--warmup-epochs",
     type=int,
     help="Set the number of warmup epochs",
