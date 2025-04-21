@@ -5,7 +5,7 @@ from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
 from itertools import chain
 from operator import itemgetter
-from typing import IO, Literal, Protocol, Self, Sequence, cast
+from typing import IO, Literal, Protocol, Self, Sequence, TypeAlias, cast
 
 import numpy as np
 from more_itertools import last
@@ -13,9 +13,7 @@ from more_itertools import last
 from mnist_numpy.functions import (
     ReLU,
     cross_entropy,
-    get_activation_fn,
     identity,
-    softmax,
 )
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.layer import (
@@ -62,13 +60,7 @@ class GradientProto(Protocol):
 class MultiLayerPerceptron(ModelBase):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        @dataclass(frozen=True, kw_only=True)
-        class Layer:
-            activation_fn_name: str
-            neurons: int
-            parameters: tuple[np.ndarray, np.ndarray]
-
-        layers: tuple[Layer, ...]
+        layers: tuple[object, ...]
 
     @dataclass
     class Gradient:
@@ -149,7 +141,7 @@ class MultiLayerPerceptron(ModelBase):
         layer_neuron_counts: Sequence[int],
         activation_fn: ActivationFn = identity,
         output_layer_type: Literal["softmax", "raw"] = "softmax",
-        regularisers: Sequence[Callable[[Self], None]] = (),
+        regularisers: Sequence[Regulariser] = (),
     ) -> Self:
         if len(layer_neuron_counts) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
@@ -309,22 +301,8 @@ class MultiLayerPerceptron(ModelBase):
             self.Serialized(
                 layers=tuple(
                     chain(
-                        # TODO: Generalize
-                        (
-                            self.Serialized.Layer(
-                                activation_fn_name=layer._activation_fn.name,  # TODO: Relies on private member
-                                neurons=layer.neurons,
-                                parameters=layer._parameters,
-                            )
-                            for layer in self.hidden_layers
-                        ),
-                        (
-                            self.Serialized.Layer(
-                                activation_fn_name=softmax.name,  # TODO: Generalize
-                                neurons=self.output_layer.neurons,
-                                parameters=self.output_layer._parameters,
-                            ),
-                        ),
+                        (layer.serialize() for layer in self.hidden_layers),
+                        (self.output_layer.serialize(),),
                     ),
                 ),
             ),
@@ -338,21 +316,8 @@ class MultiLayerPerceptron(ModelBase):
 
         layers: MutableSequence[Layer] = [InputLayer(neurons=784)]
         for layer in hidden_layers:
-            layers.append(
-                DenseLayer(
-                    neurons=layer.neurons,
-                    activation_fn=get_activation_fn(layer.activation_fn_name),
-                    parameters=layer.parameters,
-                    previous_layer=layers[-1],
-                )
-            )
-        layers.append(
-            SoftmaxOutputLayer(
-                neurons=output_layer.neurons,
-                parameters=output_layer.parameters,
-                previous_layer=layers[-1],
-            )
-        )
+            layers.append(layer.deserialize(previous_layer=layers[-1]))
+        layers.append(output_layer.deserialize(previous_layer=layers[-1]))
         return cls(tuple(layers))
 
     @classmethod
@@ -372,3 +337,6 @@ class MultiLayerPerceptron(ModelBase):
             (loss_contributor() for loss_contributor in self.loss_contributors),
             start=1 / X.shape[0] * cross_entropy(self.forward_prop(X), Y_true),
         )
+
+
+Regulariser: TypeAlias = Callable[[MultiLayerPerceptron], None]

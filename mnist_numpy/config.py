@@ -14,3 +14,4 @@ class TrainingParameters(BaseModel):
     train_set_size: int
     warmup_epochs: int
     history_max_len: int = 100
+    workers: int = 0

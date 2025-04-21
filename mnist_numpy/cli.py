@@ -23,6 +23,7 @@ from mnist_numpy.data import (
 )
 from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
 from mnist_numpy.model import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Regulariser
 from mnist_numpy.model.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.optimizer import (
     AdamOptimizer,
@@ -210,7 +211,9 @@ def train(
     logger.info(f"Training model with {seed=}.")
 
     model: MultiLayerPerceptron
-    regularisers = tuple(
+    train_set_size = X_train.shape[0]
+    batch_size = batch_size if batch_size is not None else train_set_size
+    regularisers: Sequence[Regulariser] = tuple(
         (
             chain(
                 (BatchNormRegulariser(batch_size=batch_size),),
@@ -255,8 +258,6 @@ def train(
         model_path = OUTPUT_PATH / training_log_path.name.replace(
             "training_log.csv", ".pkl"
         )
-    train_set_size = X_train.shape[0]
-    batch_size = batch_size if batch_size is not None else train_set_size
     training_parameters = TrainingParameters(
         batch_size=batch_size,
         dropout_keep_prob=dropout_keep_prob,
@@ -294,7 +295,9 @@ def train(
         case _:
             raise ValueError(f"Invalid optimizer: {optimizer}")
 
-    def save_model(model_checkpoint_path: Path) -> None:
+    def save_model(model_checkpoint_path: Path | None) -> None:
+        if model_checkpoint_path is None:
+            return
         model_checkpoint_path.rename(model_path)
         logger.info(f"Saved output to {model_path}.")
 

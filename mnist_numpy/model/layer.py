@@ -5,12 +5,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import reduce
 from itertools import chain
-from typing import Generic, Self, cast
+from typing import Generic, Protocol, Self, TypeVar, cast
 
 import numpy as np
 from more_itertools import last
 
-from mnist_numpy.functions import ReLU, identity, softmax
+from mnist_numpy.functions import ReLU, get_activation_fn, identity, softmax
 from mnist_numpy.types import (
     ActivationFn,
     Activations,
@@ -19,6 +19,13 @@ from mnist_numpy.types import (
     TrainingStepHandler,
     _ParamType,
 )
+
+_LayerType_co = TypeVar("_LayerType_co", bound="_LayerBase", covariant=True)
+
+
+class SerializedLayer(Protocol, Generic[_LayerType_co]):
+    @abstractmethod
+    def deserialize(self, previous_layer: Layer) -> _LayerType_co: ...
 
 
 class _LayerBase(ABC, Generic[_ParamType]):
@@ -86,11 +93,19 @@ class _LayerBase(ABC, Generic[_ParamType]):
     def parameters(self) -> _ParamType:
         return self._parameters
 
+    @abstractmethod
+    def serialize(self) -> SerializedLayer[Self]: ...
+
 
 @dataclass(kw_only=True, frozen=True)
 class DenseParameters(HasWeightsAndBiases):
     _W: np.ndarray
     _B: np.ndarray
+
+    def __getitem__(
+        self, index: int | tuple[int, ...]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return self._W[index], self._B[index]
 
     def __add__(self, other: Self | float) -> Self:
         match other:
@@ -222,6 +237,20 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
     Parameters = DenseParameters
     _parameters: DenseParameters
 
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        neurons: int
+        activation_fn: str
+        parameters: DenseParameters
+
+        def deserialize(self, previous_layer: Layer) -> DenseLayer:
+            return DenseLayer(
+                neurons=self.neurons,
+                activation_fn=get_activation_fn(self.activation_fn),
+                parameters=self.parameters,
+                previous_layer=previous_layer,
+            )
+
     def __init__(
         self,
         *,
@@ -284,6 +313,13 @@ class DenseLayer(HiddenLayerBase[DenseParameters]):
             )
         )
 
+    def serialize(self) -> SerializedLayer[DenseLayer]:
+        return self.Serialized(
+            neurons=self._neurons,
+            activation_fn=self._activation_fn.name,
+            parameters=self._parameters,
+        )
+
 
 class OutputLayerBase(_LayerBase[_ParamType]):
     @abstractmethod
@@ -313,6 +349,19 @@ class OutputLayerBase(_LayerBase[_ParamType]):
 
 class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
     Parameters = DenseParameters
+
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        neurons: int
+        activation_fn: str
+        parameters: DenseParameters
+
+        def deserialize(self, previous_layer: Layer) -> SoftmaxOutputLayer:
+            return SoftmaxOutputLayer(
+                neurons=self.neurons,
+                parameters=self.parameters,
+                previous_layer=previous_layer,
+            )
 
     def __init__(
         self,
@@ -403,8 +452,28 @@ class SoftmaxOutputLayer(OutputLayerBase[DenseParameters]):
             dim_in=self._previous_layer.neurons, dim_out=self._neurons
         )
 
+    def serialize(self) -> SerializedLayer[SoftmaxOutputLayer]:
+        return self.Serialized(
+            neurons=self._neurons,
+            activation_fn=self._activation_fn.name,
+            parameters=self._parameters,
+        )
+
 
 class RawOutputLayer(SoftmaxOutputLayer):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        neurons: int
+        activation_fn: str
+        parameters: DenseParameters
+
+        def deserialize(self, previous_layer: Layer) -> RawOutputLayer:
+            return RawOutputLayer(
+                neurons=self.neurons,
+                parameters=self.parameters,
+                previous_layer=previous_layer,
+            )
+
     def __init__(
         self,
         *,

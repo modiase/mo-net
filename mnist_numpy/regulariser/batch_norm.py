@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from itertools import chain
-from typing import ClassVar, Self
+from typing import ClassVar, Self, TypedDict
 
 import numpy as np
 
 from mnist_numpy.functions import identity
-from mnist_numpy.model.layer import HiddenLayerBase
+from mnist_numpy.model.layer import HiddenLayerBase, Layer, SerializedLayer
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.types import Activations, D
 
@@ -17,6 +19,11 @@ class BatchNormLayer(HiddenLayerBase):
     class Parameters:
         _gamma: np.ndarray
         _beta: np.ndarray
+
+        def __getitem__(
+            self, index: int | tuple[int, ...]
+        ) -> tuple[np.ndarray, np.ndarray]:
+            return self._gamma[index], self._beta[index]
 
         def __pow__(self, other: float) -> Self:
             return self.__class__(
@@ -86,8 +93,26 @@ class BatchNormLayer(HiddenLayerBase):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        _gamma: np.ndarray
-        _beta: np.ndarray
+        neurons: int
+        momentum: float
+        batch_size: int
+        parameters: BatchNormLayer.Parameters
+
+        def deserialize(self, previous_layer: Layer) -> BatchNormLayer:
+            del previous_layer  # unused
+            return BatchNormLayer(
+                neurons=self.neurons,
+                momentum=self.momentum,
+                batch_size=self.batch_size,
+                parameters=self.parameters,
+                training=False,
+            )
+
+    class Cache(TypedDict):
+        X: Activations | None
+        X_norm: Activations | None
+        mean: np.ndarray | None
+        var: np.ndarray | None
 
     def __init__(
         self,
@@ -95,14 +120,24 @@ class BatchNormLayer(HiddenLayerBase):
         neurons: int,
         momentum: float = 0.9,
         batch_size: int,
+        parameters: BatchNormLayer.Parameters | None = None,
+        training: bool = True,
     ):
         super().__init__(neurons=neurons, activation_fn=identity)
         self._momentum = momentum
         self._running_mean = None
         self._running_variance = None
-        self._cache = None
+        self._training = training
+        self._cache: BatchNormLayer.Cache = {
+            "X": None,
+            "X_norm": None,
+            "mean": None,
+            "var": None,
+        }
         self._batch_size = batch_size
-        self._parameters = self.empty_parameters()
+        self._parameters = (
+            parameters if parameters is not None else self.empty_parameters()
+        )
         self._neurons = neurons
 
     def _forward_prop(self, *, As_prev: Activations) -> Activations:
@@ -123,12 +158,15 @@ class BatchNormLayer(HiddenLayerBase):
 
         X_norm = (As_prev - batch_mean) / np.sqrt(batch_variance + self._EPSILON)
 
-        self._cache = {
-            "X": As_prev,
-            "X_norm": X_norm,
-            "mean": batch_mean,
-            "var": batch_variance,
-        }
+        if self._training:
+            self._cache.update(
+                {
+                    "X": As_prev,
+                    "X_norm": X_norm,
+                    "mean": batch_mean,
+                    "var": batch_variance,
+                }
+            )
 
         return self._parameters._gamma * X_norm + self._parameters._beta
 
@@ -140,13 +178,19 @@ class BatchNormLayer(HiddenLayerBase):
         dZ: D[Activations],
     ) -> tuple[D[Parameters], D[Activations]]:
         del As_prev, Zs_prev  # unused
-        X = self._cache["X"]
-        mean = self._cache["mean"]
-        var = self._cache["var"]
+        if (mean := self._cache["mean"]) is None:
+            raise RuntimeError("Mean is not populated during backward pass.")
+        if (var := self._cache["var"]) is None:
+            raise RuntimeError("Variance is not populated during backward pass.")
+        if (X_norm := self._cache["X_norm"]) is None:
+            raise RuntimeError("X_norm is not populated during backward pass.")
+        if (X := self._cache["X"]) is None:
+            raise RuntimeError("X is not populated during backward pass.")
 
         dX_norm = dZ / self._parameters._gamma
-        d_gamma = np.sum(dZ * self._cache["X_norm"], axis=0)
-        d_beta = np.sum(dZ, axis=0)
+        dX_norm = dZ / self._parameters._gamma
+        d_gamma = np.sum(dZ * X_norm, axis=0)
+        d_beta = np.sum(dZ, axis=0)  # type: ignore[call-overload]
         dP = self.Parameters(
             _gamma=d_gamma,
             _beta=d_beta,
@@ -191,6 +235,14 @@ class BatchNormLayer(HiddenLayerBase):
     @property
     def neurons(self) -> int:
         return self._neurons
+
+    def serialize(self) -> SerializedLayer[BatchNormLayer]:
+        return self.Serialized(
+            neurons=self._neurons,
+            momentum=self._momentum,
+            batch_size=self._batch_size,
+            parameters=self._parameters,
+        )
 
 
 class BatchNormRegulariser:

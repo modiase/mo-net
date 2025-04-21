@@ -13,7 +13,11 @@ from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
-from mnist_numpy.trainer.context import set_training_context, training_context
+from mnist_numpy.trainer.context import (
+    TrainingContext,
+    set_training_progress,
+    training_context,
+)
 from mnist_numpy.trainer.monitor import Monitor
 from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
@@ -149,7 +153,11 @@ class ModelTrainer:
             warmup_batches=training_parameters.warmup_epochs * batches_per_epoch,
         )
         optimizer.register_after_training_step_handler(monitor.post_batch)
-        training_context.set({"model_checkpoint_path": model_checkpoint_path})
+        training_context.set(
+            TrainingContext(
+                training_progress=0.0, model_checkpoint_path=model_checkpoint_path
+            )
+        )
 
         # TODO: Parallelise training
 
@@ -161,11 +169,8 @@ class ModelTrainer:
             initial=start_epoch * batches_per_epoch,
             total=training_parameters.total_epochs * batches_per_epoch,
         ):
-            with set_training_context(
-                {
-                    "training_progress": i
-                    / (training_parameters.total_epochs * batches_per_epoch),
-                }
+            with set_training_progress(
+                i / (training_parameters.total_epochs * batches_per_epoch),
             ):
                 X_train_batch, Y_train_batch = next(batcher)
 
