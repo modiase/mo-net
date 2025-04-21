@@ -69,7 +69,7 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
 
     @property
     def alpha_t(self) -> float:
-        return self._config.learning_rate * (
+        return self._current_learning_rate * (
             (1 - self._config.beta_2**self._iterations) ** 0.5
             / (1 - self._config.beta_1**self._iterations)
         )
