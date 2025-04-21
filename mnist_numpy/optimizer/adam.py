@@ -44,6 +44,7 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
+        do_update: bool,
     ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         self._iterations += 1
         model.forward_prop(X=X_train_batch)
@@ -59,10 +60,11 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
             self._config.beta_2 * self._second_moment
             + (1 - self._config.beta_2) * gradient**2
         )
-        model.update_parameters(
-            update := -self.alpha_t
-            * (self._first_moment / (self._second_moment**0.5 + self._config.epsilon))
+        update = -self.alpha_t * (
+            self._first_moment / (self._second_moment**0.5 + self._config.epsilon)
         )
+        if do_update:
+            model.update_parameters(update)
         return gradient, update
 
     @property

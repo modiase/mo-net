@@ -24,12 +24,17 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
         model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
-    ) -> None:
+        do_update: bool = True,
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         gradient, update = self._training_step(
-            model=model, X_train_batch=X_train_batch, Y_train_batch=Y_train_batch
+            model=model,
+            X_train_batch=X_train_batch,
+            Y_train_batch=Y_train_batch,
+            do_update=do_update,
         )
         for after_training_step in self._after_training_step:
             after_training_step(gradient, update)
+        return gradient, update
 
     def register_after_training_step_handler(
         self,
@@ -42,7 +47,11 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
 
     @abstractmethod
     def _training_step(
-        self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
+        self,
+        model: ModelT,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
+        do_update: bool,
     ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]: ...
 
     """
