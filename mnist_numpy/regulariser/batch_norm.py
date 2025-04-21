@@ -105,7 +105,7 @@ class BatchNormLayer(HiddenLayerBase):
                 momentum=self.momentum,
                 batch_size=self.batch_size,
                 parameters=self.parameters,
-                training=False,
+                training=False,  # TODO: Parameterise this
             )
 
     class Cache(TypedDict):
