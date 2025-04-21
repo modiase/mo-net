@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mnist_numpy.trainer.context import TrainingContext, training_context
+from mnist_numpy.train.context import TrainingContext, training_context
 
 
 class AbortTraining(RuntimeError):

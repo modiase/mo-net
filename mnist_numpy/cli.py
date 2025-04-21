@@ -33,11 +33,11 @@ from mnist_numpy.optimizer import (
 from mnist_numpy.regulariser.batch_norm import BatchNormRegulariser
 from mnist_numpy.regulariser.dropout import DropoutRegulariser
 from mnist_numpy.regulariser.ridge import L2Regulariser
-from mnist_numpy.trainer import (
+from mnist_numpy.train import (
     ModelTrainer,
     TrainingParameters,
 )
-from mnist_numpy.trainer.exceptions import AbortTraining
+from mnist_numpy.train.exceptions import AbortTraining
 
 P = ParamSpec("P")
 R = TypeVar("R")

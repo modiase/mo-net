@@ -8,7 +8,7 @@ import numpy as np
 
 from mnist_numpy.model.layer import DenseParameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.trainer.exceptions import AbortTraining
+from mnist_numpy.train.exceptions import AbortTraining
 
 # This value has been found empirically to be a good threshold for exploding
 # gradients. Obviously, a Z score of 20 is an insanely high value, but it can be

@@ -13,13 +13,13 @@ from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
-from mnist_numpy.trainer.context import (
+from mnist_numpy.train.context import (
     TrainingContext,
     set_training_progress,
     training_context,
 )
-from mnist_numpy.trainer.monitor import Monitor
-from mnist_numpy.trainer.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
+from mnist_numpy.train.monitor import Monitor
+from mnist_numpy.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
