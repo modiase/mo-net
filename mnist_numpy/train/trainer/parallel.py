@@ -4,15 +4,17 @@ import operator
 from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from functools import reduce
+from typing import ContextManager
 
 import numpy as np
 from loguru import logger
 
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.optimizer.base import NoOptimizer
+from mnist_numpy.optimizer.base import NoOptimizer, OptimizerBase
 from mnist_numpy.train.batcher import SharedBatcher
-from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
+from mnist_numpy.train.trainer.trainer import BasicTrainer
+from mnist_numpy.types import EventLike
 
 
 def worker_process(
@@ -26,16 +28,16 @@ def worker_process(
     Y_shared_memory_name: str,
     Y_shared_memory_shape: tuple[int, ...],
     Y_shared_memory_dtype: np.dtype,
-    worker_ready_event: mp.Event,
-    batch_ready_event: mp.Event,
-    stop_event: mp.Event,
+    worker_ready_event: EventLike,
+    batch_ready_event: EventLike,
+    stop_event: EventLike,
 ) -> None:
     """Worker process that trains on batches and submits updates"""
 
     buffer = io.BytesIO(initial_model_data)
     model = MultiLayerPerceptron.load(buffer, training=True)
 
-    optimizer = NoOptimizer(
+    optimizer: OptimizerBase = NoOptimizer(
         config=NoOptimizer.Config(learning_rate=0.0)
     )  # learning rate is unused
 
@@ -43,12 +45,12 @@ def worker_process(
     X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
     Y_shared_memory = mp.shared_memory.SharedMemory(Y_shared_memory_name)
 
-    X_train = np.ndarray(
+    X_train: np.ndarray = np.ndarray(
         shape=X_shared_memory_shape,
         dtype=X_shared_memory_dtype,
         buffer=X_shared_memory.buf,
     )
-    Y_train = np.ndarray(
+    Y_train: np.ndarray = np.ndarray(
         shape=Y_shared_memory_shape,
         dtype=Y_shared_memory_dtype,
         buffer=Y_shared_memory.buf,
@@ -95,7 +97,7 @@ class ParallelTrainer(BasicTrainer):
             model.update_parameters(update)
 
     @staticmethod
-    def create_worker_processes(
+    def create_worker_process(
         *,
         worker_id: int,
         initial_model_data: bytes,
@@ -104,10 +106,10 @@ class ParallelTrainer(BasicTrainer):
         X_shared_memory_name: str,
         Y: np.ndarray,
         Y_shared_memory_name: str,
-        worker_ready_event: mp.Event,
-        batch_ready_event: mp.Event,
-        stop_event: mp.Event,
-    ) -> tuple[mp.Process, ...]:
+        worker_ready_event: EventLike,
+        batch_ready_event: EventLike,
+        stop_event: EventLike,
+    ) -> mp.Process:
         p = mp.Process(
             target=worker_process,
             kwargs={
@@ -137,12 +139,12 @@ class ParallelTrainer(BasicTrainer):
         self._Y_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._Y_train.nbytes
         )
-        X_shared = np.ndarray(
+        X_shared: np.ndarray = np.ndarray(
             self._X_train.shape,
             dtype=self._X_train.dtype,
             buffer=self._X_shared_memory.buf,
         )
-        Y_shared = np.ndarray(
+        Y_shared: np.ndarray = np.ndarray(
             self._Y_train.shape,
             dtype=self._Y_train.dtype,
             buffer=self._Y_shared_memory.buf,
@@ -150,11 +152,11 @@ class ParallelTrainer(BasicTrainer):
         np.copyto(X_shared, self._X_train)
         np.copyto(Y_shared, self._Y_train)
         self._shared_batcher = SharedBatcher(
-            batch_queue=self._manager.Queue(),  # type: ignore[attr-defined]
+            batch_queue=self._manager.Queue(),  # type: ignore[arg-type]
             batch_size=self._training_parameters.batch_size,
-            result_queue=self._manager.Queue(),  # type: ignore[attr-defined]
+            result_queue=self._manager.Queue(),  # type: ignore[arg-type]
             train_set_size=self._X_train.shape[0],
-            update_queue=self._manager.Queue(),  # type: ignore[attr-defined]
+            update_queue=self._manager.Queue(),  # type: ignore[arg-type]
             update_ready=mp.Event(),
             worker_count=self._training_parameters.workers,
         )
@@ -172,7 +174,7 @@ class ParallelTrainer(BasicTrainer):
             mp.Event() for _ in range(self._training_parameters.workers)
         )
         self._processes = tuple(
-            ParallelTrainer.create_worker_processes(
+            ParallelTrainer.create_worker_process(
                 worker_id=i,
                 initial_model_data=initial_model_data,
                 shared_batcher=self._shared_batcher,
@@ -188,23 +190,22 @@ class ParallelTrainer(BasicTrainer):
         )
         self._ready_all_workers()
 
-    @contextmanager
-    def _training_loop_context(self) -> Iterator[None]:
-        try:
-            yield
-        finally:
-            for p in self._processes:
-                p.join(timeout=1.0)  # type: ignore[attr-defined]
-                if p.is_alive():  # type: ignore[attr-defined]
-                    p.terminate()  # type: ignore[attr-defined]
-            self._X_shared_memory.close()
-            self._Y_shared_memory.close()
-            self._X_shared_memory.unlink()
-            self._Y_shared_memory.unlink()
+    def _create_training_loop_context(self) -> ContextManager[None]:
+        @contextmanager
+        def _training_loop_context() -> Iterator[None]:
+            try:
+                yield
+            finally:
+                for p in self._processes:
+                    p.join(timeout=1.0)  # type: ignore[attr-defined]
+                    if p.is_alive():  # type: ignore[attr-defined]
+                        p.terminate()  # type: ignore[attr-defined]
+                self._X_shared_memory.close()
+                self._Y_shared_memory.close()
+                self._X_shared_memory.unlink()
+                self._Y_shared_memory.unlink()
 
-        return TrainingResult(
-            model_checkpoint_path=self._model_checkpoint_path,
-        )
+        return _training_loop_context()
 
     def _ready_all_workers(self) -> None:
         for event in self._worker_ready_events:

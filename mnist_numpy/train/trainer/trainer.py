@@ -1,10 +1,9 @@
 import time
-from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Final, cast
+from typing import Any, ContextManager, Final, cast
 
 import numpy as np
 import pandas as pd
@@ -39,7 +38,7 @@ def get_optimizer(
     optimizer_type: str,
     model: ModelT,
     training_parameters: TrainingParameters,
-) -> OptimizerBase[ModelT, OptimizerConfigT]:
+) -> OptimizerBase[ModelT, Any]:
     match optimizer_type:
         case "adam":
             return AdamOptimizer(
@@ -56,7 +55,7 @@ def get_optimizer(
         case "no":
             return NoOptimizer(
                 config=NoOptimizer.Config(
-                    learning_rate=training_parameters.learning_rate
+                    learning_rate=training_parameters.learning_rate_limits[1]
                 ),
             )
         case _:
@@ -85,7 +84,7 @@ class BasicTrainer:
         self._X_test = X_test
         self._Y_test = Y_test
 
-    def _training_loop_context(self) -> Iterator[None]:
+    def _create_training_loop_context(self) -> ContextManager[None]:
         return nullcontext()
 
     def train(self) -> TrainingResult:
@@ -170,7 +169,7 @@ class BasicTrainer:
 
         self._before_training_loop()
 
-        with self._training_loop_context():
+        with self._create_training_loop_context():
             self._training_loop()
 
         return TrainingResult(

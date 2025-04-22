@@ -1,11 +1,12 @@
 import multiprocessing as mp
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from queue import Empty
 from typing import Self
 
 import numpy as np
 
 from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.types import EventLike
 
 
 class Batcher:
@@ -44,10 +45,10 @@ class IndexBatcher:
     def __init__(self, *, train_set_size: int, batch_size: int):
         self.batch_size = batch_size
         self.train_set_size = train_set_size
-        self._internal_iterator = iter(
+        self._internal_iterator: Iterator[np.ndarray] = iter(
             np.array_split(
                 np.random.permutation(self.train_set_size),
-                self.train_set_size / self.batch_size,
+                self.train_set_size // self.batch_size,
             )
         )
 
@@ -55,14 +56,14 @@ class IndexBatcher:
         self._internal_iterator = iter(
             np.array_split(
                 np.random.permutation(self.train_set_size),
-                self.train_set_size / self.batch_size,
+                self.train_set_size // self.batch_size,
             )
         )
 
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
+    def __next__(self) -> np.ndarray:
         try:
             return next(self._internal_iterator)
         except StopIteration:
@@ -70,7 +71,7 @@ class IndexBatcher:
             self._internal_iterator = iter(
                 np.array_split(
                     np.random.permutation(self.train_set_size),
-                    self.train_set_size / self.batch_size,
+                    self.train_set_size // self.batch_size,
                 )
             )
             return next(self._internal_iterator)
@@ -87,7 +88,7 @@ class SharedBatcher:
         result_queue: mp.Queue,
         train_set_size: int,
         update_queue: mp.Queue,
-        update_ready: mp.Event,
+        update_ready: EventLike,
         worker_count: int,
     ):
         self.batcher = IndexBatcher(

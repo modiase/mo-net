@@ -62,7 +62,10 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
         do_update: bool = True,
-    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
+    ) -> (
+        tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]
+        | tuple[MultiLayerPerceptron.Gradient, None]
+    ):
         model.forward_prop(X=X_train_batch)
         gradient = model.backward_prop(Y_true=Y_train_batch)
         if do_update:

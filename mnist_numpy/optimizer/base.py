@@ -36,7 +36,7 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
         model: ModelT,
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
-        do_update: Literal[True],
+        do_update: Literal[True] = True,
     ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]: ...
 
     def training_step(
@@ -46,8 +46,11 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
         do_update: bool = True,
-    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
-        gradient, update = self._training_step(
+    ) -> (
+        tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]
+        | tuple[MultiLayerPerceptron.Gradient, None]
+    ):
+        gradient, update = self._training_step(  # type: ignore[call-overload]
             model=model,
             X_train_batch=X_train_batch,
             Y_train_batch=Y_train_batch,
@@ -91,7 +94,10 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
         X_train_batch: np.ndarray,
         Y_train_batch: np.ndarray,
         do_update: bool,
-    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]: ...
+    ) -> (
+        tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]
+        | tuple[MultiLayerPerceptron.Gradient, None]
+    ): ...
 
     """
     Returns the raw gradient and the update that was applied to the model.
@@ -112,12 +118,12 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class NoConfig:
+class NoOptimizerConfig:
     learning_rate: float
 
 
-class NoOptimizer(OptimizerBase[ModelT, NoConfig]):
-    Config = NoConfig
+class NoOptimizer(OptimizerBase[ModelT, NoOptimizerConfig]):
+    Config = NoOptimizerConfig
 
     @overload
     def _training_step(
