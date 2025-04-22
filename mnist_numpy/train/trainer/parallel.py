@@ -38,10 +38,10 @@ def worker_process(
     model = MultiLayerPerceptron.load(buffer, training=True)
 
     optimizer: OptimizerBase = NoOptimizer(
-        config=NoOptimizer.Config(learning_rate=0.0)
-    )  # learning rate is unused
+        config=NoOptimizer.Config(learning_rate=0.0)  # learning rate is unused
+    )
 
-    worker_ready_event.set()  # type: ignore[attr-defined]
+    worker_ready_event.set()
     X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
     Y_shared_memory = mp.shared_memory.SharedMemory(Y_shared_memory_name)
 
@@ -58,8 +58,8 @@ def worker_process(
 
     while not stop_event.is_set():
         try:
-            batch_ready_event.wait()  # type: ignore[attr-defined]
-            batch_ready_event.clear()  # type: ignore[attr-defined]
+            batch_ready_event.wait()
+            batch_ready_event.clear()
             indices = shared_batcher.worker_get_batch()
             X_batch = X_train[indices]
             Y_batch = Y_train[indices]
@@ -195,10 +195,8 @@ class ParallelTrainer(BasicTrainer):
             try:
                 yield
             finally:
-                for p in self._processes:
-                    p.join(timeout=1.0)  # type: ignore[attr-defined]
-                    if p.is_alive():  # type: ignore[attr-defined]
-                        p.terminate()  # type: ignore[attr-defined]
+                for p in filter(lambda p: p.is_alive(), self._processes):
+                    p.terminate()
                 self._X_shared_memory.close()
                 self._Y_shared_memory.close()
                 self._X_shared_memory.unlink()
@@ -208,8 +206,8 @@ class ParallelTrainer(BasicTrainer):
 
     def _ready_all_workers(self) -> None:
         for event in self._worker_ready_events:
-            event.wait()  # type: ignore[attr-defined]
-            event.clear()  # type: ignore[attr-defined]
+            event.wait()
+            event.clear()
 
     def _prepare_batches(self) -> None:
         self._shared_batcher.leader_prepare_batches()
