@@ -1,7 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Final, Literal, overload
-
-import numpy as np
+from typing import Final
 
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
@@ -37,42 +35,6 @@ class AdamOptimizer(OptimizerBase[ModelT, AdamConfig]):
         self._iterations = 0
         self._scheduler = config.scheduler
         self._second_moment = model.empty_gradient()
-
-    @overload
-    def _training_step(
-        self,
-        model: ModelT,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
-        do_update: Literal[False],
-    ) -> tuple[MultiLayerPerceptron.Gradient, None]: ...
-
-    @overload
-    def _training_step(
-        self,
-        model: ModelT,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
-        do_update: Literal[True],
-    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]: ...
-
-    def _training_step(
-        self,
-        model: ModelT,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
-        do_update: bool = True,
-    ) -> (
-        tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]
-        | tuple[MultiLayerPerceptron.Gradient, None]
-    ):
-        model.forward_prop(X=X_train_batch)
-        gradient = model.backward_prop(Y_true=Y_train_batch)
-        if do_update:
-            update = self.compute_update(gradient)
-            model.update_parameters(update)
-            return gradient, update
-        return gradient, None
 
     def compute_update(
         self, gradient: MultiLayerPerceptron.Gradient

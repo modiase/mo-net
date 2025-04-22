@@ -1,9 +1,10 @@
 import time
+from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ContextManager, Final, cast
+from typing import Any, ContextManager, Final, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
@@ -62,6 +63,11 @@ def get_optimizer(
             raise ValueError(f"Invalid optimizer: {optimizer_type}")
 
 
+AfterTrainingStepHandler: TypeAlias = Callable[
+    [MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient], None
+]
+
+
 class BasicTrainer:
     def __init__(
         self,
@@ -83,6 +89,16 @@ class BasicTrainer:
         self._Y_train = Y_train
         self._X_test = X_test
         self._Y_test = Y_test
+        self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
+
+    def subscribe_to_after_training_step(
+        self,
+        subscription_handler: AfterTrainingStepHandler,
+    ) -> None:
+        self._after_training_step = (
+            *self._after_training_step,
+            subscription_handler,
+        )
 
     def _create_training_loop_context(self) -> ContextManager[None]:
         return nullcontext()
@@ -150,15 +166,15 @@ class BasicTrainer:
                     ),
                 ),
             )
-            self._optimizer.register_after_training_step_handler(tracer)
+            self.subscribe_to_after_training_step(tracer)
         self._monitor = Monitor(
-            *self._training_parameters.batches_per_epoch,
             X_train=self._X_train,
             Y_train=self._Y_train,
             history_max_len=self._training_parameters.history_max_len,
-            warmup_batches=self._training_parameters.warmup_epochs,
+            warmup_batches=self._training_parameters.warmup_epochs
+            * self._training_parameters.batches_per_epoch,
         )
-        self._optimizer.register_after_training_step_handler(self._monitor.post_batch)
+        self.subscribe_to_after_training_step(self._monitor.post_batch)
         training_context.set(
             TrainingContext(
                 training_progress=0.0, model_checkpoint_path=self._model_checkpoint_path
@@ -193,7 +209,9 @@ class BasicTrainer:
             total=self._training_parameters.total_batches,
         ):
             with set_training_progress(self._training_parameters.current_progress(i)):
-                self._training_step()
+                gradient, update = self._training_step()
+                for handler in self._after_training_step:
+                    handler(gradient, update)
 
                 if i % self._training_parameters.batches_per_epoch == 0:
                     L_train = self._model.compute_loss(
@@ -237,10 +255,15 @@ class BasicTrainer:
                     )
                     last_log_time = time.time()
 
-    def _training_step(self) -> None:
+    def _training_step(
+        self,
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         X_train_batch, Y_train_batch = next(self._batcher)
-        self._optimizer.training_step(
+        gradient = self._optimizer.training_step(
             model=self._model,
             X_train_batch=X_train_batch,
             Y_train_batch=Y_train_batch,
         )
+        update = self._optimizer.compute_update(gradient)
+        self._model.update_parameters(update)
+        return gradient, update

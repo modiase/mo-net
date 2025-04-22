@@ -64,11 +64,10 @@ def worker_process(
             X_batch = X_train[indices]
             Y_batch = Y_train[indices]
 
-            gradient, _ = optimizer.training_step(
+            gradient = optimizer.training_step(
                 model=model,
                 X_train_batch=X_batch,
                 Y_train_batch=Y_batch,
-                do_update=False,
             )
 
             shared_batcher.worker_put_result(gradient)
@@ -217,10 +216,13 @@ class ParallelTrainer(BasicTrainer):
         for event in self._batch_ready_events:
             event.set()  # type: ignore[attr-defined]
 
-    def _training_step(self) -> None:
+    def _training_step(
+        self,
+    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
         self._prepare_batches()
         self._ready_all_workers()
         gradient = reduce(operator.add, self._shared_batcher.leader_get_all_results())
         update = self._optimizer.compute_update(gradient)
         self._model.update_parameters(update)
         self._shared_batcher.leader_send_update(update)
+        return gradient, update
