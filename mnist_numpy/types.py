@@ -3,29 +3,7 @@ from typing import Generic, NewType, Protocol, TypeAlias, TypeVar
 
 import numpy as np
 
-
-class HasWeights(Protocol):
-    _W: np.ndarray
-
-
-class HasBiases(Protocol):
-    _B: np.ndarray
-
-
-class HasWeightsAndBiases(HasWeights, HasBiases):
-    def __init__(self, _W: np.ndarray, _B: np.ndarray): ...
-
-
-_Quantity = TypeVar("_Quantity")
-_ParamType = TypeVar("_ParamType", bound=HasWeightsAndBiases)
-
-
-class D(Protocol, Generic[_Quantity]):
-    def __add__(self, other: _Quantity) -> _Quantity: ...
-
-
 Activations = NewType("Activations", np.ndarray)
-
 
 _X = TypeVar("_X", bound=np.ndarray | float)
 
@@ -37,6 +15,38 @@ class ActivationFn(Protocol):
 
     @property
     def name(self) -> str: ...
+
+
+_Quantity = TypeVar("_Quantity")
+
+
+class D(Protocol, Generic[_Quantity]):
+    def __add__(self, other: _Quantity) -> _Quantity: ...
+
+
+class EventLike(Protocol):
+    def clear(self) -> None: ...
+    def is_set(self) -> bool: ...
+    def set(self) -> None: ...
+    def wait(self, timeout: float = ...) -> bool: ...
+
+
+class HasBiases(Protocol):
+    _B: np.ndarray
+
+
+class HasWeights(Protocol):
+    _W: np.ndarray
+
+
+class HasWeightsAndBiases(HasWeights, HasBiases):
+    def __init__(self, _W: np.ndarray, _B: np.ndarray): ...
+
+
+LossContributor: TypeAlias = Callable[[], float]
+
+
+_ParamType = TypeVar("_ParamType", bound=HasWeightsAndBiases)
 
 
 class TrainingStepHandler:
@@ -53,13 +63,3 @@ class TrainingStepHandler:
         self, dP: D[_ParamType], dZ: D[Activations]
     ) -> tuple[D[_ParamType], D[Activations]]:
         return dP, dZ
-
-
-LossContributor: TypeAlias = Callable[[], float]
-
-
-class EventLike(Protocol):
-    def set(self) -> None: ...
-    def clear(self) -> None: ...
-    def wait(self, timeout: float = ...) -> bool: ...
-    def is_set(self) -> bool: ...
