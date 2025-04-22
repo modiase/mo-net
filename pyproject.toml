@@ -43,6 +43,7 @@ packages = ["mnist_numpy"]
 
 [tool.taskipy.tasks]
 format = "fd -e py -x uv run ruff format"
+test = "pytest mnist_numpy/tests.py"
 typecheck = "fd -e py -x uv run mypy"
 
 
