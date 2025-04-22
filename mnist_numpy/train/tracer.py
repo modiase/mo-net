@@ -122,10 +122,10 @@ class Tracer:
 
             dense_layer_params = tuple(layer.parameters for layer in self._dense_layers)
             if self._tracer_config.trace_weights:
-                weight_group = iter_group.create_group("weights")
+                weights_group = iter_group.create_group("weights")
 
                 for i, param in enumerate(dense_layer_params):
-                    layer_group = weight_group.create_group(f"layer_{i}")
+                    layer_group = weights_group.create_group(f"layer_{i}")
                     hist_values, hist_bins = np.histogram(param._W, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
                     layer_group.create_dataset("histogram_bins", data=hist_bins)
@@ -140,10 +140,10 @@ class Tracer:
                     layer_group.attrs["max"] = np.max(param._W)
 
             if self._tracer_config.trace_biases:
-                bias_group = iter_group.create_group("biases")
+                biases_group = iter_group.create_group("biases")
 
                 for i, param in enumerate(dense_layer_params):
-                    layer_group = bias_group.create_group(f"layer_{i}")
+                    layer_group = biases_group.create_group(f"layer_{i}")
                     hist_values, hist_bins = np.histogram(param._B, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
                     layer_group.create_dataset("histogram_bins", data=hist_bins)
@@ -168,33 +168,33 @@ class Tracer:
                 for i, grad in enumerate(dense_layer_gradients):
                     layer_group = raw_gradient_group.create_group(f"layer_{i}")
 
-                    weight_group = layer_group.create_group("weights")
+                    weights_group = layer_group.create_group("weights")
                     hist_values, hist_bins = np.histogram(grad._W, bins=100)
-                    weight_group.create_dataset("histogram_values", data=hist_values)
-                    weight_group.create_dataset("histogram_bins", data=hist_bins)
+                    weights_group.create_dataset("histogram_values", data=hist_values)
+                    weights_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    weight_group.create_dataset(
+                    weights_group.create_dataset(
                         "deciles", data=np.quantile(grad._W, np.linspace(0, 1, 11))
                     )
 
-                    weight_group.attrs["mean"] = np.mean(grad._W)
-                    weight_group.attrs["std"] = np.std(grad._W)
-                    weight_group.attrs["min"] = np.min(grad._W)
-                    weight_group.attrs["max"] = np.max(grad._W)
+                    weights_group.attrs["mean"] = np.mean(grad._W)
+                    weights_group.attrs["std"] = np.std(grad._W)
+                    weights_group.attrs["min"] = np.min(grad._W)
+                    weights_group.attrs["max"] = np.max(grad._W)
 
-                    bias_group = layer_group.create_group("biases")
+                    biases_group = layer_group.create_group("biases")
                     hist_values, hist_bins = np.histogram(grad._B, bins=100)
-                    bias_group.create_dataset("histogram_values", data=hist_values)
-                    bias_group.create_dataset("histogram_bins", data=hist_bins)
+                    biases_group.create_dataset("histogram_values", data=hist_values)
+                    biases_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    bias_group.create_dataset(
+                    biases_group.create_dataset(
                         "deciles", data=np.quantile(grad._B, np.linspace(0, 1, 11))
                     )
 
-                    bias_group.attrs["mean"] = np.mean(grad._B)
-                    bias_group.attrs["std"] = np.std(grad._B)
-                    bias_group.attrs["min"] = np.min(grad._B)
-                    bias_group.attrs["max"] = np.max(grad._B)
+                    biases_group.attrs["mean"] = np.mean(grad._B)
+                    biases_group.attrs["std"] = np.std(grad._B)
+                    biases_group.attrs["min"] = np.min(grad._B)
+                    biases_group.attrs["max"] = np.max(grad._B)
 
             if self._tracer_config.trace_updates:
                 update_gradients = tuple(
@@ -206,34 +206,34 @@ class Tracer:
                 for i, update_gradient in enumerate(update_gradients):
                     layer_group = update_group.create_group(f"layer_{i}")
 
-                    weight_group = layer_group.create_group("weights")
+                    weights_group = layer_group.create_group("weights")
                     hist_values, hist_bins = np.histogram(update_gradient._W, bins=100)
-                    weight_group.create_dataset("histogram_values", data=hist_values)
-                    weight_group.create_dataset("histogram_bins", data=hist_bins)
+                    weights_group.create_dataset("histogram_values", data=hist_values)
+                    weights_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    weight_group.attrs["mean"] = np.mean(update_gradient._W)
-                    weight_group.attrs["std"] = np.std(update_gradient._W)
-                    weight_group.attrs["min"] = np.min(update_gradient._W)
-                    weight_group.attrs["max"] = np.max(update_gradient._W)
+                    weights_group.attrs["mean"] = np.mean(update_gradient._W)
+                    weights_group.attrs["std"] = np.std(update_gradient._W)
+                    weights_group.attrs["min"] = np.min(update_gradient._W)
+                    weights_group.attrs["max"] = np.max(update_gradient._W)
 
-                    weight_group.create_dataset(
+                    weights_group.create_dataset(
                         "deciles",
                         data=np.quantile(update_gradient._W, np.linspace(0, 1, 11)),
                     )
 
-                    bias_group = layer_group.create_group("biases")
+                    biases_group = layer_group.create_group("biases")
                     hist_values, hist_bins = np.histogram(update_gradient._B, bins=100)
-                    bias_group.create_dataset("histogram_values", data=hist_values)
-                    bias_group.create_dataset("histogram_bins", data=hist_bins)
+                    biases_group.create_dataset("histogram_values", data=hist_values)
+                    biases_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    bias_group.create_dataset(
+                    biases_group.create_dataset(
                         "deciles",
                         data=np.quantile(update_gradient._B, np.linspace(0, 1, 11)),
                     )
 
-                    bias_group.attrs["mean"] = np.mean(update_gradient._B)
-                    bias_group.attrs["std"] = np.std(update_gradient._B)
-                    bias_group.attrs["min"] = np.min(update_gradient._B)
-                    bias_group.attrs["max"] = np.max(update_gradient._B)
+                    biases_group.attrs["mean"] = np.mean(update_gradient._B)
+                    biases_group.attrs["std"] = np.std(update_gradient._B)
+                    biases_group.attrs["min"] = np.min(update_gradient._B)
+                    biases_group.attrs["max"] = np.max(update_gradient._B)
 
         self._iterations += 1
