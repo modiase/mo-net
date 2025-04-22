@@ -232,12 +232,11 @@ def train(
         else:
             raise ValueError(f"Invalid model type: {model_type}")
     else:
-        model = MultiLayerPerceptron.load(open(model_path, "rb"))
-        if len(model.dense_layers) != len(dims):
+        if len(dims) != 0:
             raise ValueError(
-                f"Model has {len(model.dense_layers)} dense layers, but {len(dims)} dims were provided."
-                f" Did you mean to load a model with different dimensions?"
+                "Dims must not be provided when loading a model from a file."
             )
+        model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
     for regulariser in regularisers:
         regulariser(model)
