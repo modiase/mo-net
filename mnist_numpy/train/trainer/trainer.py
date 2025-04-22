@@ -166,6 +166,7 @@ class BasicTrainer:
                 ),
             )
             self.subscribe_to_after_training_step(tracer)
+
         self._monitor = Monitor(
             X_train=self._X_train,
             Y_train=self._Y_train,
@@ -174,14 +175,14 @@ class BasicTrainer:
             * self._training_parameters.batches_per_epoch,
         )
         self.subscribe_to_after_training_step(self._monitor.post_batch)
+
+        self._before_training_loop()
+
         training_context.set(
             TrainingContext(
                 training_progress=0.0, model_checkpoint_path=self._model_checkpoint_path
             )
         )
-
-        self._before_training_loop()
-
         with self._create_training_loop_context():
             self._training_loop()
 
