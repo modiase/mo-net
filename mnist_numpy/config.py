@@ -5,9 +5,8 @@ class TrainingParameters(BaseModel):
     batch_size: int
     dropout_keep_prob: tuple[float, ...]
     learning_rate_limits: tuple[float, float]
-    num_epochs: int
     regulariser_lambda: float
-    total_epochs: int
+    num_epochs: int
     trace_logging: bool
     train_set_size: int
     warmup_epochs: int
@@ -19,16 +18,8 @@ class TrainingParameters(BaseModel):
         return self.train_set_size // self.batch_size
 
     @property
-    def start_epoch(self) -> int:
-        return self.total_epochs - self.num_epochs
-
-    @property
-    def start_batch(self) -> int:
-        return self.start_epoch * self.batches_per_epoch
-
-    @property
     def total_batches(self) -> int:
-        return self.total_epochs * self.batches_per_epoch
+        return self.num_epochs * self.batches_per_epoch
 
     @property
     def warmup_batches(self) -> int:

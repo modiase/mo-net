@@ -202,10 +202,8 @@ class BasicTrainer:
         log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
         for i in tqdm(
             range(
-                self._training_parameters.start_batch,
                 self._training_parameters.total_batches,
             ),
-            initial=self._training_parameters.start_batch,
             total=self._training_parameters.total_batches,
         ):
             with set_training_progress(self._training_parameters.current_progress(i)):
