@@ -40,27 +40,26 @@ def get_optimizer(
     model: ModelT,
     training_parameters: TrainingParameters,
 ) -> OptimizerBase[ModelT, Any]:
-    match optimizer_type:
-        case "adam":
-            return AdamOptimizer(
-                model=model,
-                config=AdamOptimizer.Config(
-                    scheduler=WarmupScheduler.of(
+    if optimizer_type == "adam":
+        return AdamOptimizer(
+            model=model,
+            config=AdamOptimizer.Config(
+                scheduler=WarmupScheduler.of(
+                    training_parameters=training_parameters,
+                    next_scheduler=CosineScheduler.of(
                         training_parameters=training_parameters,
-                        next_scheduler=CosineScheduler.of(
-                            training_parameters=training_parameters,
-                        ),
                     ),
                 ),
-            )
-        case "no":
-            return NoOptimizer(
-                config=NoOptimizer.Config(
-                    learning_rate=training_parameters.learning_rate_limits[1]
-                ),
-            )
-        case _:
-            raise ValueError(f"Invalid optimizer: {optimizer_type}")
+            ),
+        )
+    elif optimizer_type == "no":
+        return NoOptimizer(
+            config=NoOptimizer.Config(
+                learning_rate=training_parameters.learning_rate_limits[1]
+            ),
+        )
+    else:
+        raise ValueError(f"Invalid optimizer: {optimizer_type}")
 
 
 AfterTrainingStepHandler: TypeAlias = Callable[
