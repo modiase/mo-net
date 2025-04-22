@@ -152,13 +152,11 @@ class BasicTrainer:
             )
             self._optimizer.register_after_training_step_handler(tracer)
         self._monitor = Monitor(
+            *self._training_parameters.batches_per_epoch,
             X_train=self._X_train,
             Y_train=self._Y_train,
-            high_gradient_abort_threshold=self._training_parameters.high_gradient_abort_threshold,
             history_max_len=self._training_parameters.history_max_len,
-            low_gradient_abort_threshold=self._training_parameters.low_gradient_abort_threshold,
-            warmup_batches=self._training_parameters.warmup_epochs
-            * self._training_parameters.batches_per_epoch,
+            warmup_batches=self._training_parameters.warmup_epochs,
         )
         self._optimizer.register_after_training_step_handler(self._monitor.post_batch)
         training_context.set(

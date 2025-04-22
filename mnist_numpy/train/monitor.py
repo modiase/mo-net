@@ -53,8 +53,6 @@ class Monitor:
     def __init__(
         self,
         *,
-        low_gradient_abort_threshold: float,
-        high_gradient_abort_threshold: float,
         history_max_len: int,
         warmup_batches: int,
         X_train: np.ndarray,
@@ -64,8 +62,6 @@ class Monitor:
         self._L_history: deque[float] = deque(maxlen=self._L_history_max_len)
         self._X_train = X_train
         self._Y_train = Y_train
-        self._high_gradient_abort_threshold = high_gradient_abort_threshold
-        self._low_gradient_abort_threshold = low_gradient_abort_threshold
         self._running_update_count = 0
         self._running_weights: WeightGradientRunningAverages = (
             WeightGradientRunningAverages.none()

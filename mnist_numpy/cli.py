@@ -237,8 +237,6 @@ def train(
         batch_size=batch_size,
         dropout_keep_prob=dropout_keep_prob,
         learning_rate_limits=learning_rate_limits,
-        low_gradient_abort_threshold=1e-6,
-        high_gradient_abort_threshold=1e3,
         num_epochs=num_epochs,
         regulariser_lambda=regulariser_lambda,
         total_epochs=num_epochs,
