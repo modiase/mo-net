@@ -41,6 +41,7 @@ DEFAULT_BATCH_SIZE: Final[int] = 100
 DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
+MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
 N_DIGITS: Final[int] = 10
 
 
@@ -297,7 +298,10 @@ def train(
             training_result = trainer.train()
         except AbortTraining as e:
             logger.exception(e)
-            if e.training_progress is not None and e.training_progress >= 0.1:
+            if (
+                e.training_progress is not None
+                and e.training_progress >= MINIMUM_PROGRESS_FOR_SAVING
+            ):
                 save_model(e.model_checkpoint_path)
                 break
             model.reinitialise()
