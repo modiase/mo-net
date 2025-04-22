@@ -274,9 +274,12 @@ def train(
         logger.info(f"Saved output to {model_path}.")
 
     restarts = 0
-    if training_parameters.trace_logging:
-        # Disable restarts when tracing
-        max_restarts = 0
+    if max_restarts > 0 and (
+        training_parameters.trace_logging or training_parameters.workers > 0
+    ):
+        raise ValueError(
+            "Cannot use trace logging or parallel training when using restarts."
+        )
     while restarts <= max_restarts:
         try:
             trainer = (
