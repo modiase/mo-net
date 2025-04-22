@@ -199,7 +199,6 @@ class BasicTrainer:
 
     def _training_loop(self) -> None:
         last_log_time = time.time()
-        log_interval_seconds = DEFAULT_LOG_INTERVAL_SECONDS
         for i in tqdm(
             range(
                 self._training_parameters.total_batches,
@@ -242,7 +241,7 @@ class BasicTrainer:
                         self._training_log_path, mode="a", header=False, index=False
                     )
 
-                if time.time() - last_log_time > log_interval_seconds:
+                if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                     tqdm.write(
                         f"Iteration {i}, Epoch {self._training_parameters.current_epoch(i)}, Training Loss = {L_train}, Test Loss = {L_test}"
                         + (
