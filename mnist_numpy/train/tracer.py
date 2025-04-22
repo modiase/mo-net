@@ -92,6 +92,7 @@ class Tracer:
         gradient: MultiLayerPerceptron.Gradient,
         update: MultiLayerPerceptron.Gradient,
     ) -> None:
+        # TODO: The activations should be cached on the layer.
         activations = self.model._As[1:]  # Ignore input layer activations.
         if not self._tracer_config.trace_strategy.should_trace(self._iterations):
             self._iterations += 1

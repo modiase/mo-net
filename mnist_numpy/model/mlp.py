@@ -196,8 +196,12 @@ class MultiLayerPerceptron(ModelBase):
                 f"Expected all layers except input and output layers to be {HiddenLayerBase.__name__}."
             )
         self._hidden_layers = cast(Sequence[HiddenLayerBase], layers[1:-1])
-        self._As: MutableSequence[Activations] = []
-        self._Zs: MutableSequence[Activations] = []
+        self._As: MutableSequence[
+            Activations
+        ] = []  # TODO: Store activations on the layer / block not the model.
+        self._Zs: MutableSequence[
+            Activations
+        ] = []  # TODO: Remove once we have split Dense and Activation Layers
         self._input_layer = layers[0]
         self._output_layer = layers[-1]
         self._loss_contributors: MutableSequence[LossContributor] = []
