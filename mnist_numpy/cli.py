@@ -38,7 +38,6 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
-DEFAULT_LEARNING_RATE: Final[float] = 0.001
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
 MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
@@ -47,13 +46,6 @@ N_DIGITS: Final[int] = 10
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
     # TODO: Remove optimizer specific options
-    @click.option(
-        "-a",
-        "--learning-rate",
-        help="Set the learning rate",
-        type=float,
-        default=DEFAULT_LEARNING_RATE,
-    )
     @click.option(
         "-l",
         "--training-log-path",
@@ -108,13 +100,6 @@ def cli(): ...
     help="Set number of epochs",
     type=int,
     default=DEFAULT_NUM_EPOCHS,
-)
-@click.option(
-    "-t",
-    "--model-type",
-    type=click.Choice([MultiLayerPerceptron.get_name()]),
-    help="The type of model to train",
-    default=MultiLayerPerceptron.get_name(),
 )
 @click.option(
     "-i",
@@ -187,11 +172,9 @@ def train(
     data_path: Path,
     dims: Sequence[int],
     dropout_keep_prob: tuple[float, ...],
-    learning_rate: float,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
     max_restarts: int,
-    model_type: str,
     num_epochs: int,
     optimizer_type: str,
     regulariser_lambda: float,
@@ -225,13 +208,10 @@ def train(
         )
     )
     if model_path is None:
-        if model_type == MultiLayerPerceptron.get_name():
-            model = MultiLayerPerceptron.of(
-                layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
-                activation_fn=get_activation_fn(activation_fn),
-            )
-        else:
-            raise ValueError(f"Invalid model type: {model_type}")
+        model = MultiLayerPerceptron.of(
+            layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
+            activation_fn=get_activation_fn(activation_fn),
+        )
     else:
         if len(dims) != 0:
             raise ValueError(
