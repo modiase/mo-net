@@ -19,18 +19,18 @@ from mnist_numpy.types import EventLike
 
 def worker_process(
     *,
-    worker_id: int,
+    batch_ready_event: EventLike,
     initial_model_data,
     shared_batcher: SharedBatcher,
+    stop_event: EventLike,
+    worker_id: int,
+    worker_ready_event: EventLike,
+    X_shared_memory_dtype: np.dtype,
     X_shared_memory_name: str,
     X_shared_memory_shape: tuple[int, ...],
-    X_shared_memory_dtype: np.dtype,
+    Y_shared_memory_dtype: np.dtype,
     Y_shared_memory_name: str,
     Y_shared_memory_shape: tuple[int, ...],
-    Y_shared_memory_dtype: np.dtype,
-    worker_ready_event: EventLike,
-    batch_ready_event: EventLike,
-    stop_event: EventLike,
 ) -> None:
     """Worker process that trains on batches and submits updates"""
 
@@ -98,32 +98,32 @@ class ParallelTrainer(BasicTrainer):
     @staticmethod
     def create_worker_process(
         *,
-        worker_id: int,
+        batch_ready_event: EventLike,
         initial_model_data: bytes,
         shared_batcher: SharedBatcher,
+        stop_event: EventLike,
+        worker_id: int,
+        worker_ready_event: EventLike,
         X: np.ndarray,
         X_shared_memory_name: str,
         Y: np.ndarray,
         Y_shared_memory_name: str,
-        worker_ready_event: EventLike,
-        batch_ready_event: EventLike,
-        stop_event: EventLike,
     ) -> mp.Process:
         p = mp.Process(
             target=worker_process,
             kwargs={
-                "worker_id": worker_id,
+                "batch_ready_event": batch_ready_event,
                 "initial_model_data": initial_model_data,
                 "shared_batcher": shared_batcher,
+                "stop_event": stop_event,
+                "worker_id": worker_id,
+                "worker_ready_event": worker_ready_event,
+                "X_shared_memory_dtype": X.dtype,
                 "X_shared_memory_name": X_shared_memory_name,
                 "X_shared_memory_shape": X.shape,
-                "X_shared_memory_dtype": X.dtype,
+                "Y_shared_memory_dtype": Y.dtype,
                 "Y_shared_memory_name": Y_shared_memory_name,
                 "Y_shared_memory_shape": Y.shape,
-                "Y_shared_memory_dtype": Y.dtype,
-                "worker_ready_event": worker_ready_event,
-                "batch_ready_event": batch_ready_event,
-                "stop_event": stop_event,
             },
         )
         p.daemon = True
@@ -174,16 +174,16 @@ class ParallelTrainer(BasicTrainer):
         )
         self._processes = tuple(
             ParallelTrainer.create_worker_process(
-                worker_id=i,
+                batch_ready_event=self._batch_ready_events[i],
                 initial_model_data=initial_model_data,
                 shared_batcher=self._shared_batcher,
+                stop_event=stop_event,
+                worker_id=i,
+                worker_ready_event=self._worker_ready_events[i],
                 X=self._X_train,
                 X_shared_memory_name=self._X_shared_memory.name,
                 Y=self._Y_train,
                 Y_shared_memory_name=self._Y_shared_memory.name,
-                worker_ready_event=self._worker_ready_events[i],
-                batch_ready_event=self._batch_ready_events[i],
-                stop_event=stop_event,
             )
             for i in range(self._training_parameters.workers)
         )
