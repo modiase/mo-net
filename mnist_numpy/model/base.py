@@ -38,7 +38,7 @@ class ModelBase(ABC, Generic[_GradientT]):
     def load(cls, io: IO[bytes]) -> Self: ...
 
     @abstractmethod
-    def forward_prop(self, *, X: np.ndarray) -> Activations: ...
+    def forward_prop(self, X: np.ndarray) -> Activations: ...
 
     @abstractmethod
     def backward_prop(
@@ -53,6 +53,9 @@ class ModelBase(ABC, Generic[_GradientT]):
     """
     Returns an empty gradient. Used to initialize optimizers.
     """
+
+    @abstractmethod
+    def compute_loss(self, X: np.ndarray, Y_true: np.ndarray) -> float: ...
 
 
 ModelT = TypeVar("ModelT", bound=ModelBase)

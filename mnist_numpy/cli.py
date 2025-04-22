@@ -1,7 +1,10 @@
 import functools
+import os
 import re
+import sys
 import time
 from collections.abc import Sequence
+from itertools import chain
 from pathlib import Path
 from typing import Callable, Final, ParamSpec, TypeVar
 
@@ -11,42 +14,38 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import sample
 
-from mnist_numpy.data import DEFAULT_DATA_PATH, OUTPUT_PATH, RUN_PATH, load_data
-from mnist_numpy.functions import ReLU
-from mnist_numpy.model import MultiLayerPerceptron
-from mnist_numpy.model.scheduler import DecayScheduler
-from mnist_numpy.optimizer import (
-    AdalmOptimizer,
-    AdamOptimizer,
-    NoOptimizer,
-    OptimizerBase,
+from mnist_numpy.data import (
+    DATA_DIR,
+    DEFAULT_DATA_PATH,
+    OUTPUT_PATH,
+    RUN_PATH,
+    load_data,
 )
+from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
+from mnist_numpy.model import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Regulariser
+from mnist_numpy.regulariser.batch_norm import BatchNormRegulariser
+from mnist_numpy.regulariser.dropout import DropoutRegulariser
+from mnist_numpy.regulariser.ridge import L2Regulariser
 from mnist_numpy.train import (
-    ModelTrainer,
     TrainingParameters,
 )
+from mnist_numpy.train.exceptions import AbortTraining
+from mnist_numpy.train.trainer.parallel import ParallelTrainer
+from mnist_numpy.train.trainer.trainer import BasicTrainer, get_optimizer
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
-DEFAULT_LEARNING_RATE: Final[float] = 0.001
-DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 1"
-DEFAULT_MOMENTUM_PARAMETER: Final[float] = 0.9
+DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
-DEFAULT_RESCALE_FACTOR_PER_EPOCH: Final[float] = 1.01
+MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
 N_DIGITS: Final[int] = 10
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
     # TODO: Remove optimizer specific options
-    @click.option(
-        "-a",
-        "--learning-rate",
-        help="Set the learning rate",
-        type=float,
-        default=DEFAULT_LEARNING_RATE,
-    )
     @click.option(
         "-l",
         "--training-log-path",
@@ -67,13 +66,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=Path,
         help="Set the path to the data file",
         default=DEFAULT_DATA_PATH,
-    )
-    @click.option(
-        "-r",
-        "--learning-rate-rescale-factor-per-epoch",
-        type=float,
-        help="Set the learning rate rescale factor per epoch",
-        default=DEFAULT_RESCALE_FACTOR_PER_EPOCH,
     )
     @click.option(
         "-s",
@@ -110,13 +102,6 @@ def cli(): ...
     default=DEFAULT_NUM_EPOCHS,
 )
 @click.option(
-    "-t",
-    "--model-type",
-    type=click.Choice([MultiLayerPerceptron.get_name()]),
-    help="The type of model to train",
-    default=MultiLayerPerceptron.get_name(),
-)
-@click.option(
     "-i",
     "--dims",
     type=int,
@@ -134,43 +119,111 @@ def cli(): ...
     "--dropout-keep-prob",
     type=float,
     help="Set the dropout keep probability",
-    default=1.0,
+    multiple=True,
+    default=(),
+)
+@click.option(
+    "-f",
+    "--activation-fn",
+    type=click.Choice([ReLU.name, Tanh.name, LeakyReLU.name]),
+    help="Set the activation function",
+    default=ReLU.name,
+)
+@click.option(
+    "-t",
+    "--trace-logging",
+    type=bool,
+    is_flag=True,
+    help="Set the trace logging",
+    default=False,
+)
+@click.option(
+    "-l",
+    "--regulariser-lambda",
+    type=float,
+    help="Set the regulariser lambda",
+    default=0.0,
+)
+@click.option(
+    "-e",
+    "--warmup-epochs",
+    type=int,
+    help="Set the number of warmup epochs",
+    default=100,
+)
+@click.option(
+    "-r",
+    "--max-restarts",
+    type=int,
+    help="Set the maximum number of restarts",
+    default=0,
+)
+@click.option(
+    "-w",
+    "--workers",
+    type=int,
+    help="Set the number of workers",
+    default=0,
 )
 def train(
     *,
+    activation_fn: str,
     batch_size: int | None,
     data_path: Path,
     dims: Sequence[int],
-    dropout_keep_prob: float,
-    learning_rate: float,
-    learning_rate_rescale_factor_per_epoch: float,
+    dropout_keep_prob: tuple[float, ...],
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
-    model_type: str,
+    max_restarts: int,
     num_epochs: int,
     optimizer_type: str,
+    regulariser_lambda: float,
     training_log_path: Path | None,
+    trace_logging: bool,
+    warmup_epochs: int,
+    workers: int,
 ) -> None:
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
-    seed = int(time.time())
+    seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)
     logger.info(f"Training model with {seed=}.")
 
     model: MultiLayerPerceptron
-    if model_path is None:
-        if model_type == MultiLayerPerceptron.get_name():
-            model = MultiLayerPerceptron.of(
-                layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
-                activation_fn=ReLU,
+    train_set_size = X_train.shape[0]
+    batch_size = batch_size if batch_size is not None else train_set_size
+    regularisers: Sequence[Regulariser] = tuple(
+        (
+            chain(
+                (BatchNormRegulariser(batch_size=batch_size),),
+                (L2Regulariser(lambda_=regulariser_lambda, batch_size=batch_size),)
+                if regulariser_lambda > 0
+                else (),
+                (
+                    (DropoutRegulariser(keep_probs=dropout_keep_prob),)
+                    if dropout_keep_prob
+                    else ()
+                ),
             )
-        else:
-            raise ValueError(f"Invalid model type: {model_type}")
+        )
+    )
+    if model_path is None:
+        model = MultiLayerPerceptron.of(
+            layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
+            activation_fn=get_activation_fn(activation_fn),
+        )
     else:
+        if len(dims) != 0:
+            raise ValueError(
+                "Dims must not be provided when loading a model from a file."
+            )
         model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
+    for regulariser in regularisers:
+        regulariser(model)
+
     if training_log_path is None:
-        model_path = OUTPUT_PATH / f"{seed}_{model.get_name()}_model.pkl"
+        model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
         training_log_path = RUN_PATH / (f"{model_path.stem}_training_log.csv")
     else:
         if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
@@ -180,69 +233,59 @@ def train(
         model_path = OUTPUT_PATH / training_log_path.name.replace(
             "training_log.csv", ".pkl"
         )
-    train_set_size = X_train.shape[0]
-    batch_size = batch_size if batch_size is not None else train_set_size
     training_parameters = TrainingParameters(
         batch_size=batch_size,
         dropout_keep_prob=dropout_keep_prob,
-        learning_rate=learning_rate,
         learning_rate_limits=learning_rate_limits,
-        learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-        momentum_parameter=DEFAULT_MOMENTUM_PARAMETER,
+        regulariser_lambda=regulariser_lambda,
         num_epochs=num_epochs,
-        total_epochs=num_epochs,
+        trace_logging=trace_logging,
+        train_set_size=train_set_size,
+        warmup_epochs=warmup_epochs,
+        workers=workers,
     )
 
-    optimizer: OptimizerBase
-    match optimizer_type:
-        case "adam":
-            optimizer = AdamOptimizer(
-                model=model,
-                config=AdamOptimizer.Config(
-                    dropout_keep_prob=dropout_keep_prob,
-                    learning_rate=learning_rate,
-                    scheduler=DecayScheduler(
-                        batch_size=batch_size,
-                        learning_rate_limits=learning_rate_limits,
-                        learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-                        train_set_size=train_set_size,
-                    ),
-                ),
-            )
-        case "adalm":
-            optimizer = AdalmOptimizer(
-                model=model,
-                config=AdalmOptimizer.Config(
-                    num_epochs=num_epochs,
-                    train_set_size=(train_set_size := X_train.shape[0]),
-                    batch_size=(
-                        batch_size if batch_size is not None else train_set_size
-                    ),
-                    learning_rate=learning_rate,
-                    learning_rate_limits=learning_rate_limits,
-                    learning_rate_rescale_factor_per_epoch=learning_rate_rescale_factor_per_epoch,
-                    momentum_parameter=DEFAULT_MOMENTUM_PARAMETER,
-                ),
-            )
-        case "no":
-            optimizer = NoOptimizer(
-                config=NoOptimizer.Config(learning_rate=learning_rate),
-            )
-        case _:
-            raise ValueError(f"Invalid optimizer: {optimizer}")
+    def save_model(model_checkpoint_path: Path | None) -> None:
+        if model_checkpoint_path is None:
+            return
+        model_checkpoint_path.rename(model_path)
+        logger.info(f"Saved output to {model_path}.")
 
-    ModelTrainer.train(
-        model=model,
-        X_test=X_test,
-        X_train=X_train,
-        Y_test=Y_test,
-        Y_train=Y_train,
-        training_parameters=training_parameters,
-        optimizer=optimizer,
-        training_log_path=training_log_path,
-    ).rename(model_path)
-
-    logger.info(f"Saved output to {model_path}.")
+    restarts = 0
+    if max_restarts > 0 and (
+        training_parameters.trace_logging or training_parameters.workers > 0
+    ):
+        raise ValueError(
+            "Cannot use trace logging or parallel training when using restarts."
+        )
+    while restarts <= max_restarts:
+        try:
+            trainer = (
+                ParallelTrainer if training_parameters.workers > 0 else BasicTrainer
+            )(
+                model=model,
+                X_test=X_test,
+                X_train=X_train,
+                Y_test=Y_test,
+                Y_train=Y_train,
+                training_parameters=training_parameters,
+                optimizer=get_optimizer(optimizer_type, model, training_parameters),
+                training_log_path=training_log_path,
+            )
+            training_result = trainer.train()
+        except AbortTraining as e:
+            logger.exception(e)
+            if (
+                e.training_progress is not None
+                and e.training_progress >= MINIMUM_PROGRESS_FOR_SAVING
+            ):
+                save_model(e.model_checkpoint_path)
+                break
+            model.reinitialise()
+            restarts += 1
+        else:
+            save_model(training_result.model_checkpoint_path)
+            break
 
 
 @cli.command(help="Run inference using the model")
@@ -251,7 +294,6 @@ def train(
     "--model-path",
     help="Set the path to the model file",
     type=Path,
-    required=True,
 )
 @click.option(
     "-d",
@@ -260,10 +302,17 @@ def train(
     help="Set the path to the data file",
     default=DEFAULT_DATA_PATH,
 )
-def infer(*, model_path: Path, data_path: Path):
+def infer(*, model_path: Path | None, data_path: Path):
     X_train, Y_train, X_test, Y_test = load_data(data_path)
 
-    # TODO: Dispatch on model type
+    if model_path is None:
+        output_dir = DATA_DIR / "output"
+        model_path = max(output_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime)
+        logger.info(f"Using latest model file: {model_path}")
+    if not model_path.exists():
+        logger.error(f"File not found: {model_path}")
+        sys.exit(1)
+
     model = MultiLayerPerceptron.load(open(model_path, "rb"))
 
     Y_pred = model.predict(X_train)
@@ -275,7 +324,7 @@ def infer(*, model_path: Path, data_path: Path):
     logger.info(f"Test Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
 
     plt.figure(figsize=(15, 8))
-    plt.suptitle("Mislabelled Samples", fontsize=16)
+    plt.suptitle("Mislabelled Examples (Sample)", fontsize=16)
 
     sample_indices = sample(np.where(Y_true != Y_pred)[0], 25)
     for idx, i in enumerate(sample_indices):

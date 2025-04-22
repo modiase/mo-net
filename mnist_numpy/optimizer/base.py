@@ -5,6 +5,7 @@ from typing import Generic, TypeVar
 import numpy as np
 
 from mnist_numpy.model.base import ModelT
+from mnist_numpy.model.mlp import MultiLayerPerceptron
 
 ConfigT = TypeVar("ConfigT")
 
@@ -13,10 +14,20 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
     def __init__(self, config: ConfigT):
         self._config = config
 
-    @abstractmethod
     def training_step(
-        self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
-    ) -> None: ...
+        self,
+        model: ModelT,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
+    ) -> MultiLayerPerceptron.Gradient:
+        model.forward_prop(X=X_train_batch)
+        return model.backward_prop(Y_true=Y_train_batch)
+
+    @abstractmethod
+    def compute_update(
+        self,
+        gradient: MultiLayerPerceptron.Gradient,
+    ) -> MultiLayerPerceptron.Gradient: ...
 
     @abstractmethod
     def report(self) -> str: ...
@@ -27,19 +38,18 @@ class OptimizerBase(ABC, Generic[ModelT, ConfigT]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class NoConfig:
+class NoOptimizerConfig:
     learning_rate: float
 
 
-class NoOptimizer(OptimizerBase[ModelT, NoConfig]):
-    Config = NoConfig
+class NoOptimizer(OptimizerBase[ModelT, NoOptimizerConfig]):
+    Config = NoOptimizerConfig
 
-    def training_step(
-        self, model: ModelT, X_train_batch: np.ndarray, Y_train_batch: np.ndarray
-    ) -> None:
-        model.forward_prop(X=X_train_batch)
-        gradient = model.backward_prop(Y_true=Y_train_batch)
-        model.update_parameters(update=-self._config.learning_rate * gradient)
+    def compute_update(
+        self,
+        gradient: MultiLayerPerceptron.Gradient,
+    ) -> MultiLayerPerceptron.Gradient:
+        return -self._config.learning_rate * gradient
 
     def report(self) -> str:
         return ""
