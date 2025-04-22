@@ -120,10 +120,8 @@ class Tracer:
                     layer_group.attrs["min"] = np.min(activation)
                     layer_group.attrs["max"] = np.max(activation)
 
+            dense_layer_params = tuple(layer.parameters for layer in self._dense_layers)
             if self._tracer_config.trace_weights:
-                dense_layer_params = tuple(
-                    layer.parameters for layer in self._dense_layers
-                )
                 weight_group = iter_group.create_group("weights")
 
                 for i, param in enumerate(dense_layer_params):
@@ -142,9 +140,6 @@ class Tracer:
                     layer_group.attrs["max"] = np.max(param._W)
 
             if self._tracer_config.trace_biases:
-                dense_layer_params = tuple(
-                    layer.parameters for layer in self._dense_layers
-                )
                 bias_group = iter_group.create_group("biases")
 
                 for i, param in enumerate(dense_layer_params):
