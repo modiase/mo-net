@@ -9,6 +9,7 @@ class AbortTraining(RuntimeError):
         message: str,
         training_progress: float | None = None,
         model_checkpoint_path: Path | None = None,
+        model_checkpoint_save_epoch: int | None = None,
     ):
         super().__init__(message + (" " if message else "") + "Aborting training.")
         training_context_ = (
@@ -25,4 +26,9 @@ class AbortTraining(RuntimeError):
             model_checkpoint_path
             if model_checkpoint_path is not None
             else training_context_.model_checkpoint_path
+        )
+        self.model_checkpoint_save_epoch = (
+            model_checkpoint_save_epoch
+            if model_checkpoint_save_epoch is not None
+            else training_context_.model_checkpoint_save_epoch
         )

@@ -1,8 +1,8 @@
 from collections.abc import Callable
-from typing import TypeAlias, TypeVar
+from typing import TypeVar
 
 _T = TypeVar("_T")
-Thunk: TypeAlias = Callable[[], _T]
+Thunk = Callable[[], _T]
 
 
 def evaluate(lazy: _T | Thunk[_T]) -> _T:

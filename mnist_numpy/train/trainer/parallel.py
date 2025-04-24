@@ -1,26 +1,28 @@
-import io
 import multiprocessing as mp
-import operator
-from collections.abc import Collection, Iterator
+import tempfile
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from functools import reduce
-from typing import ContextManager
+from pathlib import Path
+from typing import ContextManager, Final
 
 import numpy as np
 from loguru import logger
 
-from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.optimizer.base import NoOptimizer, OptimizerBase
+from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train.batcher import SharedBatcher
 from mnist_numpy.train.trainer.trainer import BasicTrainer
-from mnist_numpy.types import EventLike
+from mnist_numpy.types import EventLike, SupportsGradientOperations
+
+_64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
+_PADDING_FACTOR: Final[float] = 1.2
 
 
 def worker_process(
     *,
     batch_ready_event: EventLike,
-    initial_model_data,
+    initial_model_data_path: str,
+    regulariser_lambda: float,
     shared_batcher: SharedBatcher,
     stop_event: EventLike,
     worker_id: int,
@@ -34,12 +36,15 @@ def worker_process(
 ) -> None:
     """Worker process that trains on batches and submits updates"""
 
-    buffer = io.BytesIO(initial_model_data)
-    model = MultiLayerPerceptron.load(buffer, training=True)
+    with open(initial_model_data_path, "rb") as f:
+        model = MultiLayerPerceptron.load(f, training=True)
 
-    optimizer: OptimizerBase = NoOptimizer(
-        config=NoOptimizer.Config(learning_rate=0.0)  # learning rate is unused
-    )
+    if regulariser_lambda > 0:
+        attach_l2_regulariser(
+            lambda_=regulariser_lambda,
+            batch_size=shared_batcher.worker_batch_size,
+            model=model,
+        )
 
     worker_ready_event.set()
     X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
@@ -64,17 +69,17 @@ def worker_process(
             X_batch = X_train[indices]
             Y_batch = Y_train[indices]
 
-            gradient = optimizer.training_step(
-                model=model,
-                X_train_batch=X_batch,
-                Y_train_batch=Y_batch,
-            )
+            model.forward_prop(X=X_batch)
+            model.backward_prop(Y_true=Y_batch)
 
-            shared_batcher.worker_put_result(gradient)
+            shared_batcher.worker_put_result(
+                update=tuple(layer.cache["dP"] for layer in model.grad_layers)
+            )
             worker_ready_event.set()
 
             aggregated_update = shared_batcher.worker_wait_for_update()
-            model.update_parameters(aggregated_update)
+            model.populate_caches(aggregated_update)
+            model.update_parameters()
 
         except Exception as e:
             logger.exception(f"Worker {worker_id} error: {e}")
@@ -85,21 +90,11 @@ class ParallelTrainer(BasicTrainer):
     """Implements parallel training using multiple processes."""
 
     @staticmethod
-    def apply_updates(
-        model: ModelT,
-        updates: Collection[MultiLayerPerceptron.Gradient],
-    ) -> None:
-        if not updates:
-            return
-
-        for update in updates:
-            model.update_parameters(update)
-
-    @staticmethod
     def create_worker_process(
         *,
         batch_ready_event: EventLike,
-        initial_model_data: bytes,
+        initial_model_data_path: Path,
+        regulariser_lambda: float,
         shared_batcher: SharedBatcher,
         stop_event: EventLike,
         worker_id: int,
@@ -113,7 +108,7 @@ class ParallelTrainer(BasicTrainer):
             target=worker_process,
             kwargs={
                 "batch_ready_event": batch_ready_event,
-                "initial_model_data": initial_model_data,
+                "initial_model_data_path": str(initial_model_data_path),
                 "shared_batcher": shared_batcher,
                 "stop_event": stop_event,
                 "worker_id": worker_id,
@@ -124,6 +119,7 @@ class ParallelTrainer(BasicTrainer):
                 "Y_shared_memory_dtype": Y.dtype,
                 "Y_shared_memory_name": Y_shared_memory_name,
                 "Y_shared_memory_shape": Y.shape,
+                "regulariser_lambda": regulariser_lambda,
             },
         )
         p.daemon = True
@@ -138,6 +134,12 @@ class ParallelTrainer(BasicTrainer):
         self._Y_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._Y_train.nbytes
         )
+        self._update_shared_memory = mp.shared_memory.SharedMemory(
+            create=True,
+            size=int(
+                self._model.parameter_count * _64_BIT_FLOAT_BYTES_SIZE * _PADDING_FACTOR
+            ),
+        )
         X_shared: np.ndarray = np.ndarray(
             self._X_train.shape,
             dtype=self._X_train.dtype,
@@ -151,19 +153,20 @@ class ParallelTrainer(BasicTrainer):
         np.copyto(X_shared, self._X_train)
         np.copyto(Y_shared, self._Y_train)
         self._shared_batcher = SharedBatcher(
-            batch_queue=self._manager.Queue(),  # type: ignore[arg-type]
+            batch_queue=mp.Queue(),
             batch_size=self._training_parameters.batch_size,
-            result_queue=self._manager.Queue(),  # type: ignore[arg-type]
+            result_queue=mp.Queue(),
             train_set_size=self._X_train.shape[0],
-            update_queue=self._manager.Queue(),  # type: ignore[arg-type]
+            update_shared_memory=self._update_shared_memory,
             update_ready=mp.Event(),
             worker_count=self._training_parameters.workers,
         )
 
-        buffer = io.BytesIO()
-        self._model.dump(buffer)
-        buffer.seek(0)
-        initial_model_data = buffer.getvalue()
+        self._initial_model_data_path = Path(
+            tempfile.NamedTemporaryFile(delete=False).name
+        )
+        with open(self._initial_model_data_path, "wb") as f:
+            self._model.dump(f)
 
         stop_event = mp.Event()
         self._worker_ready_events = tuple(
@@ -175,7 +178,8 @@ class ParallelTrainer(BasicTrainer):
         self._processes = tuple(
             ParallelTrainer.create_worker_process(
                 batch_ready_event=self._batch_ready_events[i],
-                initial_model_data=initial_model_data,
+                initial_model_data_path=self._initial_model_data_path,
+                regulariser_lambda=self._training_parameters.regulariser_lambda,
                 shared_batcher=self._shared_batcher,
                 stop_event=stop_event,
                 worker_id=i,
@@ -198,9 +202,12 @@ class ParallelTrainer(BasicTrainer):
                 for p in filter(lambda p: p.is_alive(), self._processes):
                     p.terminate()
                 self._X_shared_memory.close()
-                self._Y_shared_memory.close()
                 self._X_shared_memory.unlink()
+                self._Y_shared_memory.close()
                 self._Y_shared_memory.unlink()
+                self._update_shared_memory.close()
+                self._update_shared_memory.unlink()
+                self._initial_model_data_path.unlink(missing_ok=True)
 
         return _training_loop_context()
 
@@ -216,11 +223,16 @@ class ParallelTrainer(BasicTrainer):
 
     def _training_step(
         self,
-    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
+    ) -> tuple[
+        Sequence[SupportsGradientOperations], Sequence[SupportsGradientOperations]
+    ]:
         self._prepare_batches()
         self._ready_all_workers()
-        gradient = reduce(operator.add, self._shared_batcher.leader_get_all_results())
-        update = self._optimizer.compute_update(gradient)
-        self._model.update_parameters(update)
-        self._shared_batcher.leader_send_update(update)
+        gradient = self._shared_batcher.leader_get_aggregated_results()
+        self._model.populate_caches(gradient)
+        self._optimizer.compute_update()
+        self._shared_batcher.leader_send_update(
+            update := self._model.get_gradient_caches()
+        )
+        self._model.update_parameters()
         return gradient, update

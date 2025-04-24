@@ -1,12 +1,18 @@
+import contextlib
 import multiprocessing as mp
-from collections.abc import Collection, Iterator, Sequence
+import operator
+import pickle
+import zlib
+from collections.abc import Iterator, Sequence
+from multiprocessing.shared_memory import SharedMemory
 from queue import Empty
-from typing import Self
+from typing import Final, Self
 
 import numpy as np
 
-from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import EventLike
+from mnist_numpy.types import EventLike, SupportsGradientOperations
+
+DATA_BYTES_LEN_OFFSET: Final[int] = 4
 
 
 class Batcher:
@@ -87,18 +93,24 @@ class SharedBatcher:
         batch_queue: mp.Queue,
         result_queue: mp.Queue,
         train_set_size: int,
-        update_queue: mp.Queue,
+        update_shared_memory: SharedMemory,
         update_ready: EventLike,
         worker_count: int,
     ):
+        self.worker_count = worker_count
+        self._batch_size = batch_size
+        self._train_set_size = train_set_size
         self.batcher = IndexBatcher(
-            train_set_size=train_set_size, batch_size=batch_size // worker_count
+            train_set_size=train_set_size, batch_size=self.worker_batch_size
         )
         self.batch_queue = batch_queue
         self.result_queue = result_queue
         self.update_ready = update_ready
-        self.update_queue = update_queue
-        self.worker_count = worker_count
+        self._update_shared_memory = update_shared_memory
+
+    @property
+    def worker_batch_size(self) -> int:
+        return self._batch_size // self.worker_count
 
     def _clear_queue(self, queue: mp.Queue) -> None:
         while not queue.empty():
@@ -117,28 +129,52 @@ class SharedBatcher:
     def worker_get_batch(self, timeout_seconds: float = 1.0) -> Sequence[int]:
         return self.batch_queue.get(timeout=timeout_seconds)
 
-    def worker_put_result(self, update: MultiLayerPerceptron.Gradient) -> None:
+    def worker_put_result(self, update: tuple[SupportsGradientOperations, ...]) -> None:
         self.result_queue.put(update)
 
-    def leader_get_all_results(self) -> Collection[MultiLayerPerceptron.Gradient]:
-        results = []
-        while not self.result_queue.empty():
-            try:
-                update = self.result_queue.get_nowait()
-                results.append(update)
-            except Empty:
-                break
-        return results
+    def leader_get_aggregated_results(
+        self,
+    ) -> Sequence[SupportsGradientOperations]:
+        result_count = 0
+        aggregated: tuple[SupportsGradientOperations, ...] | None = None
+        while (
+            result_count < self.worker_count
+        ):  # TODO: This is unsafe - if a worker dies this will loop indefinitely.
+            with contextlib.suppress(Empty):
+                update = self.result_queue.get(timeout=1.0)
+                if aggregated is None:
+                    aggregated = update
+                else:
+                    aggregated = tuple(map(operator.add, aggregated, update))
+                result_count += 1
 
-    def leader_send_update(self, update: MultiLayerPerceptron.Gradient) -> None:
-        self._clear_queue(self.update_queue)
-        for _ in range(self.worker_count):
-            self.update_queue.put(update)
+        if aggregated is None:
+            raise RuntimeError("No results received from workers.")
+        return aggregated
+
+    def leader_send_update(self, update: Sequence[SupportsGradientOperations]) -> None:
+        data_bytes = zlib.compress(pickle.dumps(update), level=zlib.Z_BEST_COMPRESSION)
+        data_bytes_len = len(data_bytes)
+        self._update_shared_memory.buf[0:DATA_BYTES_LEN_OFFSET] = (
+            data_bytes_len.to_bytes(DATA_BYTES_LEN_OFFSET, byteorder="little")
+        )
+        self._update_shared_memory.buf[
+            DATA_BYTES_LEN_OFFSET : DATA_BYTES_LEN_OFFSET + data_bytes_len
+        ] = data_bytes
         self.update_ready.set()
 
-    def worker_wait_for_update(self) -> MultiLayerPerceptron.Gradient:
+    def worker_wait_for_update(self) -> tuple[SupportsGradientOperations, ...]:
         """Wait for an update from the main process (called by worker)"""
         self.update_ready.wait()  # type: ignore[attr-defined]
-        update = self.update_queue.get()
+        data_bytes_len = int.from_bytes(
+            self._update_shared_memory.buf[0:DATA_BYTES_LEN_OFFSET],
+            byteorder="little",
+        )
+        data = bytes(
+            self._update_shared_memory.buf[
+                DATA_BYTES_LEN_OFFSET : DATA_BYTES_LEN_OFFSET + data_bytes_len
+            ]
+        )
+        update = pickle.loads(zlib.decompress(data))
         self.update_ready.clear()
         return update

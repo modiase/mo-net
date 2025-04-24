@@ -4,7 +4,6 @@ import re
 import sys
 import time
 from collections.abc import Sequence
-from itertools import chain
 from pathlib import Path
 from typing import Callable, Final, ParamSpec, TypeVar
 
@@ -21,23 +20,28 @@ from mnist_numpy.data import (
     RUN_PATH,
     load_data,
 )
-from mnist_numpy.functions import LeakyReLU, ReLU, Tanh, get_activation_fn
+from mnist_numpy.functions import (
+    LeakyReLU,
+    ReLU,
+    Tanh,
+    parse_activation_fn,
+)
 from mnist_numpy.model import MultiLayerPerceptron
-from mnist_numpy.model.mlp import Regulariser
-from mnist_numpy.regulariser.batch_norm import BatchNormRegulariser
-from mnist_numpy.regulariser.dropout import DropoutRegulariser
-from mnist_numpy.regulariser.ridge import L2Regulariser
+from mnist_numpy.model.layer.dropout import attach_dropout_layers
+from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
 from mnist_numpy.train.exceptions import AbortTraining
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import BasicTrainer, get_optimizer
+from mnist_numpy.types import ActivationFn
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 DEFAULT_BATCH_SIZE: Final[int] = 100
+DEFAULT_DIMS: Final[tuple[int, ...]] = (10, 10)
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
 MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
@@ -45,7 +49,6 @@ N_DIGITS: Final[int] = 10
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
-    # TODO: Remove optimizer specific options
     @click.option(
         "-l",
         "--training-log-path",
@@ -106,7 +109,7 @@ def cli(): ...
     "--dims",
     type=int,
     multiple=True,
-    default=(10, 10),
+    default=(),
 )
 @click.option(
     "-m",
@@ -116,9 +119,9 @@ def cli(): ...
 )
 @click.option(
     "-k",
-    "--dropout-keep-prob",
+    "--dropout-keep-probs",
     type=float,
-    help="Set the dropout keep probability",
+    help="Set the dropout keep probabilities.",
     multiple=True,
     default=(),
 )
@@ -128,13 +131,14 @@ def cli(): ...
     type=click.Choice([ReLU.name, Tanh.name, LeakyReLU.name]),
     help="Set the activation function",
     default=ReLU.name,
+    callback=parse_activation_fn,
 )
 @click.option(
     "-t",
-    "--trace-logging",
+    "--tracing-enabled",
     type=bool,
     is_flag=True,
-    help="Set the trace logging",
+    help="Enable tracing",
     default=False,
 )
 @click.option(
@@ -156,7 +160,7 @@ def cli(): ...
     "--max-restarts",
     type=int,
     help="Set the maximum number of restarts",
-    default=0,
+    default=None,
 )
 @click.option(
     "-w",
@@ -165,21 +169,29 @@ def cli(): ...
     help="Set the number of workers",
     default=0,
 )
+@click.option(
+    "--no-monitoring",
+    type=bool,
+    is_flag=True,
+    help="Disable monitoring",
+    default=False,
+)
 def train(
     *,
-    activation_fn: str,
+    activation_fn: ActivationFn,
     batch_size: int | None,
     data_path: Path,
     dims: Sequence[int],
-    dropout_keep_prob: tuple[float, ...],
+    dropout_keep_probs: tuple[float, ...],
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
-    max_restarts: int,
+    max_restarts: int | None,
+    no_monitoring: bool,
     num_epochs: int,
     optimizer_type: str,
     regulariser_lambda: float,
     training_log_path: Path | None,
-    trace_logging: bool,
+    tracing_enabled: bool,
     warmup_epochs: int,
     workers: int,
 ) -> None:
@@ -192,35 +204,35 @@ def train(
     model: MultiLayerPerceptron
     train_set_size = X_train.shape[0]
     batch_size = batch_size if batch_size is not None else train_set_size
-    regularisers: Sequence[Regulariser] = tuple(
-        (
-            chain(
-                (BatchNormRegulariser(batch_size=batch_size),),
-                (L2Regulariser(lambda_=regulariser_lambda, batch_size=batch_size),)
-                if regulariser_lambda > 0
-                else (),
-                (
-                    (DropoutRegulariser(keep_probs=dropout_keep_prob),)
-                    if dropout_keep_prob
-                    else ()
-                ),
-            )
-        )
-    )
+
     if model_path is None:
+        if len(dims) == 0:
+            dims = DEFAULT_DIMS
         model = MultiLayerPerceptron.of(
-            layer_neuron_counts=(X_train.shape[1], *dims, N_DIGITS),
-            activation_fn=get_activation_fn(activation_fn),
+            dimensions=(X_train.shape[1], *dims, N_DIGITS),
+            activation_fn=activation_fn,
+            batch_norm_batch_size=batch_size,
+            tracing_enabled=tracing_enabled,
         )
     else:
         if len(dims) != 0:
             raise ValueError(
                 "Dims must not be provided when loading a model from a file."
             )
-        model = MultiLayerPerceptron.load(open(model_path, "rb"))
+        model = MultiLayerPerceptron.load(open(model_path, "rb"), training=True)
 
-    for regulariser in regularisers:
-        regulariser(model)
+    if dropout_keep_probs:
+        attach_dropout_layers(
+            model=model,
+            keep_probs=dropout_keep_probs,
+            training=True,
+        )
+    if regulariser_lambda > 0:
+        attach_l2_regulariser(
+            model=model,
+            lambda_=regulariser_lambda,
+            batch_size=batch_size,
+        )
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
@@ -235,11 +247,13 @@ def train(
         )
     training_parameters = TrainingParameters(
         batch_size=batch_size,
-        dropout_keep_prob=dropout_keep_prob,
+        dropout_keep_prob=dropout_keep_probs,
         learning_rate_limits=learning_rate_limits,
+        log_path=training_log_path,
+        no_monitoring=no_monitoring,
         regulariser_lambda=regulariser_lambda,
         num_epochs=num_epochs,
-        trace_logging=trace_logging,
+        trace_logging=tracing_enabled,
         train_set_size=train_set_size,
         warmup_epochs=warmup_epochs,
         workers=workers,
@@ -252,36 +266,38 @@ def train(
         logger.info(f"Saved output to {model_path}.")
 
     restarts = 0
-    if max_restarts > 0 and (
-        training_parameters.trace_logging or training_parameters.workers > 0
-    ):
-        raise ValueError(
-            "Cannot use trace logging or parallel training when using restarts."
+    if training_parameters.trace_logging or training_parameters.workers > 0:
+        max_restarts = (
+            0  # TODO: Support efficient restarts when multiple workers are used
         )
-    while restarts <= max_restarts:
+
+    # TODO: The control flow here is a bit messy.
+    start_epoch: int | None = 0
+    model_checkpoint_path: Path | None = None
+    trainer = (ParallelTrainer if training_parameters.workers > 0 else BasicTrainer)(
+        X_test=X_test,
+        X_train=X_train,
+        Y_test=Y_test,
+        Y_train=Y_train,
+        model=model,
+        optimizer=get_optimizer(optimizer_type, model, training_parameters),
+        start_epoch=start_epoch,
+        training_parameters=training_parameters,
+    )
+    while max_restarts is None or restarts <= max_restarts:
         try:
-            trainer = (
-                ParallelTrainer if training_parameters.workers > 0 else BasicTrainer
-            )(
-                model=model,
-                X_test=X_test,
-                X_train=X_train,
-                Y_test=Y_test,
-                Y_train=Y_train,
-                training_parameters=training_parameters,
-                optimizer=get_optimizer(optimizer_type, model, training_parameters),
-                training_log_path=training_log_path,
-            )
-            training_result = trainer.train()
+            if start_epoch is not None and start_epoch > 0:
+                if model_checkpoint_path is None:
+                    raise ValueError(
+                        "Cannot resume training. Model checkpoint path is not set."
+                    )
+                training_result = trainer.resume(start_epoch, model_checkpoint_path)
+            else:
+                training_result = trainer.train()
         except AbortTraining as e:
             logger.exception(e)
-            if (
-                e.training_progress is not None
-                and e.training_progress >= MINIMUM_PROGRESS_FOR_SAVING
-            ):
-                save_model(e.model_checkpoint_path)
-                break
-            model.reinitialise()
+            model_checkpoint_path = e.model_checkpoint_path
+            start_epoch = e.model_checkpoint_save_epoch
             restarts += 1
         else:
             save_model(training_result.model_checkpoint_path)

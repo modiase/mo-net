@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ContextManager, Final, TypeAlias, cast
+from typing import Any, ContextManager, Final, cast
 
 import numpy as np
 import pandas as pd
@@ -14,18 +14,20 @@ from tqdm import tqdm
 from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.base import ModelT
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.model.scheduler import CosineScheduler, WarmupScheduler
-from mnist_numpy.optimizer import OptimizerBase, OptimizerConfigT
-from mnist_numpy.optimizer.adam import AdamOptimizer
-from mnist_numpy.optimizer.base import NoOptimizer
+from mnist_numpy.optimizer import Base, OptimizerConfigT
+from mnist_numpy.optimizer.adam import AdaM
+from mnist_numpy.optimizer.base import Null
+from mnist_numpy.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.train.batcher import Batcher
 from mnist_numpy.train.context import (
     TrainingContext,
+    set_model_checkpoint_save_epoch,
     set_training_progress,
     training_context,
 )
 from mnist_numpy.train.monitor import Monitor
 from mnist_numpy.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
+from mnist_numpy.types import SupportsGradientOperations
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
@@ -37,13 +39,13 @@ class TrainingResult:
 
 def get_optimizer(
     optimizer_type: str,
-    model: ModelT,
+    model: MultiLayerPerceptron,
     training_parameters: TrainingParameters,
-) -> OptimizerBase[ModelT, Any]:
+) -> Base[Any]:
     if optimizer_type == "adam":
-        return AdamOptimizer(
+        return AdaM(
             model=model,
-            config=AdamOptimizer.Config(
+            config=AdaM.Config(
                 scheduler=WarmupScheduler.of(
                     training_parameters=training_parameters,
                     next_scheduler=CosineScheduler.of(
@@ -53,8 +55,9 @@ def get_optimizer(
             ),
         )
     elif optimizer_type == "no":
-        return NoOptimizer(
-            config=NoOptimizer.Config(
+        return Null(
+            model=model,
+            config=Null.Config(
                 learning_rate=training_parameters.learning_rate_limits[1]
             ),
         )
@@ -62,8 +65,9 @@ def get_optimizer(
         raise ValueError(f"Invalid optimizer: {optimizer_type}")
 
 
-AfterTrainingStepHandler: TypeAlias = Callable[
-    [MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient], None
+type AfterTrainingStepHandler = Callable[
+    [Sequence[SupportsGradientOperations], Sequence[SupportsGradientOperations]],
+    None,
 ]
 
 
@@ -71,19 +75,19 @@ class BasicTrainer:
     def __init__(
         self,
         *,
-        model: ModelT,
-        optimizer: OptimizerBase[ModelT, OptimizerConfigT],
+        model: MultiLayerPerceptron,
+        optimizer: Base[OptimizerConfigT],
         training_parameters: TrainingParameters,
-        training_log_path: Path,
+        start_epoch: int | None = None,
         X_train: np.ndarray,
         Y_train: np.ndarray,
         X_test: np.ndarray,
         Y_test: np.ndarray,
     ) -> None:
         self._model = model
+        self._start_epoch = start_epoch if start_epoch is not None else 0
         self._optimizer = optimizer
         self._training_parameters = training_parameters
-        self._training_log_path = training_log_path
         self._X_train = X_train
         self._Y_train = Y_train
         self._X_test = X_test
@@ -102,8 +106,24 @@ class BasicTrainer:
     def _create_training_loop_context(self) -> ContextManager[None]:
         return nullcontext()
 
+    def resume(
+        self,
+        start_epoch: int,
+        model_checkpoint_path: Path,
+    ) -> TrainingResult:
+        logger.info(f"Resuming training from epoch {start_epoch}.")
+
+        self._model = MultiLayerPerceptron.load(
+            open(model_checkpoint_path, "rb"), training=True
+        )
+        self._optimizer.set_iterations(
+            start_epoch * self._training_parameters.batches_per_epoch
+        )
+        # TODO: Implement resume
+        raise NotImplementedError()
+
     def train(self) -> TrainingResult:
-        if not self._training_log_path.exists():
+        if not self._training_parameters.log_path.exists():
             self._training_log = pd.DataFrame(
                 columns=[
                     "epoch",
@@ -115,22 +135,29 @@ class BasicTrainer:
                     "timestamp",
                 ]
             )
-            self._training_log.to_csv(self._training_log_path, index=False)
+            self._training_log.to_csv(self._training_parameters.log_path, index=False)
         else:
-            self._training_log = pd.read_csv(self._training_log_path)
+            self._training_log = pd.read_csv(self._training_parameters.log_path)
 
         logger.info(
             f"Training model {self._model.__class__.__name__}"
             f" for {self._training_parameters.num_epochs=} iterations"
             f" using optimizer {self._optimizer.__class__.__name__}."
         )
-
-        self._model_checkpoint_path = self._training_log_path.with_name(
-            self._training_log_path.name.replace("training_log.csv", "partial.pkl")
+        logger.info(
+            f"Model has dimensions: {self._model.dimensions} and parameter count: {self._model.parameter_count}."
         )
-        self._model_training_parameters_path = self._training_log_path.with_name(
-            self._training_log_path.name.replace(
-                "training_log.csv", "training_parameters.json"
+
+        self._model_checkpoint_path = self._training_parameters.log_path.with_name(
+            self._training_parameters.log_path.name.replace(
+                "training_log.csv", "partial.pkl"
+            )
+        )
+        self._model_training_parameters_path = (
+            self._training_parameters.log_path.with_name(
+                self._training_parameters.log_path.name.replace(
+                    "training_log.csv", "training_parameters.json"
+                )
             )
         )
         if not self._model_training_parameters_path.exists():
@@ -142,11 +169,9 @@ class BasicTrainer:
                 self._model_training_parameters_path.read_text()
             )
 
-        logger.info(
-            f"Training model..\nSaving partial results to: {self._model_checkpoint_path}."
-        )
-        logger.info(f"\n{self._training_parameters=}.")
-        logger.info(f"\n{self._training_log_path=}.")
+        logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
+        logger.info(f"Training parameters: {self._training_parameters}.")
+        logger.info(f"Training log path: {self._training_parameters.log_path}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
         self._L_train_min = self._model.compute_loss(
@@ -157,7 +182,7 @@ class BasicTrainer:
         if self._training_parameters.trace_logging:
             tracer = Tracer(
                 model=cast(MultiLayerPerceptron, self._model),  # TODO: Fix-types
-                training_log_path=self._training_log_path,
+                training_log_path=self._training_parameters.log_path,
                 tracer_config=TracerConfig(
                     trace_strategy=PerEpochTracerStrategy(
                         training_set_size=self._training_parameters.train_set_size,
@@ -165,22 +190,24 @@ class BasicTrainer:
                     ),
                 ),
             )
-            self.subscribe_to_after_training_step(tracer)
+            self.subscribe_to_after_training_step(tracer.post_batch)
 
-        self._monitor = Monitor(
-            X_train=self._X_train,
-            Y_train=self._Y_train,
-            history_max_len=self._training_parameters.history_max_len,
-            warmup_batches=self._training_parameters.warmup_epochs
-            * self._training_parameters.batches_per_epoch,
-        )
-        self.subscribe_to_after_training_step(self._monitor.post_batch)
+        if not self._training_parameters.no_monitoring:
+            self._monitor = Monitor(
+                X_train=self._X_train,
+                Y_train=self._Y_train,
+                batches_per_epoch=self._training_parameters.batches_per_epoch,
+                warmup_epochs=self._training_parameters.warmup_epochs,
+            )
+            self.subscribe_to_after_training_step(self._monitor.post_batch)
 
         self._before_training_loop()
 
         training_context.set(
             TrainingContext(
-                training_progress=0.0, model_checkpoint_path=self._model_checkpoint_path
+                training_progress=0.0,
+                model_checkpoint_path=self._model_checkpoint_path,
+                model_checkpoint_save_epoch=self._start_epoch,
             )
         )
         with self._create_training_loop_context():
@@ -201,66 +228,82 @@ class BasicTrainer:
         last_log_time = time.time()
         for i in tqdm(
             range(
+                (
+                    start_batch := self._start_epoch
+                    * self._training_parameters.batches_per_epoch
+                ),
                 self._training_parameters.total_batches,
             ),
-            total=self._training_parameters.total_batches,
+            initial=start_batch,
+            total=self._training_parameters.num_epochs
+            * self._training_parameters.batches_per_epoch,
+            unit=" epoch",
+            unit_scale=1 / self._training_parameters.batches_per_epoch,
+            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         ):
-            with set_training_progress(self._training_parameters.current_progress(i)):
-                gradient, update = self._training_step()
-                for handler in self._after_training_step:
-                    handler(gradient, update)
+            set_training_progress(self._training_parameters.current_progress(i))
+            gradient, update = self._training_step()
+            for handler in self._after_training_step:
+                handler(gradient, update)
 
-                if i % self._training_parameters.batches_per_epoch == 0:
-                    L_train = self._model.compute_loss(
-                        X=self._X_train, Y_true=self._Y_train
+            if i % self._training_parameters.batches_per_epoch == 0:
+                L_train = self._model.compute_loss(
+                    X=self._X_train, Y_true=self._Y_train
+                )
+                L_test = self._model.compute_loss(X=self._X_test, Y_true=self._Y_test)
+
+                self._L_train_min = min(self._L_train_min, L_train)
+                if L_test < self._L_test_min:
+                    self._model.dump(open(self._model_checkpoint_path, "wb"))
+                    set_model_checkpoint_save_epoch(
+                        self._training_parameters.current_epoch(i)
                     )
-                    L_test = self._model.compute_loss(
-                        X=self._X_test, Y_true=self._Y_test
-                    )
-
-                    self._L_train_min = min(self._L_train_min, L_train)
-                    if L_test < self._L_test_min:
-                        self._model.dump(open(self._model_checkpoint_path, "wb"))
-                        self._L_test_min = L_test
-                    self._monitor.post_epoch(L_test)
-
-                    pd.DataFrame(
+                    self._L_test_min = L_test
+                self._post_epoch(L_test)
+                pd.DataFrame(
+                    [
                         [
-                            [
-                                self._training_parameters.current_epoch(i),
-                                L_train,
-                                self._L_train_min,
-                                L_test,
-                                self._L_test_min,
-                                self._optimizer.learning_rate,
-                                datetime.now(),
-                            ]
-                        ],
-                        columns=self._training_log.columns,
-                    ).to_csv(
-                        self._training_log_path, mode="a", header=False, index=False
-                    )
+                            self._training_parameters.current_epoch(i),
+                            L_train,
+                            self._L_train_min,
+                            L_test,
+                            self._L_test_min,
+                            self._optimizer.learning_rate,
+                            datetime.now(),
+                        ]
+                    ],
+                    columns=self._training_log.columns,
+                ).to_csv(
+                    self._training_parameters.log_path,
+                    mode="a",
+                    header=False,
+                    index=False,
+                )
 
-                if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
-                    tqdm.write(
-                        f"Iteration {i}, Epoch {self._training_parameters.current_epoch(i)}, Training Loss = {L_train}, Test Loss = {L_test}"
-                        + (
-                            f", {report}"
-                            if (report := self._optimizer.report()) != ""
-                            else ""
-                        )
+            if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
+                tqdm.write(
+                    f"Epoch {self._training_parameters.current_epoch(i)}, Training Loss = {L_train}, Test Loss = {L_test}"
+                    + (
+                        f", {report}"
+                        if (report := self._optimizer.report()) != ""
+                        else ""
                     )
-                    last_log_time = time.time()
+                )
+                last_log_time = time.time()
 
     def _training_step(
         self,
-    ) -> tuple[MultiLayerPerceptron.Gradient, MultiLayerPerceptron.Gradient]:
+    ) -> tuple[
+        Sequence[SupportsGradientOperations],
+        Sequence[SupportsGradientOperations],
+    ]:
         X_train_batch, Y_train_batch = next(self._batcher)
-        gradient = self._optimizer.training_step(
-            model=self._model,
+        return self._optimizer.training_step(
             X_train_batch=X_train_batch,
             Y_train_batch=Y_train_batch,
+            return_gradients=True,
         )
-        update = self._optimizer.compute_update(gradient)
-        self._model.update_parameters(update)
-        return gradient, update
+
+    def _post_epoch(self, L_test: float) -> None:
+        if not self._training_parameters.no_monitoring:
+            self._monitor.post_epoch(L_test)

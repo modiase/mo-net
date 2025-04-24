@@ -2,7 +2,6 @@ import math
 from typing import Protocol, Self
 
 from mnist_numpy.config import TrainingParameters
-from mnist_numpy.model import MultiLayerPerceptron
 
 
 class Scheduler(Protocol):
@@ -10,7 +9,6 @@ class Scheduler(Protocol):
         self,
         current_iteration: int,
         current_learning_rate: float,
-        gradient: MultiLayerPerceptron.Gradient,
     ) -> float: ...
 
 
@@ -19,9 +17,8 @@ class NoopScheduler:
         self,
         current_iteration: object,
         current_learning_rate: float,
-        gradient: MultiLayerPerceptron.Gradient,
     ) -> float:
-        del current_iteration, gradient  # unused
+        del current_iteration  # unused
         return current_learning_rate
 
 
@@ -66,9 +63,8 @@ class DecayScheduler:
         self,
         current_iteration: int,
         current_learning_rate: float,
-        gradient: MultiLayerPerceptron.Gradient,
     ):
-        del current_iteration, gradient  # unused
+        del current_iteration  # unused
         return _apply_limits(
             current_learning_rate / self._learning_rate_rescale_factor_per_batch,
             self._learning_rate_limits,
@@ -114,9 +110,8 @@ class CosineScheduler:
         self,
         current_iteration: int,
         current_learning_rate: float,
-        gradient: MultiLayerPerceptron.Gradient,
     ) -> float:
-        del current_learning_rate, gradient  # unused
+        del current_learning_rate  # unused
         self._current_iteration = current_iteration
         if current_iteration % self._batches_per_epoch == 0:
             self._current_learning_rate = _apply_limits(
@@ -172,13 +167,10 @@ class WarmupScheduler:
         self,
         current_iteration: int,
         current_learning_rate: float,
-        gradient: MultiLayerPerceptron.Gradient,
     ) -> float:
         self._current_iteration = current_iteration
         if self._current_epoch > self._warmup_epochs:
-            return self._next_scheduler(
-                current_iteration, current_learning_rate, gradient
-            )
+            return self._next_scheduler(current_iteration, current_learning_rate)
         if current_iteration % self._batches_per_epoch == 0:
             self._current_learning_rate = (
                 self._end_learning_rate - self._start_learning_rate

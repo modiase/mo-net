@@ -1,31 +1,33 @@
-from collections.abc import MutableSequence
+from itertools import chain
 
 import numpy as np
 
-from mnist_numpy.model.layer import DenseParameters, NonInputLayer
+from mnist_numpy.model.layer.dense import Dense as DenseLayer
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import Activations, D, TrainingStepHandler, _ParamType
+from mnist_numpy.types import Activations, D, TrainingStepHandler, d
 
 
 class LayerL2Regulariser(TrainingStepHandler):
-    def __init__(self, *, lambda_: float, batch_size: int, layer: NonInputLayer):
+    def __init__(self, *, lambda_: float, batch_size: int, layer: DenseLayer):
         self._lambda = lambda_
         self._layer = layer
         self._batch_size = batch_size
 
-    def post_backward(
-        self, dP: D[_ParamType], dZ: D[Activations]
-    ) -> tuple[D[_ParamType], D[Activations]]:
-        # D is preventing the __init__ from being resolved by the type checker
-        return dP.__class__(  # type: ignore[call-arg] # TODO: Fix types
-            _W=dP._W + (self._lambda / self._batch_size) * self._layer.parameters._W,  # type: ignore[attr-defined]
-            _B=dP._B,  # type: ignore[attr-defined]
-        ), dZ
+    def post_backward(self, dZ: D[Activations]) -> D[Activations]:
+        if self._layer.cache["dP"] is None:
+            raise ValueError("dP was not set during forward pass.")
+        dP = self._layer.cache["dP"]
+        self._layer.cache["dP"] = d(
+            dP
+            + DenseLayer.Parameters(
+                _W=dP._W  # type: ignore[attr-defined]
+                + (self._lambda / self._batch_size) * self._layer.parameters._W,
+                _B=dP._B,  # type: ignore[attr-defined]
+            )
+        )
+        return dZ
 
     def compute_regularisation_loss(self) -> float:
-        if not isinstance(self._layer.parameters, DenseParameters):
-            # TODO: Regulariser should not need to know about the type of the layer
-            return 0
         return (
             0.5 * self._lambda * np.sum(self._layer.parameters._W**2) / self._batch_size
         )
@@ -34,20 +36,17 @@ class LayerL2Regulariser(TrainingStepHandler):
         return self.compute_regularisation_loss()
 
 
-class L2Regulariser:
-    def __init__(self, *, lambda_: float, batch_size: int):
-        self._lambda = lambda_
-        self._batch_size = batch_size
-        self._layer_regularisers: MutableSequence[LayerL2Regulariser] = []
-
-    def __call__(self, model: MultiLayerPerceptron) -> None:
-        for layer in model.non_input_layers:
-            if not isinstance(layer.parameters, DenseParameters):
-                # TODO: Regulariser should not need to know about the type of the layer
-                continue
-            layer_regulariser = LayerL2Regulariser(
-                lambda_=self._lambda, batch_size=self._batch_size, layer=layer
-            )
-            layer.register_training_step_handler(layer_regulariser)
-            self._layer_regularisers.append(layer_regulariser)
-            model.register_loss_contributor(layer_regulariser)
+def attach_l2_regulariser(
+    *,
+    lambda_: float,
+    batch_size: int,
+    model: MultiLayerPerceptron,
+) -> None:
+    for layer in chain.from_iterable(block.layers for block in model.blocks):
+        if not isinstance(layer, DenseLayer):
+            continue
+        layer_regulariser = LayerL2Regulariser(
+            lambda_=lambda_, batch_size=batch_size, layer=layer
+        )
+        layer.register_training_step_handler(layer_regulariser)
+        model.register_loss_contributor(layer_regulariser)

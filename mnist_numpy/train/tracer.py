@@ -2,14 +2,14 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from itertools import chain
 from pathlib import Path
 
 import h5py
 import numpy as np
 
-from mnist_numpy.model.layer import DenseLayer, DenseParameters
+from mnist_numpy.model.layer.dense import Dense, Parameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.types import RawGradientType, UpdateGradientType
 
 
 class TracerStrategy(ABC):
@@ -61,16 +61,12 @@ class Tracer:
         tracer_config: TracerConfig,
     ):
         self.model = model
-        self._dense_layers: Sequence[DenseLayer] = (
-            tuple(  # TODO: Consider reducing coupling.
-                chain(
-                    (
-                        layer
-                        for layer in model.hidden_layers
-                        if isinstance(layer, DenseLayer)
-                    ),
-                    (model.output_layer,),  # type: ignore[arg-type]
-                ),
+        self._dense_layers: Sequence[Dense] = (
+            tuple(  # TODO: Consider reducing coupling to dense layers.
+                layer
+                for block in model.blocks
+                for layer in block.layers
+                if isinstance(layer, Dense)
             )
         )
         self.trace_logging_path = training_log_path.with_name(
@@ -87,16 +83,23 @@ class Tracer:
             f.attrs["layer_count"] = len(self._dense_layers)
             f.attrs["iterations"] = 0
 
-    def __call__(
+    def post_batch(
         self,
-        gradient: MultiLayerPerceptron.Gradient,
-        update: MultiLayerPerceptron.Gradient,
+        raw_gradient: RawGradientType,
+        update: UpdateGradientType,
     ) -> None:
-        # TODO: The activations should be cached on the layer.
-        activations = self.model._As[1:]  # Ignore input layer activations.
         if not self._tracer_config.trace_strategy.should_trace(self._iterations):
             self._iterations += 1
             return
+
+        activations: Sequence[np.ndarray] = tuple(
+            layer_activations
+            for layer in self.model.grad_layers
+            if (
+                (layer_activations := layer.cache["output_activations"]) is not None
+                and isinstance(layer_activations, np.ndarray)
+            )
+        )
 
         with h5py.File(self.trace_logging_path, "a") as f:
             f.attrs["iterations"] = self._iterations
@@ -160,9 +163,9 @@ class Tracer:
 
             if self._tracer_config.trace_raw_gradients:
                 dense_layer_gradients = tuple(
-                    params
-                    for params in gradient.dParams
-                    if isinstance(params, DenseParameters)
+                    gradient
+                    for gradient in raw_gradient
+                    if isinstance(gradient, Parameters)
                 )
                 raw_gradient_group = iter_group.create_group("raw_gradients")
 
@@ -199,9 +202,7 @@ class Tracer:
 
             if self._tracer_config.trace_updates:
                 update_gradients = tuple(
-                    params
-                    for params in update.dParams
-                    if isinstance(params, DenseParameters)
+                    gradient for gradient in update if isinstance(gradient, Parameters)
                 )
                 update_group = iter_group.create_group("updates")
                 for i, update_gradient in enumerate(update_gradients):

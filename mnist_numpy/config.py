@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import BaseModel
 
 
@@ -5,12 +7,13 @@ class TrainingParameters(BaseModel):
     batch_size: int
     dropout_keep_prob: tuple[float, ...]
     learning_rate_limits: tuple[float, float]
-    regulariser_lambda: float
+    log_path: Path
+    no_monitoring: bool
     num_epochs: int
+    regulariser_lambda: float
     trace_logging: bool
     train_set_size: int
     warmup_epochs: int
-    history_max_len: int = 100
     workers: int = 0
 
     @property
