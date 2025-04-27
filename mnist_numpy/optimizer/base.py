@@ -67,8 +67,18 @@ class Base(ABC, Generic[ConfigT]):
     @abstractmethod
     def learning_rate(self) -> float: ...
 
-    def set_iterations(self, iterations: int) -> None:
-        self._iterations = iterations
+    def set_model(self, model: MultiLayerPerceptron) -> None:
+        self._model = model
+
+    def snapshot(self) -> None:
+        self._learning_rate_snapshot_iterations = self._iterations
+
+    def restore(self) -> None:
+        self._iterations = self._learning_rate_snapshot_iterations
+
+    @property
+    def config(self) -> ConfigT:
+        return self._config
 
 
 @dataclass(frozen=True, kw_only=True)

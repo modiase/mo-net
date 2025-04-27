@@ -10,7 +10,7 @@ from typing import Final, Self
 
 import numpy as np
 
-from mnist_numpy.types import EventLike, SupportsGradientOperations
+from mnist_numpy.types import EventLike, SupportsGradientOperations, UpdateGradientType
 
 DATA_BYTES_LEN_OFFSET: Final[int] = 4
 
@@ -137,9 +137,7 @@ class SharedBatcher:
     ) -> Sequence[SupportsGradientOperations]:
         result_count = 0
         aggregated: tuple[SupportsGradientOperations, ...] | None = None
-        while (
-            result_count < self.worker_count
-        ):  # TODO: This is unsafe - if a worker dies this will loop indefinitely.
+        while result_count < self.worker_count:
             with contextlib.suppress(Empty):
                 update = self.result_queue.get(timeout=1.0)
                 if aggregated is None:
@@ -163,9 +161,10 @@ class SharedBatcher:
         ] = data_bytes
         self.update_ready.set()
 
-    def worker_wait_for_update(self) -> tuple[SupportsGradientOperations, ...]:
+    def worker_wait_for_update(self) -> UpdateGradientType | None:
         """Wait for an update from the main process (called by worker)"""
-        self.update_ready.wait()  # type: ignore[attr-defined]
+        if not self.update_ready.wait(timeout=10):  # type: ignore[attr-defined]
+            return None
         data_bytes_len = int.from_bytes(
             self._update_shared_memory.buf[0:DATA_BYTES_LEN_OFFSET],
             byteorder="little",

@@ -110,7 +110,7 @@ class Cache(GradCache):
 type CacheType = Cache
 
 
-class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
+class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
     _EPSILON: ClassVar[float] = 1e-8
     Parameters = Parameters
     Cache = Cache
@@ -122,6 +122,8 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
         momentum: float
         batch_size: int
         parameters: Parameters
+        running_mean: np.ndarray
+        running_variance: np.ndarray
 
         def deserialize(
             self,
@@ -134,6 +136,8 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
                 momentum=self.momentum,
                 batch_size=self.batch_size,
                 parameters=self.parameters,
+                running_mean=self.running_mean,
+                running_variance=self.running_variance,
                 training=training,
             )
 
@@ -145,6 +149,8 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
         momentum: float = 0.9,
         output_dimensions: int,
         parameters: ParametersType | None = None,
+        running_mean: np.ndarray | None = None,
+        running_variance: np.ndarray | None = None,
         store_output_activations: bool = False,
         training: bool = True,
     ):
@@ -153,10 +159,16 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
             output_dimensions=output_dimensions,
         )
         self._momentum = momentum
-        self._running_mean = np.zeros(input_dimensions)
-        self._running_variance = np.ones(input_dimensions)
+        self._running_mean = (
+            running_mean if running_mean is not None else np.zeros(input_dimensions)
+        )
+        self._running_variance = (
+            running_variance
+            if running_variance is not None
+            else np.ones(input_dimensions)
+        )
         self._training = training
-        self._cache: GradCache = {
+        self._cache: CacheType = {
             "dP": None,
             "input_activations": None,
             "mean": None,
@@ -182,14 +194,9 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
                 + (1 - self._momentum) * batch_variance
             )
 
-        normalised_activations = (input_activations - batch_mean) / np.sqrt(
-            batch_variance + self._EPSILON
-        )
-
-        if self._store_output_activations or self._training:
-            self._cache["output_activations"] = normalised_activations
-
-        if self._training:
+            normalised_activations = (input_activations - batch_mean) / np.sqrt(
+                batch_variance + self._EPSILON
+            )
             self._cache.update(
                 {
                     "input_activations": input_activations,
@@ -197,6 +204,13 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
                     "var": batch_variance,
                 }
             )
+        else:
+            normalised_activations = (input_activations - self._running_mean) / np.sqrt(
+                self._running_variance + self._EPSILON
+            )
+
+        if self._store_output_activations or self._training:
+            self._cache["output_activations"] = normalised_activations
 
         return self._parameters._gamma * normalised_activations + self._parameters._beta
 
@@ -272,7 +286,7 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
         f(self)
 
     @property
-    def cache(self) -> GradCache:
+    def cache(self) -> CacheType:
         return self._cache
 
     @property
@@ -286,6 +300,8 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, GradCache]):
             momentum=self._momentum,
             batch_size=self._batch_size,
             parameters=self._parameters,
+            running_mean=self._running_mean,
+            running_variance=self._running_variance,
         )
 
     @property

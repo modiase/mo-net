@@ -56,12 +56,14 @@ class Monitor:
         self,
         *,
         batches_per_epoch: int,
+        history_max_len: int,
         warmup_epochs: int,
         X_train: np.ndarray,
         Y_train: np.ndarray,
     ):
-        self._L_history_max_len = warmup_epochs
+        self._L_history_max_len = history_max_len
         self._L_history: deque[float] = deque(maxlen=self._L_history_max_len)
+        self._L_history_snapshot: Sequence[float] = ()
         self._X_train = X_train
         self._Y_train = Y_train
         self._running_update_count = 0
@@ -69,6 +71,16 @@ class Monitor:
             WeightGradientRunningAverages.none()
         )
         self._warmup_batches = warmup_epochs * batches_per_epoch
+
+    def reset(self, restore_history: bool = False) -> None:
+        if restore_history:
+            self._L_history = deque(
+                self._L_history_snapshot, maxlen=self._L_history_max_len
+            )
+        else:
+            self._L_history.clear()
+        self._running_update_count = 0
+        self._running_weights = WeightGradientRunningAverages.none()
 
     def post_batch(
         self,
@@ -116,3 +128,6 @@ class Monitor:
             return
         if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
             raise AbortTraining("Model is not learning.")
+
+    def snapshot(self) -> None:
+        self._L_history_snapshot = self._L_history.copy()

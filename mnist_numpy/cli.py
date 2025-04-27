@@ -1,3 +1,4 @@
+import atexit
 import functools
 import os
 import re
@@ -40,7 +41,6 @@ from mnist_numpy.types import ActivationFn
 P = ParamSpec("P")
 R = TypeVar("R")
 
-DEFAULT_BATCH_SIZE: Final[int] = 100
 DEFAULT_DIMS: Final[tuple[int, ...]] = (10, 10)
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
@@ -61,7 +61,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--batch-size",
         type=int,
         help="Set the batch size",
-        default=DEFAULT_BATCH_SIZE,
+        default=None,
     )
     @click.option(
         "-d",
@@ -83,6 +83,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=click.Choice(["adam", "adalm", "no"]),
         help="The type of optimizer to use",
         default="adam",
+    )
+    @click.option(
+        "--monotonic",
+        type=bool,
+        is_flag=True,
+        help="Use monotonic training",
+        default=False,
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -176,6 +183,13 @@ def cli(): ...
     help="Disable monitoring",
     default=False,
 )
+@click.option(
+    "-y",
+    "--history-max-len",
+    type=int,
+    help="Set the maximum length of the history",
+    default=100,
+)
 def train(
     *,
     activation_fn: ActivationFn,
@@ -183,9 +197,11 @@ def train(
     data_path: Path,
     dims: Sequence[int],
     dropout_keep_probs: tuple[float, ...],
+    history_max_len: int,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
     max_restarts: int | None,
+    monotonic: bool,
     no_monitoring: bool,
     num_epochs: int,
     optimizer_type: str,
@@ -248,8 +264,10 @@ def train(
     training_parameters = TrainingParameters(
         batch_size=batch_size,
         dropout_keep_prob=dropout_keep_probs,
+        history_max_len=history_max_len,
         learning_rate_limits=learning_rate_limits,
         log_path=training_log_path,
+        monotonic=monotonic,
         no_monitoring=no_monitoring,
         regulariser_lambda=regulariser_lambda,
         num_epochs=num_epochs,
@@ -266,13 +284,11 @@ def train(
         logger.info(f"Saved output to {model_path}.")
 
     restarts = 0
-    if training_parameters.trace_logging or training_parameters.workers > 0:
-        max_restarts = (
-            0  # TODO: Support efficient restarts when multiple workers are used
-        )
+    if training_parameters.trace_logging:
+        max_restarts = 0
 
     # TODO: The control flow here is a bit messy.
-    start_epoch: int | None = 0
+    start_epoch: int = 0
     model_checkpoint_path: Path | None = None
     trainer = (ParallelTrainer if training_parameters.workers > 0 else BasicTrainer)(
         X_test=X_test,
@@ -283,10 +299,12 @@ def train(
         optimizer=get_optimizer(optimizer_type, model, training_parameters),
         start_epoch=start_epoch,
         training_parameters=training_parameters,
+        disable_shutdown=training_parameters.workers != 0,
     )
+    atexit.register(trainer.shutdown)
     while max_restarts is None or restarts <= max_restarts:
         try:
-            if start_epoch is not None and start_epoch > 0:
+            if restarts > 0:
                 if model_checkpoint_path is None:
                     raise ValueError(
                         "Cannot resume training. Model checkpoint path is not set."
@@ -297,7 +315,8 @@ def train(
         except AbortTraining as e:
             logger.exception(e)
             model_checkpoint_path = e.model_checkpoint_path
-            start_epoch = e.model_checkpoint_save_epoch
+            if e.model_checkpoint_save_epoch is not None:
+                start_epoch = e.model_checkpoint_save_epoch
             restarts += 1
         else:
             save_model(training_result.model_checkpoint_path)

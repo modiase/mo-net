@@ -1,6 +1,9 @@
+from collections.abc import Sequence
 import warnings
 from dataclasses import dataclass, field
 from typing import Final
+
+import numpy as np
 
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer.base import Base
@@ -47,6 +50,9 @@ class AdaM(Base[Config]):
             layer.cache["first_moment"] = layer.empty_gradient()
             layer.cache["second_moment"] = layer.empty_gradient()
 
+        self._snapshot_first_moment: Sequence[np.ndarray] | None = None
+        self._snapshot_second_moment: Sequence[np.ndarray] | None = None
+
     def gradient_operation(self, layer: GradLayer) -> None:
         cache = layer.cache
         cache["first_moment"] = (
@@ -83,3 +89,24 @@ class AdaM(Base[Config]):
 
     def report(self) -> str:
         return f"Learning Rate: {self._current_learning_rate:.10f}"
+
+    def snapshot(self) -> None:
+        super().snapshot()
+        self._snapshot_first_moment = tuple(
+            layer.cache["first_moment"] for layer in self._model.grad_layers
+        )
+        self._snapshot_second_moment = tuple(
+            layer.cache["second_moment"] for layer in self._model.grad_layers
+        )
+
+    def restore(self) -> None:
+        super().restore()
+        if self._snapshot_first_moment is None or self._snapshot_second_moment is None:
+            raise RuntimeError("No snapshot to restore from.")
+        for layer, snapshot_first_moment, snapshot_second_moment in zip(
+            self._model.grad_layers,
+            self._snapshot_first_moment,
+            self._snapshot_second_moment,
+        ):
+            layer.cache["first_moment"] = snapshot_first_moment
+            layer.cache["second_moment"] = snapshot_second_moment

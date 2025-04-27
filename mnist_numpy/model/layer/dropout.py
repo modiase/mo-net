@@ -51,10 +51,9 @@ class DropoutLayer(_Hidden):
         }
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        self._cache["input_activations"] = input_activations
-
         if self._keep_prob == 1.0 or not self._training:
             return input_activations
+        self._cache["input_activations"] = input_activations
 
         mask = np.random.binomial(1, self._keep_prob, size=input_activations.shape)
         self._cache["mask"] = mask
