@@ -1,110 +1,49 @@
 import random as rn
 from itertools import product
 from math import pi
+from typing import Final
 
 import numpy as np
 import pandas as pd
 
+from mnist_numpy.augment import rotate, shear, translate
 from mnist_numpy.data import DEFAULT_DATA_PATH, load_data
 
-
-def rotate(a: np.ndarray, theta: float):
-    y, x = np.mgrid[0:28, 0:28]
-
-    x_centered = x - 14
-    y_centered = y - 14
-
-    x_source = x_centered * np.cos(-theta) - y_centered * np.sin(-theta) + 14
-    y_source = x_centered * np.sin(-theta) + y_centered * np.cos(-theta) + 14
-
-    x_source_int = np.round(x_source).astype(int)
-    y_source_int = np.round(y_source).astype(int)
-
-    valid_indices = (
-        (x_source_int >= 0)
-        & (x_source_int < 28)
-        & (y_source_int >= 0)
-        & (y_source_int < 28)
-    )
-
-    output = np.zeros((28, 28))
-
-    output[y[valid_indices], x[valid_indices]] = a[
-        y_source_int[valid_indices], x_source_int[valid_indices]
-    ]
-
-    return output
-
-
-def shear(a: np.ndarray, x_shear: float, y_shear: float):
-    y, x = np.mgrid[0:28, 0:28]
-
-    x_centered = x - 14
-    y_centered = y - 14
-
-    x_source = x_centered + y_centered * x_shear + 14
-    y_source = x_centered * y_shear + y_centered + 14
-
-    x_source_int = np.round(x_source).astype(int)
-    y_source_int = np.round(y_source).astype(int)
-
-    valid_indices = (
-        (x_source_int >= 0)
-        & (x_source_int < 28)
-        & (y_source_int >= 0)
-        & (y_source_int < 28)
-    )
-
-    output = np.zeros((28, 28))
-
-    output[y[valid_indices], x[valid_indices]] = a[
-        y_source_int[valid_indices], x_source_int[valid_indices]
-    ]
-
-    return output
-
-
-def translate(a: np.ndarray, x_trans: float, y_trans: float):
-    y, x = np.mgrid[0:28, 0:28]
-
-    x_source = x + x_trans
-    y_source = y + y_trans
-
-    x_source_int = np.round(x_source).astype(int)
-    y_source_int = np.round(y_source).astype(int)
-
-    valid_indices = (
-        (x_source_int >= 0)
-        & (x_source_int < 28)
-        & (y_source_int >= 0)
-        & (y_source_int < 28)
-    )
-
-    output = np.zeros((28, 28))
-
-    output[y[valid_indices], x[valid_indices]] = a[
-        y_source_int[valid_indices], x_source_int[valid_indices]
-    ]
-
-    return output
-
+MNIST_Y_SIZE: Final[int] = 28
+MNIST_X_SIZE: Final[int] = 28
+MNIST_SIZE: Final[int] = MNIST_Y_SIZE * MNIST_X_SIZE
 
 if __name__ == "__main__":
     X_train, Y_train, _, _ = load_data(DEFAULT_DATA_PATH)
-    columns = ["label", *(f"{x}x{y}" for x, y in product(range(1, 29), range(1, 29)))]
+    columns = [
+        "label",
+        *(
+            f"{x}x{y}"
+            for x, y in product(range(1, MNIST_X_SIZE + 1), range(1, MNIST_Y_SIZE + 1))
+        ),
+    ]
     data = []
     for i in range(100000):
         idx = rn.randint(0, 7999)
         digit = translate(
             shear(
-                rotate(X_train[idx].reshape(28, 28), rn.random() * pi / 2 - pi / 4),
-                rn.random() / 2,
-                rn.random() / 2,
+                rotate(
+                    a=X_train[idx].reshape(MNIST_Y_SIZE, MNIST_X_SIZE),
+                    theta=rn.random() * pi / 2 - pi / 4,
+                    x_size=MNIST_X_SIZE,
+                    y_size=MNIST_Y_SIZE,
+                ),
+                x_shear=rn.random() / 2,
+                y_shear=rn.random() / 2,
+                x_size=MNIST_X_SIZE,
+                y_size=MNIST_Y_SIZE,
             ),
-            rn.randint(-3, 3),
-            rn.randint(-3, 3),
+            x_offset=rn.randint(-3, 3),
+            y_offset=rn.randint(-3, 3),
+            x_size=MNIST_X_SIZE,
+            y_size=MNIST_Y_SIZE,
         )
         label = np.argmax(Y_train[idx])
-        data.append([label, *digit.reshape(784)])
+        data.append([label, *digit.reshape(MNIST_SIZE)])
     df = pd.DataFrame(data=data, columns=columns)
     df.to_csv("mnist_hard.csv", index=False)

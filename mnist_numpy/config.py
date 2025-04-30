@@ -12,6 +12,7 @@ class TrainingParameters(BaseModel):
     log_path: Path
     monotonic: bool
     no_monitoring: bool
+    no_transform: bool
     num_epochs: int
     regulariser_lambda: float
     trace_logging: bool

@@ -184,6 +184,13 @@ def cli(): ...
     default=False,
 )
 @click.option(
+    "--no-transform",
+    type=bool,
+    is_flag=True,
+    help="Disable transform",
+    default=False,
+)
+@click.option(
     "-y",
     "--history-max-len",
     type=int,
@@ -203,6 +210,7 @@ def train(
     max_restarts: int | None,
     monotonic: bool,
     no_monitoring: bool,
+    no_transform: bool,
     num_epochs: int,
     optimizer_type: str,
     regulariser_lambda: float,
@@ -270,6 +278,7 @@ def train(
         monotonic=monotonic,
         no_monitoring=no_monitoring,
         regulariser_lambda=regulariser_lambda,
+        no_transform=no_transform,
         num_epochs=num_epochs,
         trace_logging=tracing_enabled,
         train_set_size=train_set_size,

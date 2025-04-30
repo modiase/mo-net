@@ -3,7 +3,7 @@ import multiprocessing as mp
 import operator
 import pickle
 import zlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from multiprocessing.shared_memory import SharedMemory
 from queue import Empty
 from typing import Final, Self
@@ -16,11 +16,19 @@ DATA_BYTES_LEN_OFFSET: Final[int] = 4
 
 
 class Batcher:
-    def __init__(self, *, X: np.ndarray, Y: np.ndarray, batch_size: int):
+    def __init__(
+        self,
+        *,
+        X: np.ndarray,
+        Y: np.ndarray,
+        batch_size: int,
+        transform: Callable[[np.ndarray], np.ndarray] | None = None,
+    ):
         self.X = X
         self.Y = Y
         self.batch_size = batch_size
         self.train_set_size = X.shape[0]
+        self._transform = transform
         self._shuffle()
         self._internal_iterator = zip(
             iter(np.array_split(self.X, self.train_set_size / self.batch_size)),
@@ -37,7 +45,10 @@ class Batcher:
 
     def __next__(self) -> tuple[np.ndarray, np.ndarray]:
         try:
-            return next(self._internal_iterator)
+            X, Y = next(self._internal_iterator)
+            if self._transform is not None:
+                X = self._transform(X)
+            return X, Y
         except StopIteration:
             self._shuffle()
             self._internal_iterator = zip(

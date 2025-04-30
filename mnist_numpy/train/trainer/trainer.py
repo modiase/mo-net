@@ -11,6 +11,7 @@ import pandas as pd
 from loguru import logger
 from tqdm import tqdm
 
+from mnist_numpy.augment import rotate, shear, translate
 from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer import Base, OptimizerConfigT
@@ -248,10 +249,33 @@ class BasicTrainer:
         )
 
     def _before_training_loop(self) -> None:
+        x_size = y_size = int(
+            np.sqrt(self._X_train.shape[1])
+        )  # TODO: Fix: handle non-square images
         self._batcher = Batcher(
             X=self._X_train,
             Y=self._Y_train,
             batch_size=self._training_parameters.batch_size,
+            transform=None
+            if self._training_parameters.no_transform
+            else lambda X: translate(
+                shear(
+                    rotate(
+                        a=X,
+                        theta=np.random.random() * np.pi / 2 - np.pi / 4,
+                        x_size=x_size,
+                        y_size=y_size,
+                    ),
+                    x_shear=np.random.random() / 10,
+                    y_shear=np.random.random() / 10,
+                    x_size=x_size,
+                    y_size=y_size,
+                ),
+                x_offset=np.random.randint(x_size // 10, x_size // 2),
+                y_offset=np.random.randint(y_size // 10, y_size // 2),
+                x_size=x_size,
+                y_size=y_size,
+            ),
         )
 
     def _training_loop(self) -> None:
