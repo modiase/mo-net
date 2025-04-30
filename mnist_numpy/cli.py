@@ -287,7 +287,8 @@ def train(
     if training_parameters.trace_logging:
         max_restarts = 0
 
-    # TODO: The control flow here is a bit messy.
+    # TODO: The control flow here is a bit messy.  Remove AbortTraining and use
+    # a return value instead. Augment TrainingResult to support resuming.
     start_epoch: int = 0
     model_checkpoint_path: Path | None = None
     trainer = (ParallelTrainer if training_parameters.workers > 0 else BasicTrainer)(
