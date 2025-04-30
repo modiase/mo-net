@@ -129,5 +129,6 @@ class Monitor:
         if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
             raise AbortTraining("Model is not learning.")
 
-    def snapshot(self) -> None:
-        self._L_history_snapshot = self._L_history.copy()
+    def clear_history(self) -> None:
+        self._L_history.clear()
+        self._L_history_snapshot = ()

@@ -287,7 +287,7 @@ class BasicTrainer:
                 if L_test < self._L_test_min:
                     self._model.dump(open(self._model_checkpoint_path, "wb"))
                     if self._monitor is not None:
-                        self._monitor.snapshot()
+                        self._monitor.clear_history()
                     self._optimizer.snapshot()
                     set_model_checkpoint_save_epoch(
                         self._training_parameters.current_epoch(i)
