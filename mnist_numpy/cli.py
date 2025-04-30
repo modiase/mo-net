@@ -41,7 +41,7 @@ from mnist_numpy.types import ActivationFn
 P = ParamSpec("P")
 R = TypeVar("R")
 
-DEFAULT_DIMS: Final[tuple[int, ...]] = (10, 10)
+DEFAULT_DIMS: Final[Sequence[int]] = (10, 10)
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
 MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
@@ -196,7 +196,7 @@ def train(
     batch_size: int | None,
     data_path: Path,
     dims: Sequence[int],
-    dropout_keep_probs: tuple[float, ...],
+    dropout_keep_probs: Sequence[float],
     history_max_len: int,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
