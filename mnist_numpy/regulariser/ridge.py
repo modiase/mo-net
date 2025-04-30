@@ -21,7 +21,7 @@ class LayerL2Regulariser(TrainingStepHandler):
             dP
             + DenseLayer.Parameters(
                 _W=dP._W  # type: ignore[attr-defined]
-                + (self._lambda / self._batch_size) * self._layer.parameters._W,
+                + self._lambda * self._layer.parameters._W,
                 _B=dP._B,  # type: ignore[attr-defined]
             )
         )
