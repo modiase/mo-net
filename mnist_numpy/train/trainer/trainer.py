@@ -86,6 +86,7 @@ class BasicTrainer:
     ) -> None:
         self._disable_shutdown = disable_shutdown
         self._model = model
+        self._monitor: Monitor | None = None
         self._start_epoch = start_epoch if start_epoch is not None else 0
         self._optimizer = optimizer
         self._training_parameters = training_parameters
@@ -139,7 +140,8 @@ class BasicTrainer:
         self._model = MultiLayerPerceptron.load(
             open(model_checkpoint_path, "rb"), training=True
         )
-        self._monitor.reset(restore_history=True)
+        if self._monitor is not None:
+            self._monitor.reset(restore_history=True)
         self._optimizer.set_model(self._model)
         self._optimizer.restore()
         with self._create_training_loop_context():
@@ -284,7 +286,8 @@ class BasicTrainer:
                 self._L_train_min = min(self._L_train_min, L_train)
                 if L_test < self._L_test_min:
                     self._model.dump(open(self._model_checkpoint_path, "wb"))
-                    self._monitor.snapshot()
+                    if self._monitor is not None:
+                        self._monitor.snapshot()
                     self._optimizer.snapshot()
                     set_model_checkpoint_save_epoch(
                         self._training_parameters.current_epoch(i)
