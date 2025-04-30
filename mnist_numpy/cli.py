@@ -263,7 +263,7 @@ def train(
         )
     training_parameters = TrainingParameters(
         batch_size=batch_size,
-        dropout_keep_prob=dropout_keep_probs,
+        dropout_keep_probs=tuple(dropout_keep_probs),
         history_max_len=history_max_len,
         learning_rate_limits=learning_rate_limits,
         log_path=training_log_path,

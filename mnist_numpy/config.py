@@ -6,7 +6,7 @@ from pydantic import BaseModel, model_validator
 
 class TrainingParameters(BaseModel):
     batch_size: int
-    dropout_keep_prob: tuple[float, ...]
+    dropout_keep_probs: tuple[float, ...]
     history_max_len: int
     learning_rate_limits: tuple[float, float]
     log_path: Path

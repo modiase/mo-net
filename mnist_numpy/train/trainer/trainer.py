@@ -342,7 +342,7 @@ class BasicTrainer:
         return gradient, update
 
     def _post_epoch(self, L_test: float) -> None:
-        if not self._training_parameters.no_monitoring:
+        if not self._training_parameters.no_monitoring and self._monitor is not None:
             self._monitor.post_epoch(L_test)
 
     def shutdown(self) -> None:

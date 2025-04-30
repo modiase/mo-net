@@ -120,7 +120,8 @@ class ParallelTrainer(BasicTrainer):
         )
         self._optimizer.set_model(self._model)
         self._optimizer.restore()
-        self._monitor.reset(restore_history=True)
+        if self._monitor is not None:
+            self._monitor.reset(restore_history=True)
         for event in self._batch_ready_events:
             event.clear()
         for event in self._worker_ready_events:
