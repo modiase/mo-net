@@ -27,6 +27,8 @@ type ConfigType = Config
 
 
 class AdaM(Base[Config]):
+    """https://arxiv.org/abs/1412.6980"""
+
     Config = Config
 
     def __init__(

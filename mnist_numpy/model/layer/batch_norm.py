@@ -111,6 +111,8 @@ type CacheType = Cache
 
 
 class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
+    """https://arxiv.org/abs/1502.03167"""
+
     _EPSILON: ClassVar[float] = 1e-8
     Parameters = Parameters
     Cache = Cache
