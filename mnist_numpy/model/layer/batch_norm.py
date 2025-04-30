@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Self, TypedDict
+from typing import ClassVar, Self
 
 import numpy as np
 
@@ -30,38 +30,52 @@ class Parameters(SupportsGradientOperations):
     ) -> tuple[np.ndarray, np.ndarray]:
         return self._gamma[index], self._beta[index]
 
-    def __pow__(self, other: float) -> Self:
-        return self.__class__(
-            _gamma=self._gamma**other,
-            _beta=self._beta**other,
-        )
+    def __pow__(self, other: float | int) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    _gamma=self._gamma**other,
+                    _beta=self._beta**other,
+                )
+            case _:
+                return NotImplemented
 
-    def __truediv__(self, other: Self | float) -> Self:
-        if isinstance(other, float):
-            return self.__class__(
-                _gamma=self._gamma / other,
-                _beta=self._beta / other,
-            )
-        if isinstance(other, self.__class__):
-            return self.__class__(
-                _gamma=self._gamma / other._gamma,
-                _beta=self._beta / other._beta,
-            )
-        return NotImplemented
+    def __truediv__(self, other: Self | float | int) -> Self:
+        match other:
+            case float() | int():
+                return self.__mul__(1 / other)
+            case self.__class__():
+                return self.__class__(
+                    _gamma=self._gamma / other._gamma,
+                    _beta=self._beta / other._beta,
+                )
+            case _:
+                return NotImplemented
 
-    def __add__(self, other: Self | float) -> Self:
-        if isinstance(other, float):
-            return self.__class__(
-                _gamma=self._gamma + other,
-                _beta=self._beta + other,
-            )
-        return self.__class__(
-            _gamma=self._gamma + other._gamma,
-            _beta=self._beta + other._beta,
-        )
+    def __add__(self, other: Self | float | int) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    _gamma=self._gamma + other,
+                    _beta=self._beta + other,
+                )
+            case self.__class__():
+                return self.__class__(
+                    _gamma=self._gamma + other._gamma,
+                    _beta=self._beta + other._beta,
+                )
+            case _:
+                return NotImplemented
 
-    def __radd__(self, other: Self | float) -> Self:
-        return self.__add__(other)
+    def __radd__(self, other: Self | float | int) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    _gamma=other + self._gamma,
+                    _beta=other + self._beta,
+                )
+            case _:
+                return NotImplemented
 
     def __neg__(self) -> Self:
         return self.__class__(
@@ -70,21 +84,29 @@ class Parameters(SupportsGradientOperations):
         )
 
     def __sub__(self, other: Self | float) -> Self:
-        if isinstance(other, float):
-            return self.__class__(
-                _gamma=self._gamma - other,
-                _beta=self._beta - other,
-            )
-        return self.__class__(
-            _gamma=self._gamma - other._gamma,
-            _beta=self._beta - other._beta,
-        )
+        match other:
+            case float() | int():
+                return self.__class__(
+                    _gamma=self._gamma - other,
+                    _beta=self._beta - other,
+                )
+            case self.__class__():
+                return self.__class__(
+                    _gamma=self._gamma - other._gamma,
+                    _beta=self._beta - other._beta,
+                )
+            case _:
+                return NotImplemented
 
     def __mul__(self, other: float) -> Self:
-        return self.__class__(
-            _gamma=self._gamma * other,
-            _beta=self._beta * other,
-        )
+        match other:
+            case float() | int():
+                return self.__class__(
+                    _gamma=self._gamma * other,
+                    _beta=self._beta * other,
+                )
+            case _:
+                return NotImplemented
 
     def __rmul__(self, other: float) -> Self:
         return self.__mul__(other)

@@ -29,50 +29,50 @@ class Parameters(SupportsGradientOperations):
     ) -> tuple[np.ndarray, np.ndarray]:
         return self._W[index], self._B[index]
 
-    def __add__(self, other: Self | float) -> Self:
+    def __add__(self, other: Self | float | int) -> Self:
         match other:
             case self.__class__():
                 return self.__class__(_W=self._W + other._W, _B=self._B + other._B)
-            case float():
+            case float() | int():
                 return self.__class__(_W=self._W + other, _B=self._B + other)
             case _:
                 return NotImplemented
 
-    def __radd__(self, other: Self | float) -> Self:
+    def __radd__(self, other: Self | float | int) -> Self:
         return self.__add__(other)
 
     def __neg__(self) -> Self:
         return self.__class__(_W=-self._W, _B=-self._B)
 
-    def __sub__(self, other: Self | float) -> Self:
+    def __sub__(self, other: Self | float | int) -> Self:
         return self.__add__(-other)
 
-    def __rsub__(self, other: Self | float) -> Self:
+    def __rsub__(self, other: Self | float | int) -> Self:
         return self.__sub__(other)
 
-    def __mul__(self, other: float) -> Self:
-        if not isinstance(other, float):
-            return NotImplemented
-        return self.__class__(_W=other * self._W, _B=other * self._B)
+    def __mul__(self, other: float | int) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(_W=other * self._W, _B=other * self._B)
+            case _:
+                return NotImplemented
 
-    def __rmul__(self, other: float) -> Self:
-        if not isinstance(other, float):
-            return NotImplemented
+    def __rmul__(self, other: float | int) -> Self:
         return self.__mul__(other)
 
-    def __truediv__(self, other: Self | float) -> Self:
+    def __truediv__(self, other: Self | float | int) -> Self:
         match other:
             case self.__class__():
                 return self.__class__(
                     _W=self._W / other._W,
                     _B=self._B / other._B,
                 )
-            case float():
+            case float() | int():
                 return self.__mul__(1 / other)
             case _:
                 return NotImplemented
 
-    def __pow__(self, scalar: float) -> Self:
+    def __pow__(self, scalar: float | int) -> Self:
         return self.__class__(_W=self._W**scalar, _B=self._B**scalar)
 
     @classmethod
