@@ -268,16 +268,17 @@ class ParallelTrainer(BasicTrainer):
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],
     ]:
-        self._prepare_batches()
-        self._ready_all_workers()
-        gradient = self._shared_batcher.leader_get_aggregated_results()
-        self._model.populate_caches(gradient)
-        self._optimizer.compute_update()
-        self._shared_batcher.leader_send_update(
-            update := self._model.get_gradient_caches()
-        )
-        self._model.update_parameters()
-        return gradient, update
+        with self._create_training_step_context():
+            self._prepare_batches()
+            self._ready_all_workers()
+            gradient = self._shared_batcher.leader_get_aggregated_results()
+            self._model.populate_caches(gradient)
+            self._optimizer.compute_update()
+            self._shared_batcher.leader_send_update(
+                update := self._model.get_gradient_caches()
+            )
+            self._model.update_parameters()
+            return gradient, update
 
     def shutdown(self) -> None:
         for p in self._processes:

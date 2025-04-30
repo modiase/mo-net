@@ -7,7 +7,7 @@ import numpy as np
 
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer.base import Base
-from mnist_numpy.optimizer.scheduler import NoopScheduler, Scheduler
+from mnist_numpy.optimizer.scheduler import ConstantScheduler, Scheduler
 from mnist_numpy.types import GradLayer
 
 DEFAULT_BETA_1: Final[float] = 0.9
@@ -20,8 +20,7 @@ class Config:
     beta_1: float = DEFAULT_BETA_1
     beta_2: float = DEFAULT_BETA_2
     epsilon: float = DEFAULT_EPSILON
-    scheduler: Scheduler = field(default_factory=NoopScheduler)
-    start_learning_rate: float = 0.0
+    scheduler: Scheduler
 
 
 type ConfigType = Config
@@ -38,13 +37,8 @@ class AdaM(Base[Config]):
     ):
         super().__init__(config=config, model=model)
 
-        self._current_learning_rate: float = config.start_learning_rate
         self._scheduler = config.scheduler
-        if (
-            isinstance(self._scheduler, NoopScheduler)
-            and self._current_learning_rate == 0.0
-        ):
-            warnings.warn("NoopScheduler is used, but start_learning_rate is 0.0. ")
+        self._current_learning_rate = self._scheduler(0)
 
         for layer in self._model.grad_layers:
             layer.cache["first_moment"] = layer.empty_gradient()
@@ -70,9 +64,7 @@ class AdaM(Base[Config]):
 
     def compute_update(self) -> None:
         self._iterations += 1
-        self._current_learning_rate = self._scheduler(
-            self._iterations, self._current_learning_rate
-        )
+        self._current_learning_rate = self._scheduler(self._iterations)
         for layer in self._model.grad_layers:
             self.gradient_operation(layer)
 

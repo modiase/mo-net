@@ -19,6 +19,7 @@ from mnist_numpy.model.layer.output import (
 )
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
+from mnist_numpy.optimizer.scheduler import ConstantScheduler
 
 
 def test_init():
@@ -297,7 +298,12 @@ def m3() -> MultiLayerPerceptron:
 def test_backward_prop_update_deeper(m3: MultiLayerPerceptron, delta: float):
     X = np.array([[1, 1], [1, 1]])
     Y_true = np.array([[-1, -1], [-1, -1]])
-    optimizer = AdaM(model=m3, config=AdaM.Config(start_learning_rate=0.1))
+    optimizer = AdaM(
+        model=m3,
+        config=AdaM.Config(
+            scheduler=ConstantScheduler(learning_rate=0.1),
+        ),
+    )
 
     for i in range(1000):
         optimizer.training_step(X_train_batch=X, Y_train_batch=Y_true)
@@ -324,7 +330,12 @@ def test_serialize_deserialize(modelname: str, request: pytest.FixtureRequest):
 def test_adam_optimizer(m3: MultiLayerPerceptron):
     X = np.array([[1, 0], [0, 1]])
     Y_true = np.array([[0.8, 0.2], [0.2, 0.8]])
-    optimizer = AdaM(model=m3, config=AdaM.Config(start_learning_rate=0.01))
+    optimizer = AdaM(
+        model=m3,
+        config=AdaM.Config(
+            scheduler=ConstantScheduler(learning_rate=0.01),
+        ),
+    )
     loss_before = m3.compute_loss(X=X, Y_true=Y_true)
     for i in range(100):
         optimizer.training_step(X_train_batch=X, Y_train_batch=Y_true)

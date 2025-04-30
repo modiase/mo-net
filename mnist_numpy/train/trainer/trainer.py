@@ -106,12 +106,15 @@ class BasicTrainer:
         )
 
     def _create_training_loop_context(self) -> ContextManager[None]:
+        return nullcontext()
+
+    def _create_training_step_context(self) -> ContextManager[None]:
         if self._training_parameters.monotonic:
-            return self._monotonic_training_loop_context()
+            return self._monotonic_training_step_context()
         return nullcontext()
 
     @contextmanager
-    def _monotonic_training_loop_context(self) -> Iterator[None]:
+    def _monotonic_training_step_context(self) -> Iterator[None]:
         loss_before = self._model.compute_loss(X=self._X_train, Y_true=self._Y_train)
         yield
         loss_after = self._model.compute_loss(X=self._X_train, Y_true=self._Y_train)
@@ -267,7 +270,8 @@ class BasicTrainer:
             bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         ):
             set_training_progress(self._training_parameters.current_progress(i))
-            gradient, update = self._training_step()
+            with self._create_training_step_context():
+                gradient, update = self._training_step()
             for handler in self._after_training_step:
                 handler(gradient, update)
 
