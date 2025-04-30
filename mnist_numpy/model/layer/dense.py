@@ -76,10 +76,6 @@ class Parameters(SupportsGradientOperations):
         return self.__class__(_W=self._W**scalar, _B=self._B**scalar)
 
     @classmethod
-    def empty(cls, *, dim_in: int = 0, dim_out: int = 0) -> Self:
-        return cls(_W=np.zeros((dim_in, dim_out)), _B=np.zeros(dim_out))
-
-    @classmethod
     def random(cls, dim_in: int, dim_out: int) -> Self:
         return cls(_W=np.random.randn(dim_in, dim_out), _B=np.zeros(dim_out))
 
