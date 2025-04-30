@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from functools import reduce
 from itertools import chain
 
+import numpy as np
+
 from mnist_numpy.types import (
     Activations,
     D,
@@ -29,7 +31,7 @@ class _Base(ABC):
         )
 
     def forward_prop(self, *, input_activations: Activations) -> Activations:
-        if input_activations.shape[1] != self.input_dimensions:
+        if np.atleast_2d(input_activations).shape[1] != self.input_dimensions:
             raise ValueError(
                 f"Input activations shape {input_activations.shape} does not match "
                 f"input dimensions {self.input_dimensions}."

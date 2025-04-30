@@ -103,8 +103,11 @@ def test_forward_prop_basic_math(factor: int):
             layers=[
                 Dense(
                     input_dimensions=2,
-                    output_dimensions=1,
-                    parameters=Dense.Parameters(_W=np.eye(2), _B=np.zeros(2)),
+                    output_dimensions=2,
+                    parameters=Dense.Parameters(
+                        _W=np.eye(2),
+                        _B=np.zeros(2),
+                    ),
                 )
             ],
             output_layer=RawOutputLayer(input_dimensions=2),
@@ -311,7 +314,7 @@ def test_backward_prop_update_deeper(m3: MultiLayerPerceptron, delta: float):
     assert np.allclose(m3.forward_prop(X), Y_true, atol=0.01)
 
 
-@pytest.mark.parametrize("model", ["m1", "m2", "m3"])
+@pytest.mark.parametrize("modelname", ["m1", "m2", "m3"])
 def test_serialize_deserialize(modelname: str, request: pytest.FixtureRequest):
     model: MultiLayerPerceptron = request.getfixturevalue(modelname)
     X = np.ones((1, model.input_dimensions))
