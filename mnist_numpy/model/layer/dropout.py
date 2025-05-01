@@ -12,6 +12,10 @@ from mnist_numpy.types import Activations, D
 
 
 class DropoutLayer(_Hidden):
+    """
+    https://arxiv.org/abs/1207.0580
+    """
+
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: int
