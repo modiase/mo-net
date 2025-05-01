@@ -42,7 +42,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 DEFAULT_DIMS: Final[Sequence[int]] = (10, 10)
-DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "0.0000001, 0.01"
+DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "1e-4, 1e-2"
 DEFAULT_NUM_EPOCHS: Final[int] = 1000
 MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
 N_DIGITS: Final[int] = 10
