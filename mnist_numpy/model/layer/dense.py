@@ -16,6 +16,7 @@ from mnist_numpy.types import (
     GradLayer,
     SupportsGradientOperations,
     d,
+    d_op,
 )
 
 
@@ -201,12 +202,7 @@ class Dense(_Hidden):
             D[Parameters],
             self.Parameters.of(
                 W=input_activations.T @ dZ,
-                B=np.sum(
-                    cast(  # TODO: fix-types
-                        float | np.ndarray, dZ
-                    ),
-                    axis=0,
-                ),
+                B=d_op(dZ, np.sum),
             ),
         )
         return dZ @ self._parameters._W.T

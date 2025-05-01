@@ -159,3 +159,11 @@ _SupportsGradientOperationsT = TypeVar(
 
 def d(value: _SupportsGradientOperationsT) -> D[_SupportsGradientOperationsT]:
     return cast(D[_SupportsGradientOperationsT], value)
+
+
+def d_op(value: D[Activations], op: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
+    """
+    This is a helper function to apply numpy operations to the value of a D[Activations] object.
+    The type-checker is unable to recognise that D[Activations] is a numpy array, so we need to cast it.
+    """
+    return op(cast(np.ndarray, value))
