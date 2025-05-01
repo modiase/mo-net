@@ -7,6 +7,7 @@ from typing import ContextManager, Final
 import numpy as np
 from loguru import logger
 
+from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train.batcher import SharedBatcher
@@ -72,12 +73,13 @@ def worker_process(
             if not batch_ready_event.wait(timeout=1):
                 continue
             batch_ready_event.clear()
-            indices = shared_batcher.worker_get_batch()
-            X_batch = X_train[indices]
-            Y_batch = Y_train[indices]
+            x_size = y_size = int(
+                np.sqrt(X_train.shape[1])
+            )  # TODO: Fix: handle non-square images
+            X_batch = affine_transform(X=X_train, x_size=x_size, y_size=y_size)
 
             model.forward_prop(X=X_batch)
-            model.backward_prop(Y_true=Y_batch)
+            model.backward_prop(Y_true=Y_train)
 
             shared_batcher.worker_put_result(
                 update=tuple(layer.cache["dP"] for layer in model.grad_layers)
