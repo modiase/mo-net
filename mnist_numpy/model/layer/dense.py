@@ -5,7 +5,7 @@ from typing import Callable, Self, TypedDict, cast
 
 import numpy as np
 
-from mnist_numpy.functions import ReLU
+from mnist_numpy.functions import LeakyReLU, ReLU, Tanh
 from mnist_numpy.model.layer.base import (
     _Hidden,
 )
@@ -98,10 +98,14 @@ class Parameters(SupportsGradientOperations):
     def appropriate(
         cls, dim_in: int, dim_out: int, activation_fn: ActivationFn
     ) -> Self:
-        if activation_fn == ReLU:
+        if activation_fn == ReLU or activation_fn == LeakyReLU:
             return cls.he(dim_in, dim_out)
-        else:
+        elif activation_fn == Tanh:
             return cls.xavier(dim_in, dim_out)
+        else:
+            raise ValueError(
+                f"Cannot choose appropriate initialisation for {activation_fn}"
+            )
 
     @classmethod
     def eye(cls, dim: int) -> Self:
