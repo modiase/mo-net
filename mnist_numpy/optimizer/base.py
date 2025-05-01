@@ -90,8 +90,6 @@ class Null(Base[Config]):
     Config = Config
 
     def compute_update(self) -> None:
-        if self.learning_rate == 0.0:
-            return
         for layer in self._model.grad_layers:
             layer.cache["dP"] *= -self.learning_rate
 
