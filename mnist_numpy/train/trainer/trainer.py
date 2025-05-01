@@ -118,11 +118,8 @@ class BasicTrainer:
 
     @contextmanager
     def _monotonic_training_step_context(self) -> Iterator[None]:
-        loss_before = self._model.compute_loss(X=self._X_train, Y_true=self._Y_train)
-        yield
-        loss_after = self._model.compute_loss(X=self._X_train, Y_true=self._Y_train)
-        if loss_after > loss_before:
-            self._revert_training_step()
+        # TODO: Implement monotonic training.
+        raise NotImplementedError("Monotonic training is not implemented.")
 
     def _revert_training_step(self) -> None:
         if self._last_update is None:
