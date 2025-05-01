@@ -40,7 +40,7 @@ class AdaM(Base[Config]):
         super().__init__(config=config, model=model)
 
         self._scheduler = config.scheduler
-        self._current_learning_rate = self._scheduler(0)
+        self._global_learning_rate = self._scheduler(0)
 
         for layer in self._model.grad_layers:
             layer.cache["first_moment"] = layer.empty_gradient()
@@ -66,23 +66,23 @@ class AdaM(Base[Config]):
 
     def compute_update(self) -> None:
         self._iterations += 1
-        self._current_learning_rate = self._scheduler(self._iterations)
+        self._global_learning_rate = self._scheduler(self._iterations)
         for layer in self._model.grad_layers:
             self.gradient_operation(layer)
 
     @property
     def alpha_t(self) -> float:
-        return self._current_learning_rate * (
+        return self._global_learning_rate * (
             (1 - self._config.beta_2**self._iterations) ** 0.5
             / (1 - self._config.beta_1**self._iterations)
         )
 
     @property
     def learning_rate(self) -> float:
-        return self._current_learning_rate
+        return self._global_learning_rate
 
     def report(self) -> str:
-        return f"Learning Rate: {self._current_learning_rate:.10f}"
+        return f"Learning Rate: {self._global_learning_rate:.10f}"
 
     def snapshot(self) -> None:
         super().snapshot()
