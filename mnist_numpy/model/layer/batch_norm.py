@@ -289,7 +289,7 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                _gamma=np.ones_like(self._parameters._gamma),
+                _gamma=np.zeros_like(self._parameters._gamma),
                 _beta=np.zeros_like(self._parameters._beta),
             )
         )
