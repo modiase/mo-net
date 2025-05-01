@@ -128,7 +128,7 @@ class _Identity:
             return cast(_X, 1.0)
 
 
-identity = _Identity()
+Identity = _Identity()
 
 
 def _get_activation_fn(name: str) -> ActivationFn:
@@ -138,8 +138,8 @@ def _get_activation_fn(name: str) -> ActivationFn:
         return Tanh
     elif name == LeakyReLU.name:
         return LeakyReLU
-    elif name == identity.name:
-        return identity
+    elif name == Identity.name:
+        return Identity
     else:
         raise ValueError(f"Unknown activation function: {name}")
 

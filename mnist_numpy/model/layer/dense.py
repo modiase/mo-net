@@ -5,7 +5,7 @@ from typing import Callable, Self, TypedDict, cast
 
 import numpy as np
 
-from mnist_numpy.functions import LeakyReLU, ReLU, Tanh
+from mnist_numpy.functions import Identity, LeakyReLU, ReLU, Tanh
 from mnist_numpy.model.layer.base import (
     _Hidden,
 )
@@ -100,7 +100,7 @@ class Parameters(SupportsGradientOperations):
     ) -> Self:
         if activation_fn == ReLU or activation_fn == LeakyReLU:
             return cls.he(dim_in, dim_out)
-        elif activation_fn == Tanh:
+        elif activation_fn == Tanh or activation_fn == Identity:
             return cls.xavier(dim_in, dim_out)
         else:
             raise ValueError(

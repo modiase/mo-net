@@ -16,7 +16,7 @@ from more_itertools import last, pairwise
 
 from mnist_numpy.functions import (
     cross_entropy,
-    identity,
+    Identity,
 )
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.block.base import Base, Hidden, Output
@@ -70,7 +70,7 @@ class MultiLayerPerceptron(ModelBase):
         cls,
         *,
         dimensions: Sequence[int],
-        activation_fn: ActivationFn = identity,
+        activation_fn: ActivationFn = Identity,
         regularisers: Sequence[Regulariser] = (),
         batch_norm_batch_size: int | None = None,
         tracing_enabled: bool = False,
