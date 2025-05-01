@@ -1,16 +1,23 @@
-from pydantic import BaseModel
+from pathlib import Path
+from typing import Self
+
+from pydantic import BaseModel, model_validator
 
 
 class TrainingParameters(BaseModel):
     batch_size: int
-    dropout_keep_prob: tuple[float, ...]
+    dropout_keep_probs: tuple[float, ...]
+    history_max_len: int
     learning_rate_limits: tuple[float, float]
-    regulariser_lambda: float
+    log_path: Path
+    monotonic: bool
+    no_monitoring: bool
+    no_transform: bool
     num_epochs: int
+    regulariser_lambda: float
     trace_logging: bool
     train_set_size: int
     warmup_epochs: int
-    history_max_len: int = 100
     workers: int = 0
 
     @property
@@ -30,3 +37,11 @@ class TrainingParameters(BaseModel):
 
     def current_progress(self, iteration: int) -> float:
         return iteration / self.total_batches
+
+    @model_validator(mode="after")
+    def validate_batch_size_for_monotonic(self) -> Self:
+        if self.monotonic and self.batch_size != self.train_set_size:
+            raise ValueError(
+                "When monotonic is True, batch_size must equal train_set_size"
+            )
+        return self

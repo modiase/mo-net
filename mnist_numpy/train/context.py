@@ -1,5 +1,3 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -10,10 +8,15 @@ from typing import Self
 class TrainingContext:
     training_progress: float
     model_checkpoint_path: Path | None
+    model_checkpoint_save_epoch: int | None
 
     @classmethod
     def default(cls) -> Self:
-        return cls(training_progress=0.0, model_checkpoint_path=None)
+        return cls(
+            training_progress=0.0,
+            model_checkpoint_path=None,
+            model_checkpoint_save_epoch=None,
+        )
 
 
 training_context: ContextVar[TrainingContext] = ContextVar(
@@ -21,17 +24,15 @@ training_context: ContextVar[TrainingContext] = ContextVar(
 )
 
 
-@contextmanager
-def set_training_progress(value: float) -> Iterator[None]:
-    training_context_copy = (
-        cpy
-        if (cpy := training_context.get()) is not None
-        else TrainingContext.default()
-    )
+def set_model_checkpoint_save_epoch(epoch: int) -> None:
     training_context.set(
-        TrainingContext(**asdict(training_context_copy) | {"training_progress": value})
+        TrainingContext(
+            **asdict(training_context.get()) | {"model_checkpoint_save_epoch": epoch}
+        )
     )
-    try:
-        yield
-    finally:
-        training_context.set(training_context_copy)
+
+
+def set_training_progress(value: float) -> None:
+    training_context.set(
+        TrainingContext(**asdict(training_context.get()) | {"training_progress": value})
+    )

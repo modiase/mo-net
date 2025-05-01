@@ -6,16 +6,18 @@ from typing import Final, Self, Sequence
 
 import numpy as np
 
-from mnist_numpy.model.layer import DenseParameters
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.layer.dense import Parameters
 from mnist_numpy.train.exceptions import AbortTraining
+from mnist_numpy.types import RawGradientType, UpdateGradientType
 
 # This value has been found empirically to be a good threshold for exploding
-# gradients. Obviously, a Z score of 20 is an insanely high value, but it can be
+# gradients. Obviously, a Z score of 50 is an insanely high value, but it can be
 # understood as recognising that the weights are not being modelled by a normal
-# distribution since the likelihood of a Z score of 20 a random variable truly
-# normally distributed is 1 - erf(20) which is approximately 0.
-MAX_Z_SCORE: Final[float] = 20.0
+# distribution since the likelihood of a Z score of 50 a random variable truly
+# normally distributed is 1 - erf(50) which is approximately 0.
+EPSILON: Final[float] = 1e-8
+MAX_Z_SCORE_UPPER_BOUND: Final[float] = 50.0
+MAX_Z_SCORE_LOWER_BOUND: Final[float] = 20.0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -53,29 +55,41 @@ class Monitor:
     def __init__(
         self,
         *,
+        batches_per_epoch: int,
         history_max_len: int,
-        warmup_batches: int,
+        warmup_epochs: int,
         X_train: np.ndarray,
         Y_train: np.ndarray,
     ):
         self._L_history_max_len = history_max_len
         self._L_history: deque[float] = deque(maxlen=self._L_history_max_len)
+        self._L_history_snapshot: Sequence[float] = ()
         self._X_train = X_train
         self._Y_train = Y_train
         self._running_update_count = 0
         self._running_weights: WeightGradientRunningAverages = (
             WeightGradientRunningAverages.none()
         )
-        self._warmup_batches = warmup_batches
+        self._warmup_batches = warmup_epochs * batches_per_epoch
+
+    def reset(self, restore_history: bool = False) -> None:
+        if restore_history:
+            self._L_history = deque(
+                self._L_history_snapshot, maxlen=self._L_history_max_len
+            )
+        else:
+            self._L_history.clear()
+        self._running_update_count = 0
+        self._running_weights = WeightGradientRunningAverages.none()
 
     def post_batch(
         self,
-        gradient: MultiLayerPerceptron.Gradient,
-        update: MultiLayerPerceptron.Gradient,
+        raw_gradient: RawGradientType,
+        update: UpdateGradientType,
     ) -> None:
         del update  # unused
         dense_layer_gradients = [
-            param for param in gradient.dParams if isinstance(param, DenseParameters)
+            gradient for gradient in raw_gradient if isinstance(gradient, Parameters)
         ]
         self._running_update_count += 1
         self._running_weights = WeightGradientRunningAverages.from_weights_and_update(
@@ -91,7 +105,7 @@ class Monitor:
 
         weight_gradients_max_Z_scores = np.array(
             [
-                np.max((weights - mean) / np.sqrt(variance))
+                np.max((weights - mean) / (np.sqrt(variance) + EPSILON))
                 for (weights, mean, variance) in zip(
                     [param._W for param in dense_layer_gradients], means, variances
                 )
@@ -100,7 +114,10 @@ class Monitor:
         if self._running_update_count > self._warmup_batches:
             if (
                 weight_gradients_max_Z_score := np.max(weight_gradients_max_Z_scores)
-            ) > MAX_Z_SCORE:
+            ) > max(
+                MAX_Z_SCORE_UPPER_BOUND / np.log(np.log(self._running_update_count)),
+                MAX_Z_SCORE_LOWER_BOUND,
+            ):
                 raise AbortTraining(
                     f"Exploding gradients detected. {weight_gradients_max_Z_score=}"
                 )
@@ -109,5 +126,9 @@ class Monitor:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
             return
-        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] > 0.001:
-            raise AbortTraining("Model is diverging.")
+        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
+            raise AbortTraining("Model is not learning.")
+
+    def clear_history(self) -> None:
+        self._L_history.clear()
+        self._L_history_snapshot = ()

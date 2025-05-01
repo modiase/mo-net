@@ -1,9 +1,10 @@
 import math
 from typing import TypeVar, cast
 
+import click
 import numpy as np
 
-from mnist_numpy.types import ActivationFn
+from mnist_numpy.types import ActivationFn, ActivationFnName
 
 
 def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
@@ -14,7 +15,7 @@ _X = TypeVar("_X", bound=np.ndarray | float)
 
 
 class _Softmax:
-    name: str = "softmax"
+    name = ActivationFnName("softmax")
 
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
@@ -44,7 +45,7 @@ softmax = _Softmax()
 
 
 class _ReLU:
-    name: str = "relu"
+    name = ActivationFnName("relu")
 
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
@@ -67,7 +68,7 @@ ReLU = _ReLU()
 
 
 class _LeakyReLU:
-    name: str = "leaky_relu"
+    name = ActivationFnName("leaky_relu")
 
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
@@ -90,7 +91,7 @@ LeakyReLU = _LeakyReLU()
 
 
 class _Tanh:
-    name: str = "tanh"
+    name = ActivationFnName("tanh")
 
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
@@ -113,7 +114,7 @@ Tanh = _Tanh()
 
 
 class _Identity:
-    name: str = "identity"
+    name = ActivationFnName("identity")
 
     def __call__(self, x: _X) -> _X:
         return x
@@ -127,17 +128,35 @@ class _Identity:
             return cast(_X, 1.0)
 
 
-identity = _Identity()
+Identity = _Identity()
 
 
-def get_activation_fn(name: str) -> ActivationFn:
+def _get_activation_fn(name: str) -> ActivationFn:
     if name == ReLU.name:
         return ReLU
     elif name == Tanh.name:
         return Tanh
     elif name == LeakyReLU.name:
         return LeakyReLU
-    elif name == identity.name:
-        return identity
+    elif name == Identity.name:
+        return Identity
     else:
         raise ValueError(f"Unknown activation function: {name}")
+
+
+def get_activation_fn(name: ActivationFnName) -> ActivationFn:
+    return _get_activation_fn(name)
+
+
+def parse_activation_fn(
+    ctx: click.Context, param: click.Parameter, value: object
+) -> ActivationFn:
+    del ctx, param  # unused
+    if value is None:
+        raise click.BadParameter("Activation function name is required")
+    if not isinstance(value, str):
+        raise click.BadParameter("Activation function name must be a string")
+    try:
+        return _get_activation_fn(value)
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from e

@@ -312,6 +312,7 @@ dependencies = [
     { name = "networkx" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "plotille" },
     { name = "pydantic" },
     { name = "taplo" },
     { name = "tqdm" },
@@ -338,6 +339,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3.4.2" },
     { name = "numpy", specifier = ">=2.2.3,<3.0.0" },
     { name = "pandas", specifier = ">=2.2.3,<3.0.0" },
+    { name = "plotille", specifier = ">=5.0.0" },
     { name = "pydantic", specifier = ">=2.11.1" },
     { name = "taplo", specifier = ">=0.9.3" },
     { name = "tqdm", specifier = ">=4.67.1,<5.0.0" },
@@ -588,6 +590,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d7/6c/6ec83ee2f6f0fda8d4cf89045c6be4b0373ebfc363ba8538f8c999f63fcd/pillow-11.1.0-cp313-cp313t-win_amd64.whl", hash = "sha256:ad5db5781c774ab9a9b2c4302bbf0c1014960a0a7be63278d13ae6fdf88126fe", size = 2631595 },
     { url = "https://files.pythonhosted.org/packages/cf/6c/41c21c6c8af92b9fea313aa47c75de49e2f9a467964ee33eb0135d47eb64/pillow-11.1.0-cp313-cp313t-win_arm64.whl", hash = "sha256:67cd427c68926108778a9005f2a04adbd5e67c442ed21d95389fe1d595458756", size = 2377651 },
 ]
+
+[[package]]
+name = "plotille"
+version = "5.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/73/3f342572f7f916e387e546cc502d6cad35e7162ba0bcde203669e15aa3af/plotille-5.0.0.tar.gz", hash = "sha256:99e5ca51a2e4c922ead3a3b0863cc2c6a9a4b3f701944589df10f42ce02ab3dc", size = 53392 }
 
 [[package]]
 name = "pluggy"

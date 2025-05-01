@@ -1,10 +1,10 @@
-from .adam import AdamOptimizer
+from .adam import AdaM
+from .base import Base, Null
 from .base import ConfigT as OptimizerConfigT
-from .base import NoOptimizer, OptimizerBase
 
 __all__ = [
-    "AdamOptimizer",
-    "OptimizerBase",
-    "NoOptimizer",
+    "AdaM",
+    "Base",
+    "Null",
     "OptimizerConfigT",
 ]

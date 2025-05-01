@@ -19,6 +19,7 @@ dependencies = [
   "taplo>=0.9.3",
   "pydantic>=2.11.1",
   "h5py>=3.13.0",
+  "plotille>=5.0.0",
 ]
 
 [dependency-groups]
@@ -38,20 +39,26 @@ default-groups = []
 module = "h5py"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module="plotille"
+ignore_missing_imports = true
+
 [tool.setuptools]
 packages = ["mnist_numpy"]
 
 [tool.taskipy.tasks]
 format = "uv run taplo format pyproject.toml; fd -e py -x uv run ruff format"
 test = "pytest mnist_numpy/tests.py"
-typecheck = "fd -e py -x uv run mypy"
+typecheck-all = "fd -e py -x uv run mypy"
+typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
 
 
 [project.scripts]
 infer = "mnist_numpy.cli:infer"
 inspect_params = "mnist_numpy.scripts.inspect_params:main"
 plot_loss = "mnist_numpy.scripts.plot_loss:main"
+term_plot = "mnist_numpy.scripts.term_plot:main"
 resume = "mnist_numpy.cli:resume"
 sample_data = "mnist_numpy.cli:sample_data"
-train = "mnist_numpy.cli:train"
 trace_statistics = "mnist_numpy.scripts.trace_statistics:main"
+train = "mnist_numpy.cli:train"
