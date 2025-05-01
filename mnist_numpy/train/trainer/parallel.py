@@ -1,7 +1,14 @@
+import contextlib
 import multiprocessing as mp
-from collections.abc import Iterator, Sequence
+import operator
+import pickle
+import time
+import zlib
+from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
+from queue import Empty
 from typing import ContextManager, Final
 
 import numpy as np
@@ -10,42 +17,102 @@ from loguru import logger
 from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.regulariser.ridge import attach_l2_regulariser
-from mnist_numpy.train.batcher import SharedBatcher
 from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
-from mnist_numpy.types import EventLike, SupportsGradientOperations
+from mnist_numpy.types import EventLike, SupportsGradientOperations, UpdateGradientType
 
 _64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
 _PADDING_FACTOR: Final[float] = 1.2
+_DATA_BYTES_LEN_OFFSET: Final[int] = 4
+
+
+class Manager:
+    def __init__(
+        self,
+        *,
+        result_queue: mp.Queue,
+        update_shared_memory: SharedMemory,
+        update_ready: EventLike,
+        worker_ready_events: Collection[EventLike],
+        worker_count: int,
+    ):
+        self.worker_count = worker_count
+        self.result_queue = result_queue
+        self.update_ready = update_ready
+        self._update_shared_memory = update_shared_memory
+        self._worker_ready_events = worker_ready_events
+
+    def worker_put_result(self, update: tuple[SupportsGradientOperations, ...]) -> None:
+        self.result_queue.put(update)
+
+    def leader_get_aggregated_results(
+        self,
+    ) -> Sequence[SupportsGradientOperations]:
+        result_count = 0
+        aggregated: tuple[SupportsGradientOperations, ...] | None = None
+        while result_count < self.worker_count:
+            with contextlib.suppress(Empty):
+                update = self.result_queue.get(timeout=1.0)
+                if aggregated is None:
+                    aggregated = update
+                else:
+                    aggregated = tuple(map(operator.add, aggregated, update))
+                result_count += 1
+
+        if aggregated is None:
+            raise RuntimeError("No results received from workers.")
+        return aggregated
+
+    def leader_send_update(self, update: Sequence[SupportsGradientOperations]) -> None:
+        data_bytes = zlib.compress(pickle.dumps(update), level=zlib.Z_BEST_COMPRESSION)
+        data_bytes_len = len(data_bytes)
+        self._update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET] = (
+            data_bytes_len.to_bytes(_DATA_BYTES_LEN_OFFSET, byteorder="little")
+        )
+        self._update_shared_memory.buf[
+            _DATA_BYTES_LEN_OFFSET : _DATA_BYTES_LEN_OFFSET + data_bytes_len
+        ] = data_bytes
+        while not all(event.is_set() for event in self._worker_ready_events):
+            time.sleep(0.1)
+        self.update_ready.set()
+
+    def worker_wait_for_update(self) -> UpdateGradientType | None:
+        """Wait for an update from the main process (called by worker)"""
+        if not self.update_ready.wait(timeout=10):
+            return None
+        data_bytes_len = int.from_bytes(
+            self._update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET],
+            byteorder="little",
+        )
+        data = bytes(
+            self._update_shared_memory.buf[
+                _DATA_BYTES_LEN_OFFSET : _DATA_BYTES_LEN_OFFSET + data_bytes_len
+            ]
+        )
+        update = pickle.loads(zlib.decompress(data))
+        self.update_ready.clear()
+        return update
 
 
 def worker_process(
     *,
-    batch_ready_event: EventLike,
     model_checkpoint_path: str,
     regulariser_lambda: float,
     reload_event: EventLike,
-    shared_batcher: SharedBatcher,
+    manager: Manager,
     stop_event: EventLike,
     worker_id: int,
     worker_ready_event: EventLike,
     X_shared_memory_dtype: np.dtype,
     X_shared_memory_name: str,
-    X_shared_memory_shape: tuple[int, ...],
+    X_shared_memory_shape: Sequence[int],
     Y_shared_memory_dtype: np.dtype,
     Y_shared_memory_name: str,
-    Y_shared_memory_shape: tuple[int, ...],
+    Y_shared_memory_shape: Sequence[int],
 ) -> None:
     """Worker process that trains on batches and submits updates"""
 
     with open(model_checkpoint_path, "rb") as f:
         model = MultiLayerPerceptron.load(f, training=True)
-
-    if regulariser_lambda > 0:
-        attach_l2_regulariser(
-            lambda_=regulariser_lambda,
-            batch_size=shared_batcher.worker_batch_size,
-            model=model,
-        )
 
     worker_ready_event.set()
     X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
@@ -62,6 +129,13 @@ def worker_process(
         buffer=Y_shared_memory.buf,
     )
 
+    if regulariser_lambda > 0:
+        attach_l2_regulariser(
+            lambda_=regulariser_lambda,
+            batch_size=X_train.shape[0],
+            model=model,
+        )
+
     while not stop_event.is_set():
         try:
             if reload_event.is_set():
@@ -70,9 +144,6 @@ def worker_process(
                 reload_event.clear()
                 worker_ready_event.set()
 
-            if not batch_ready_event.wait(timeout=1):
-                continue
-            batch_ready_event.clear()
             x_size = y_size = int(
                 np.sqrt(X_train.shape[1])
             )  # TODO: Fix: handle non-square images
@@ -81,15 +152,15 @@ def worker_process(
             model.forward_prop(X=X_batch)
             model.backward_prop(Y_true=Y_train)
 
-            shared_batcher.worker_put_result(
+            manager.worker_put_result(
                 update=tuple(layer.cache["dP"] for layer in model.grad_layers)
             )
-            worker_ready_event.set()
 
+            worker_ready_event.set()
             for _ in range(10):
                 # TODO: Arbitrary number of retries is not ideal.
                 # This whole update mechanism needs a good refactor.
-                aggregated_update = shared_batcher.worker_wait_for_update()
+                aggregated_update = manager.worker_wait_for_update()
                 if aggregated_update is not None or reload_event.is_set():
                     break
             else:
@@ -124,8 +195,6 @@ class ParallelTrainer(BasicTrainer):
         self._optimizer.restore()
         if self._monitor is not None:
             self._monitor.reset(restore_history=True)
-        for event in self._batch_ready_events:
-            event.clear()
         for event in self._worker_ready_events:
             event.clear()
         for event in self._reload_events:
@@ -143,11 +212,10 @@ class ParallelTrainer(BasicTrainer):
     @staticmethod
     def create_worker_process(
         *,
-        batch_ready_event: EventLike,
         model_checkpoint_path: Path,
         regulariser_lambda: float,
         reload_event: EventLike,
-        shared_batcher: SharedBatcher,
+        manager: Manager,
         stop_event: EventLike,
         worker_id: int,
         worker_ready_event: EventLike,
@@ -159,11 +227,10 @@ class ParallelTrainer(BasicTrainer):
         p = mp.Process(
             target=worker_process,
             kwargs={
-                "batch_ready_event": batch_ready_event,
                 "model_checkpoint_path": str(model_checkpoint_path),
                 "regulariser_lambda": regulariser_lambda,
                 "reload_event": reload_event,
-                "shared_batcher": shared_batcher,
+                "manager": manager,
                 "stop_event": stop_event,
                 "worker_id": worker_id,
                 "worker_ready_event": worker_ready_event,
@@ -180,7 +247,6 @@ class ParallelTrainer(BasicTrainer):
         return p
 
     def _before_training_loop(self) -> None:
-        self._manager = mp.Manager()
         self._X_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._X_train.nbytes
         )
@@ -205,33 +271,28 @@ class ParallelTrainer(BasicTrainer):
         )
         np.copyto(X_shared, self._X_train)
         np.copyto(Y_shared, self._Y_train)
-        self._shared_batcher = SharedBatcher(
-            batch_queue=mp.Queue(),
-            batch_size=self._training_parameters.batch_size,
-            result_queue=mp.Queue(),
-            train_set_size=self._X_train.shape[0],
-            update_shared_memory=self._update_shared_memory,
-            update_ready=mp.Event(),
-            worker_count=self._training_parameters.workers,
-        )
 
         stop_event = mp.Event()
         self._worker_ready_events = tuple(
             mp.Event() for _ in range(self._training_parameters.workers)
         )
-        self._batch_ready_events = tuple(
-            mp.Event() for _ in range(self._training_parameters.workers)
-        )
         self._reload_events = tuple(
             mp.Event() for _ in range(self._training_parameters.workers)
         )
+        self._manager: Manager = Manager(
+            result_queue=mp.Queue(),
+            update_shared_memory=self._update_shared_memory,
+            update_ready=mp.Event(),
+            worker_count=self._training_parameters.workers,
+            worker_ready_events=self._worker_ready_events,
+        )
+
         self._processes = tuple(
             ParallelTrainer.create_worker_process(
-                batch_ready_event=self._batch_ready_events[i],
                 model_checkpoint_path=self._model_checkpoint_path,
                 reload_event=self._reload_events[i],
                 regulariser_lambda=self._training_parameters.regulariser_lambda,
-                shared_batcher=self._shared_batcher,
+                manager=self._manager,
                 stop_event=stop_event,
                 worker_id=i,
                 worker_ready_event=self._worker_ready_events[i],
@@ -258,12 +319,6 @@ class ParallelTrainer(BasicTrainer):
     def _ready_all_workers(self) -> None:
         for event in self._worker_ready_events:
             event.wait()
-            event.clear()
-
-    def _prepare_batches(self) -> None:
-        self._shared_batcher.leader_prepare_batches()
-        for event in self._batch_ready_events:
-            event.set()  # type: ignore[attr-defined]
 
     def _training_step(
         self,
@@ -272,12 +327,11 @@ class ParallelTrainer(BasicTrainer):
         Sequence[SupportsGradientOperations],
     ]:
         with self._create_training_step_context():
-            self._prepare_batches()
             self._ready_all_workers()
-            gradient = self._shared_batcher.leader_get_aggregated_results()
+            gradient = self._manager.leader_get_aggregated_results()
             self._model.populate_caches(gradient)
             self._optimizer.compute_update()
-            self._shared_batcher.leader_send_update(
+            self._manager.leader_send_update(
                 update := self._model.get_gradient_caches()
             )
             self._model.update_parameters()
