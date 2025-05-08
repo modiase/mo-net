@@ -24,8 +24,8 @@ from mnist_numpy.model.block.batch_norm import BatchNorm
 from mnist_numpy.model.layer.base import (
     Input,
 )
-from mnist_numpy.model.layer.dense import Dense as DenseLayer
-from mnist_numpy.model.block.dense import Dense as DenseBlock
+from mnist_numpy.model.layer.linear import Linear
+from mnist_numpy.model.block.dense import Dense
 from mnist_numpy.model.layer.output import SoftmaxOutputLayer
 from mnist_numpy.protos import (
     ActivationFn,
@@ -82,7 +82,7 @@ class MultiLayerPerceptron(ModelBase):
             itemgetter(0, slice(1, -1), -1)(dimensions)
         )
         hidden_blocks: Sequence[Hidden] = tuple(
-            DenseBlock(
+            Dense(
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
                 activation_fn=activation_fn,
@@ -104,12 +104,12 @@ class MultiLayerPerceptron(ModelBase):
         output_block = Output(
             layers=tuple(
                 [
-                    DenseLayer(
+                    Linear(
                         input_dimensions=(
                             input_dimensions := last(model_hidden_dimensions)
                         ),
                         output_dimensions=model_output_dimension,
-                        parameters=DenseLayer.Parameters.xavier(
+                        parameters=Linear.Parameters.xavier(
                             dim_in=input_dimensions, dim_out=model_output_dimension
                         ),
                         store_output_activations=tracing_enabled,

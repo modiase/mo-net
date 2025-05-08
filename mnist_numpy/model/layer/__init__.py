@@ -3,14 +3,14 @@ from mnist_numpy.model.layer.base import (
     Input,
     _Hidden,
 )
-from mnist_numpy.model.layer.dense import Dense
+from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.layer.output import _OutputLayer
 
 type NonInputLayer = _Hidden | _OutputLayer
 
 __all__ = [
     "Activation",
-    "Dense",
+    "Linear",
     "Input",
     "NonInputLayer",
 ]

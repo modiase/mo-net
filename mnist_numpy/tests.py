@@ -12,7 +12,7 @@ from mnist_numpy.model.block.base import Hidden, Output
 from mnist_numpy.model.layer import (
     Activation,
 )
-from mnist_numpy.model.layer.dense import Dense
+from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.layer.output import (
     RawOutputLayer,
     SoftmaxOutputLayer,
@@ -42,10 +42,10 @@ def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
         hidden_blocks=tuple(
             Hidden(
                 layers=[
-                    Dense(
+                    Linear(
                         input_dimensions=n_neurons,
                         output_dimensions=n_neurons,
-                        parameters=Dense.Parameters.eye(n_neurons),
+                        parameters=Linear.Parameters.eye(n_neurons),
                     ),
                 ],
             )
@@ -53,10 +53,10 @@ def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
         ),
         output_block=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=n_neurons,
                     output_dimensions=n_neurons,
-                    parameters=Dense.Parameters.eye(n_neurons),
+                    parameters=Linear.Parameters.eye(n_neurons),
                 ),
             ],
             output_layer=RawOutputLayer(input_dimensions=n_neurons),
@@ -78,19 +78,19 @@ def test_forward_prop_basic_math(factor: int):
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=5,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=factor
                                 * np.array([[1, 1, 1, -2, 0], [1, 4, 1, 1, 0]]).T,
                                 _B=bias_1 * factor,
                             ),
                         ),
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.eye((2)),
                                 _B=bias_2,
                             ),
@@ -101,10 +101,10 @@ def test_forward_prop_basic_math(factor: int):
         ),
         output_block=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=2,
                     output_dimensions=2,
-                    parameters=Dense.Parameters(
+                    parameters=Linear.Parameters(
                         _W=np.eye(2),
                         _B=np.zeros(2),
                     ),
@@ -127,10 +127,10 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=1,
                             output_dimensions=1,
-                            parameters=Dense.Parameters.eye(1),
+                            parameters=Linear.Parameters.eye(1),
                         ),
                         Activation(
                             input_dimensions=1,
@@ -142,10 +142,10 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
         ),
         output_block=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=1,
                     output_dimensions=1,
-                    parameters=Dense.Parameters.eye(1),
+                    parameters=Linear.Parameters.eye(1),
                 )
             ],
             output_layer=RawOutputLayer(input_dimensions=1),
@@ -163,10 +163,10 @@ def m1() -> MultiLayerPerceptron:
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=1,
                             output_dimensions=1,
-                            parameters=Dense.Parameters.eye(1),
+                            parameters=Linear.Parameters.eye(1),
                         )
                         for _ in range(2)
                     ]
@@ -175,10 +175,10 @@ def m1() -> MultiLayerPerceptron:
         ),
         output_block=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=1,
                     output_dimensions=1,
-                    parameters=Dense.Parameters(_W=np.array([[2]]), _B=np.array([0])),
+                    parameters=Linear.Parameters(_W=np.array([[2]]), _B=np.array([0])),
                 )
             ],
             output_layer=RawOutputLayer(input_dimensions=1),
@@ -196,12 +196,12 @@ def test_backward_prop_basic_math(m1: MultiLayerPerceptron):
             layer._cache["dP"]
             for block in m1.blocks
             for layer in block.layers
-            if isinstance(layer, Dense)
+            if isinstance(layer, Linear)
         ]
     ) == (
-        Dense.Parameters(_W=np.array([[2]]), _B=np.array([2])),
-        Dense.Parameters(_W=np.array([[2]]), _B=np.array([2])),
-        Dense.Parameters(_W=np.array([[1]]), _B=np.array([1])),
+        Linear.Parameters(_W=np.array([[2]]), _B=np.array([2])),
+        Linear.Parameters(_W=np.array([[2]]), _B=np.array([2])),
+        Linear.Parameters(_W=np.array([[1]]), _B=np.array([1])),
     )
 
 
@@ -213,10 +213,10 @@ def m2() -> MultiLayerPerceptron:
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.array([[1, 0], [0, 1]]), _B=np.array([0, 0])
                             ),
                         )
@@ -226,10 +226,10 @@ def m2() -> MultiLayerPerceptron:
         ),
         output_block=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=2,
                     output_dimensions=2,
-                    parameters=Dense.Parameters(
+                    parameters=Linear.Parameters(
                         _W=np.array([[1, 0], [0, 1]]), _B=np.array([0, 0])
                     ),
                 )
@@ -258,10 +258,10 @@ def m3() -> MultiLayerPerceptron:
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.array([[1, 1], [1, 1]]), _B=np.array([0, 0])
                             ),
                         ),
@@ -269,10 +269,10 @@ def m3() -> MultiLayerPerceptron:
                 ),
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.array([[1, 1], [1, 1]]), _B=np.array([0, 0])
                             ),
                         ),
@@ -282,10 +282,10 @@ def m3() -> MultiLayerPerceptron:
         ),
         output_block=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=2,
                     output_dimensions=2,
-                    parameters=Dense.Parameters(
+                    parameters=Linear.Parameters(
                         _W=np.array([[1, 1], [1, 1]]), _B=np.array([0, 0])
                     ),
                 )

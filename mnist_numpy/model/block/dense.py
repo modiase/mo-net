@@ -1,6 +1,6 @@
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
-from mnist_numpy.model.layer.dense import Dense as DenseLayer
+from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.protos import ActivationFn
 
 
@@ -16,10 +16,10 @@ class Dense(Hidden):
         super().__init__(
             layers=tuple(
                 [
-                    DenseLayer(
+                    Linear(
                         output_dimensions=output_dimensions,
                         input_dimensions=input_dimensions,
-                        parameters=DenseLayer.Parameters.appropriate(
+                        parameters=Linear.Parameters.appropriate(
                             dim_in=input_dimensions,
                             dim_out=output_dimensions,
                             activation_fn=activation_fn,

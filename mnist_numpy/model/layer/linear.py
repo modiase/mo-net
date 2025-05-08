@@ -32,7 +32,7 @@ class Parameters(SupportsGradientOperations):
 
     def __add__(self, other: Self | float | int) -> Self:
         match other:
-            case self.__class__():
+            case Parameters():
                 return self.__class__(_W=self._W + other._W, _B=self._B + other._B)
             case float() | int():
                 return self.__class__(_W=self._W + other, _B=self._B + other)
@@ -63,7 +63,7 @@ class Parameters(SupportsGradientOperations):
 
     def __truediv__(self, other: Self | float | int) -> Self:
         match other:
-            case self.__class__():
+            case Parameters():
                 return self.__class__(
                     _W=self._W / other._W,
                     _B=self._B / other._B,
@@ -119,10 +119,10 @@ class Parameters(SupportsGradientOperations):
 type ParametersType = Parameters
 
 
-class Dense(_Hidden):
+class Linear(_Hidden):
     Parameters = Parameters
     _parameters: ParametersType
-    _cache: Dense.Cache
+    _cache: Linear.Cache
 
     class Cache(TypedDict):
         input_activations: Activations | None
@@ -139,9 +139,9 @@ class Dense(_Hidden):
             self,
             *,
             training: bool = False,
-        ) -> Dense:
+        ) -> Linear:
             del training  # unused
-            return Dense(
+            return Linear(
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
                 parameters=self.parameters,
@@ -180,7 +180,7 @@ class Dense(_Hidden):
             else self._parameters_init_fn(input_dimensions, output_dimensions)
         )
         self._store_output_activations = store_output_activations
-        self._cache: Dense.Cache = {
+        self._cache: Linear.Cache = {
             "input_activations": None,
             "output_activations": None,
             "dP": None,
@@ -188,7 +188,7 @@ class Dense(_Hidden):
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
-        output_activations = (
+        output_activations = Activations(
             input_activations @ self._parameters._W + self._parameters._B
         )
         if self._store_output_activations:
@@ -224,7 +224,7 @@ class Dense(_Hidden):
             self.input_dimensions, self.output_dimensions
         )
 
-    def serialize(self) -> Dense.Serialized:
+    def serialize(self) -> Linear.Serialized:
         return self.Serialized(
             input_dimensions=self._input_dimensions,
             output_dimensions=self._output_dimensions,
@@ -241,7 +241,7 @@ class Dense(_Hidden):
         f(self)
 
     @property
-    def cache(self) -> Dense.Cache:
+    def cache(self) -> Linear.Cache:
         return self._cache
 
     @property

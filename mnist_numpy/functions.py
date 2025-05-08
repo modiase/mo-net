@@ -3,7 +3,8 @@ from typing import TypeVar, cast
 
 import click
 import numpy as np
-from protos import ActivationFn, ActivationFnName
+
+from mnist_numpy.protos import ActivationFn, ActivationFnName
 
 
 def cross_entropy(Y_pred: np.ndarray, Y_true: np.ndarray) -> float:
