@@ -6,7 +6,7 @@ from typing import Final, Self, Sequence
 
 import numpy as np
 
-from mnist_numpy.model.layer.dense import Parameters
+from mnist_numpy.model.layer.linear import Parameters
 from mnist_numpy.train.exceptions import AbortTraining
 from mnist_numpy.types import RawGradientType, UpdateGradientType
 

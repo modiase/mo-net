@@ -1,7 +1,7 @@
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
 from mnist_numpy.model.layer.batch_norm import BatchNorm as BatchNormLayer
-from mnist_numpy.model.layer.dense import Dense
+from mnist_numpy.model.layer.dense import Linear
 from mnist_numpy.types import ActivationFn
 
 
@@ -19,10 +19,10 @@ class BatchNorm(Hidden):
         super().__init__(
             layers=tuple(
                 [
-                    Dense(
+                    Linear(
                         output_dimensions=output_dimensions,
                         input_dimensions=input_dimensions,
-                        parameters=Dense.Parameters.appropriate(
+                        parameters=Linear.Parameters.appropriate(
                             dim_in=input_dimensions,
                             dim_out=output_dimensions,
                             activation_fn=activation_fn,

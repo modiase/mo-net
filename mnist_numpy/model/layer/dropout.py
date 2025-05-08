@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Protocol, TypedDict, runtime_checkable
 
 import numpy as np
 
 from mnist_numpy.model.layer.base import _Hidden
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.types import Activations, D
+
+
+@runtime_checkable
+class HasAppendLayer(Protocol):
+    def append_layer(self, layer: _Hidden) -> None: ...
 
 
 class DropoutLayer(_Hidden):
@@ -86,11 +91,13 @@ def attach_dropout_layers(
     keep_probs: Sequence[float],
     training: bool,
 ) -> None:
-    if len(keep_probs) != len(model.hidden_blocks):
+    if len(keep_probs) != len(model.hidden):
         raise ValueError(
-            f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden blocks ({len(model.hidden_blocks)})"
+            f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden blocks ({len(model.hidden)})"
         )
-    for block, keep_prob in zip(model.hidden_blocks, keep_probs, strict=True):
+    for block, keep_prob in zip(model.hidden, keep_probs, strict=True):
+        if not isinstance(block, HasAppendLayer):
+            continue
         block.append_layer(
             DropoutLayer(
                 input_dimensions=block.output_dimensions,

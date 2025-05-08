@@ -49,11 +49,12 @@ class Base(ABC, Generic[ConfigT]):
         self._model.backward_prop(Y_true=Y_train_batch)
         if return_gradients:
             gradient = self._model.get_gradient_caches()
-        self.compute_update()
-        if return_gradients:
+            self.compute_update()
             update = self._model.get_gradient_caches()
             self._model.update_parameters()
             return gradient, update
+        else:
+            self.compute_update()
         self._model.update_parameters()
         return None
 

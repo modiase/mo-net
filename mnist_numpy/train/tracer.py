@@ -2,13 +2,16 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import chain
 from pathlib import Path
+from typing import Iterator
 
 import h5py
 import numpy as np
 
-from mnist_numpy.model.layer.dense import Dense, Parameters
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.block.base import Hidden as HiddenBlock
+from mnist_numpy.model.layer.linear import Linear, Parameters
+from mnist_numpy.model.mlp import Element, MultiLayerPerceptron
 from mnist_numpy.types import RawGradientType, UpdateGradientType
 
 
@@ -61,13 +64,20 @@ class Tracer:
         tracer_config: TracerConfig,
     ):
         self.model = model
-        self._dense_layers: Sequence[Dense] = (
-            tuple(  # TODO: Consider reducing coupling to dense layers.
-                layer
-                for block in model.blocks
-                for layer in block.layers
-                if isinstance(layer, Dense)
-            )
+
+        def _linear_layers(element: Element) -> Iterator[Linear]:
+            match element:
+                case HiddenBlock():
+                    return (
+                        layer for layer in element.layers if isinstance(layer, Linear)
+                    )
+                case Linear():
+                    return iter((element,))
+                case _:
+                    return iter(())
+
+        self._dense_layers: Sequence[Linear] = tuple(  # TODO: eliminate coupling
+            chain.from_iterable(_linear_layers(element) for element in model.elements)
         )
         self.trace_logging_path = training_log_path.with_name(
             training_log_path.name.replace("training_log.csv", "trace_log.hdf5")

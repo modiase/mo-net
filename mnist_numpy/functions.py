@@ -19,7 +19,7 @@ class _Softmax:
 
     def __call__(self, x: _X) -> _X:
         if isinstance(x, np.ndarray):
-            x = np.atleast_2d(cast(np.ndarray, x))
+            x = np.atleast_2d(x)  # type: ignore[assignment]
             return (exp_x := np.exp(x - np.max(x, axis=1, keepdims=True))) / np.sum(
                 exp_x, axis=1, keepdims=True
             )

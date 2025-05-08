@@ -229,14 +229,17 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
                 }
             )
         else:
-            normalised_activations = (input_activations - self._running_mean) / np.sqrt(
-                self._running_variance + self._EPSILON
+            normalised_activations = Activations(
+                (input_activations - self._running_mean)
+                / np.sqrt(self._running_variance + self._EPSILON)
             )
 
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalised_activations
 
-        return self._parameters._gamma * normalised_activations + self._parameters._beta
+        return Activations(
+            self._parameters._gamma * normalised_activations + self._parameters._beta
+        )
 
     def _backward_prop(
         self,

@@ -1,8 +1,6 @@
-from itertools import chain
-
 import numpy as np
 
-from mnist_numpy.model.layer.dense import Dense as DenseLayer
+from mnist_numpy.model.layer.dense import Linear as DenseLayer
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.types import Activations, D, TrainingStepHandler, d
 
@@ -42,11 +40,11 @@ def attach_l2_regulariser(
     batch_size: int,
     model: MultiLayerPerceptron,
 ) -> None:
-    for layer in chain.from_iterable(block.layers for block in model.blocks):
-        if not isinstance(layer, DenseLayer):
+    for element in model.elements:
+        if not isinstance(element, DenseLayer):
             continue
         layer_regulariser = LayerL2Regulariser(
-            lambda_=lambda_, batch_size=batch_size, layer=layer
+            lambda_=lambda_, batch_size=batch_size, layer=element
         )
-        layer.register_training_step_handler(layer_regulariser)
+        element.register_training_step_handler(layer_regulariser)
         model.register_loss_contributor(layer_regulariser)

@@ -12,7 +12,7 @@ import click
 import numpy as np
 from loguru import logger
 from matplotlib import pyplot as plt
-from more_itertools import sample
+from more_itertools import peekable, sample
 
 from mnist_numpy.data import (
     DATA_DIR,
@@ -352,11 +352,15 @@ def infer(*, model_path: Path | None, data_path: Path):
 
     if model_path is None:
         output_dir = DATA_DIR / "output"
-        model_path = max(output_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime, default=None)
-        if model_path is None:
-            logger.error("No model file found in the output directory and no model path provided.")
+        output_paths = peekable(output_dir.glob("*.pkl"))
+        if output_paths.peek() is None:
+            logger.error(
+                "No model file found in the output directory and no model path provided."
+            )
             sys.exit(1)
+        model_path = max(output_paths, key=lambda p: p.stat().st_mtime)
         logger.info(f"Using latest model file: {model_path}")
+
     if not model_path.exists():
         logger.error(f"File not found: {model_path}")
         sys.exit(1)

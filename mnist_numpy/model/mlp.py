@@ -7,8 +7,11 @@ from functools import reduce
 from operator import itemgetter
 from typing import (
     IO,
+    Iterator,
     Self,
     Sequence,
+    Protocol,
+    runtime_checkable,
 )
 
 import numpy as np
@@ -18,32 +21,63 @@ from mnist_numpy.functions import (
     cross_entropy,
     Identity,
 )
+from itertools import chain
 from mnist_numpy.model import ModelBase
-from mnist_numpy.model.block.base import Base, Hidden, Output
+from mnist_numpy.model.block.base import Hidden as HiddenBlock, Output
+from mnist_numpy.model.layer.base import _Hidden as HiddenLayer
 from mnist_numpy.model.block.batch_norm import BatchNorm
 from mnist_numpy.model.layer.base import (
     Input,
 )
-from mnist_numpy.model.layer.dense import Dense as DenseLayer
-from mnist_numpy.model.block.dense import Dense as DenseBlock
+from mnist_numpy.model.layer.linear import Linear
+from mnist_numpy.model.layer.dense import Dense
 from mnist_numpy.model.layer.output import SoftmaxOutputLayer
 from mnist_numpy.types import (
     ActivationFn,
     Activations,
+    D,
     GradLayer,
+    HasParameterCount,
     LossContributor,
     SupportsDeserialize,
     SupportsReinitialisation,
+    SupportsSerialize,
+    SupportsUpdateParameters,
     UpdateGradientType,
+    HasDimensions,
 )
+
+
+@runtime_checkable
+class HiddenElement(HasDimensions, Protocol):
+    def forward_prop(self, *, input_activations: Activations) -> Activations: ...
+    def backward_prop(self, *, dZ: D[Activations]) -> D[Activations]: ...
+    @property
+    def input_dimensions(self) -> int: ...
+    @property
+    def output_dimensions(self) -> int: ...
+
+
+@runtime_checkable
+class OutputElement(Protocol):
+    def forward_prop(self, *, input_activations: Activations) -> Activations: ...
+    def backward_prop(self, *, Y_true: np.ndarray) -> D[Activations]: ...
+    def serialize(self) -> SupportsDeserialize[OutputElement]: ...
+    @property
+    def input_dimensions(self) -> int: ...
+    @property
+    def output_dimensions(self) -> int: ...
+
+
+type Element = HiddenElement | OutputElement
 
 
 class MultiLayerPerceptron(ModelBase):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: int
-        hidden_blocks: tuple[SupportsDeserialize, ...]
-        output_block: SupportsDeserialize
+        hidden: tuple[SupportsDeserialize, ...]
+        output_element: SupportsDeserialize
 
     @classmethod
     def get_name(cls) -> str:
@@ -54,8 +88,8 @@ class MultiLayerPerceptron(ModelBase):
         return "MultiLayer Perceptron"
 
     @property
-    def blocks(self) -> Sequence[Base]:
-        return tuple([*self.hidden_blocks, self.output_block])
+    def elements(self) -> Sequence[Element]:
+        return tuple([*self.hidden, self.output_element])
 
     @property
     def input_dimensions(self) -> int:
@@ -63,7 +97,7 @@ class MultiLayerPerceptron(ModelBase):
 
     @property
     def output_dimensions(self) -> int:
-        return self.output_block.output_layer.output_dimensions
+        return self.output_element.output_dimensions
 
     @classmethod
     def of(
@@ -81,8 +115,8 @@ class MultiLayerPerceptron(ModelBase):
         model_input_dimension, model_hidden_dimensions, model_output_dimension = (
             itemgetter(0, slice(1, -1), -1)(dimensions)
         )
-        hidden_blocks: Sequence[Hidden] = tuple(
-            DenseBlock(
+        hidden_elements: Sequence[HiddenElement] = tuple(
+            Dense(
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
                 activation_fn=activation_fn,
@@ -101,15 +135,15 @@ class MultiLayerPerceptron(ModelBase):
             )
         )
 
-        output_block = Output(
+        output_element = Output(
             layers=tuple(
                 [
-                    DenseLayer(
+                    Linear(
                         input_dimensions=(
                             input_dimensions := last(model_hidden_dimensions)
                         ),
                         output_dimensions=model_output_dimension,
-                        parameters=DenseLayer.Parameters.xavier(
+                        parameters=Linear.Parameters.xavier(
                             dim_in=input_dimensions, dim_out=model_output_dimension
                         ),
                         store_output_activations=tracing_enabled,
@@ -122,8 +156,8 @@ class MultiLayerPerceptron(ModelBase):
         )
         model = cls(
             input_dimensions=model_input_dimension,
-            hidden_blocks=hidden_blocks,
-            output_block=output_block,
+            hidden_elements=hidden_elements,
+            output_element=output_element,
         )
         for regulariser in regularisers:
             regulariser(model)
@@ -133,20 +167,20 @@ class MultiLayerPerceptron(ModelBase):
         self,
         *,
         input_dimensions: int,
-        hidden_blocks: Sequence[Hidden],
-        output_block: Output,
+        hidden_elements: Sequence[HiddenElement],
+        output_element: OutputElement,
     ):
         self._input_layer = Input(input_dimensions=input_dimensions)
-        self._hidden_blocks = hidden_blocks
-        self._output_block = output_block
+        self._hidden_elements = hidden_elements
+        self._output_element: OutputElement = output_element
         self._loss_contributors: MutableSequence[LossContributor] = []
 
     def reinitialise(self) -> None:
-        for block in self.hidden_blocks:
-            if isinstance(block, SupportsReinitialisation):
-                block.reinitialise()
-        if isinstance(self.output_block, SupportsReinitialisation):
-            self.output_block.reinitialise()
+        for element in self.hidden:
+            if isinstance(element, SupportsReinitialisation):
+                element.reinitialise()
+        if isinstance(self.output_element, SupportsReinitialisation):
+            self.output_element.reinitialise()
 
     @property
     def loss_contributors(self) -> Sequence[LossContributor]:
@@ -156,48 +190,52 @@ class MultiLayerPerceptron(ModelBase):
         self._loss_contributors.append(contributor)
 
     @property
-    def hidden_blocks(self) -> Sequence[Hidden]:
-        return self._hidden_blocks
+    def hidden(self) -> Sequence[HiddenElement]:
+        return self._hidden_elements
 
-    def accept_hidden_block_visitor(
-        self, visitor: Callable[[Hidden, int], Hidden]
+    def accept_hidden_element_visitor(
+        self, visitor: Callable[[Element, int], Element]
     ) -> None:
-        for index, block in enumerate(self.hidden_blocks):
-            visitor(block, index)
+        for index, element in enumerate(self.hidden):
+            visitor(element, index)
 
     @property
     def input_layer(self) -> Input:
         return self._input_layer
 
     @property
-    def output_block(self) -> Output:
-        return self._output_block
+    def output_element(self) -> OutputElement:
+        return self._output_element
 
     def forward_prop(self, X: np.ndarray) -> Activations:
         return reduce(
-            lambda A, block: block.forward_prop(input_activations=A),
-            [*self.hidden_blocks, self.output_block],
+            lambda A, element: element.forward_prop(input_activations=A),
+            self.elements,
             Activations(X),
         )
 
-    def backward_prop(self, Y_true: np.ndarray) -> None:
+    def backward_prop(self, *, Y_true: np.ndarray) -> None:
         reduce(
-            lambda dZ, block: block.backward_prop(dZ=dZ),
-            reversed(self.hidden_blocks),
-            self.output_block.backward_prop(Y_true=Y_true),
+            lambda dZ, element: element.backward_prop(dZ=dZ),
+            reversed(self.hidden),
+            self.output_element.backward_prop(Y_true=Y_true),
         )
 
     def update_parameters(self) -> None:
-        for block in self.hidden_blocks:
-            block.update_parameters()
-        self.output_block.update_parameters()
+        for hidden_element in self.hidden:
+            if isinstance(hidden_element, SupportsUpdateParameters):
+                hidden_element.update_parameters()
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(
             self.Serialized(
                 input_dimensions=self.input_layer.input_dimensions,
-                hidden_blocks=tuple(block.serialize() for block in self.hidden_blocks),
-                output_block=self.output_block.serialize(),
+                hidden=tuple(
+                    hidden_element.serialize()
+                    for hidden_element in self.hidden
+                    if isinstance(hidden_element, SupportsSerialize)
+                ),
+                output_element=self.output_element.serialize(),
             ),
             io,
         )
@@ -209,11 +247,12 @@ class MultiLayerPerceptron(ModelBase):
             raise ValueError(f"Invalid serialized model: {serialized}")
         return cls(
             input_dimensions=serialized.input_dimensions,
-            hidden_blocks=tuple(
-                block.deserialize(training=training)
-                for block in serialized.hidden_blocks
+            hidden_elements=tuple(
+                element.deserialize(training=training)
+                for element in serialized.hidden
+                if isinstance(element, SupportsDeserialize)
             ),
-            output_block=serialized.output_block.deserialize(training=training),
+            output_element=serialized.output_element.deserialize(training=training),
         )
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -228,17 +267,31 @@ class MultiLayerPerceptron(ModelBase):
     def serialize(self) -> Serialized:
         return self.Serialized(
             input_dimensions=self.input_dimensions,
-            hidden_blocks=tuple(block.serialize() for block in self.hidden_blocks),
-            output_block=self.output_block.serialize(),
+            hidden=tuple(
+                hidden_element.serialize()
+                for hidden_element in self.hidden
+                if isinstance(hidden_element, SupportsSerialize)
+            ),
+            output_element=self.output_element.serialize(),
         )
 
     @property
     def grad_layers(self) -> Sequence[GradLayer]:
+        def _grad_layers(element: Element) -> Iterator[GradLayer]:
+            match element:
+                case HiddenBlock():
+                    return (
+                        layer
+                        for layer in element.layers
+                        if isinstance(layer, GradLayer)
+                    )
+                case HiddenLayer() as layer:
+                    return iter((layer,)) if isinstance(layer, GradLayer) else iter(())
+                case _:
+                    return iter(())
+
         return tuple(
-            layer
-            for block in tuple([*self.hidden_blocks, self.output_block])
-            for layer in block.layers
-            if isinstance(layer, GradLayer)
+            chain.from_iterable(_grad_layers(element) for element in self.elements)
         )
 
     def get_gradient_caches(self) -> UpdateGradientType:
@@ -250,11 +303,18 @@ class MultiLayerPerceptron(ModelBase):
 
     @property
     def parameter_count(self) -> int:
-        return sum(block.parameter_count for block in self.blocks)
+        return sum(
+            element.parameter_count
+            for element in self.elements
+            if isinstance(element, HasParameterCount)
+        )
 
     @property
     def dimensions(self) -> Sequence[tuple[int, int]]:
-        return tuple(block.dimensions for block in self.blocks)
+        return tuple(
+            (element.input_dimensions, element.output_dimensions)
+            for element in self.elements
+        )
 
 
 type Regulariser = Callable[[MultiLayerPerceptron], None]

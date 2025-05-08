@@ -1,5 +1,6 @@
 import io
 import pickle
+from collections.abc import MutableSequence
 
 import numpy as np
 import pytest
@@ -12,7 +13,7 @@ from mnist_numpy.model.block.base import Hidden, Output
 from mnist_numpy.model.layer import (
     Activation,
 )
-from mnist_numpy.model.layer.dense import Dense
+from mnist_numpy.model.layer.dense import Dense, Linear
 from mnist_numpy.model.layer.output import (
     RawOutputLayer,
     SoftmaxOutputLayer,
@@ -20,6 +21,7 @@ from mnist_numpy.model.layer.output import (
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import ConstantScheduler
+from mnist_numpy.types import D
 
 
 def test_init():
@@ -28,10 +30,13 @@ def test_init():
     assert model.input_dimensions == 2
     assert model.output_dimensions == 2
 
-    assert model.hidden_blocks[0].layers[0]._parameters._W.shape == (2, 2)
-    assert model.hidden_blocks[0].layers[0]._parameters._B.shape == (2,)
-    assert model.output_block.layers[0]._parameters._W.shape == (2, 2)
-    assert model.output_block.layers[0]._parameters._B.shape == (2,)
+    assert isinstance(model.hidden[0], Dense)
+    assert model.hidden[0]._linear_layer.parameters._W.shape == (2, 2)
+    assert model.hidden[0]._linear_layer.parameters._B.shape == (2,)
+    assert isinstance(model.output_element, Output)
+    assert isinstance(model.output_element.layers[0], Linear)
+    assert model.output_element.layers[0].parameters._W.shape == (2, 2)
+    assert model.output_element.layers[0].parameters._B.shape == (2,)
 
 
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
@@ -39,24 +44,24 @@ def test_init():
 def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
     model = MultiLayerPerceptron(
         input_dimensions=n_neurons,
-        hidden_blocks=tuple(
+        hidden_elements=tuple(
             Hidden(
                 layers=[
-                    Dense(
+                    Linear(
                         input_dimensions=n_neurons,
                         output_dimensions=n_neurons,
-                        parameters=Dense.Parameters.eye(n_neurons),
+                        parameters=Linear.Parameters.eye(n_neurons),
                     ),
                 ],
             )
             for _ in range(n_hidden_layers)
         ),
-        output_block=Output(
+        output_element=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=n_neurons,
                     output_dimensions=n_neurons,
-                    parameters=Dense.Parameters.eye(n_neurons),
+                    parameters=Linear.Parameters.eye(n_neurons),
                 ),
             ],
             output_layer=RawOutputLayer(input_dimensions=n_neurons),
@@ -74,23 +79,23 @@ def test_forward_prop_basic_math(factor: int):
     bias_2 = np.array([1, 1])
     model = MultiLayerPerceptron(
         input_dimensions=5,
-        hidden_blocks=tuple(
+        hidden_elements=tuple(
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=5,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=factor
                                 * np.array([[1, 1, 1, -2, 0], [1, 4, 1, 1, 0]]).T,
                                 _B=bias_1 * factor,
                             ),
                         ),
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.eye((2)),
                                 _B=bias_2,
                             ),
@@ -99,12 +104,12 @@ def test_forward_prop_basic_math(factor: int):
                 )
             ]
         ),
-        output_block=Output(
+        output_element=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=2,
                     output_dimensions=2,
-                    parameters=Dense.Parameters(
+                    parameters=Linear.Parameters(
                         _W=np.eye(2),
                         _B=np.zeros(2),
                     ),
@@ -123,14 +128,14 @@ def test_forward_prop_basic_math(factor: int):
 def test_forward_prop_ReLU(X: np.ndarray, expected: float):
     model = MultiLayerPerceptron(
         input_dimensions=1,
-        hidden_blocks=tuple(
+        hidden_elements=tuple(
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=1,
                             output_dimensions=1,
-                            parameters=Dense.Parameters.eye(1),
+                            parameters=Linear.Parameters.eye(1),
                         ),
                         Activation(
                             input_dimensions=1,
@@ -140,12 +145,12 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
                 )
             ]
         ),
-        output_block=Output(
+        output_element=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=1,
                     output_dimensions=1,
-                    parameters=Dense.Parameters.eye(1),
+                    parameters=Linear.Parameters.eye(1),
                 )
             ],
             output_layer=RawOutputLayer(input_dimensions=1),
@@ -159,26 +164,26 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
 def m1() -> MultiLayerPerceptron:
     return MultiLayerPerceptron(
         input_dimensions=1,
-        hidden_blocks=tuple(
+        hidden_elements=tuple(
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=1,
                             output_dimensions=1,
-                            parameters=Dense.Parameters.eye(1),
+                            parameters=Linear.Parameters.eye(1),
                         )
                         for _ in range(2)
                     ]
                 )
             ]
         ),
-        output_block=Output(
+        output_element=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=1,
                     output_dimensions=1,
-                    parameters=Dense.Parameters(_W=np.array([[2]]), _B=np.array([0])),
+                    parameters=Linear.Parameters(_W=np.array([[2]]), _B=np.array([0])),
                 )
             ],
             output_layer=RawOutputLayer(input_dimensions=1),
@@ -189,34 +194,37 @@ def m1() -> MultiLayerPerceptron:
 def test_backward_prop_basic_math(m1: MultiLayerPerceptron):
     X = Y_true = np.array([[1]])
     m1.forward_prop(X)
-    m1.backward_prop(Y_true)
+    m1.backward_prop(Y_true=Y_true)
 
-    assert tuple(
-        [
-            layer._cache["dP"]
-            for block in m1.blocks
-            for layer in block.layers
-            if isinstance(layer, Dense)
-        ]
-    ) == (
-        Dense.Parameters(_W=np.array([[2]]), _B=np.array([2])),
-        Dense.Parameters(_W=np.array([[2]]), _B=np.array([2])),
-        Dense.Parameters(_W=np.array([[1]]), _B=np.array([1])),
-    )
+    parameters: MutableSequence[D[Linear.Parameters]] = []
+    for element in m1.elements:
+        match element:
+            case Hidden():
+                for layer in element.layers:
+                    if isinstance(layer, Linear):
+                        parameters.append(layer._cache["dP"])
+            case Linear():
+                parameters.append(element._cache["dP"])
+            case _:
+                pass
+    assert parameters == [
+        Linear.Parameters(_W=np.array([[2.0]]), _B=np.array([2.0])),
+        Linear.Parameters(_W=np.array([[2.0]]), _B=np.array([2.0])),
+    ]
 
 
 @pytest.fixture
 def m2() -> MultiLayerPerceptron:
     return MultiLayerPerceptron(
         input_dimensions=2,
-        hidden_blocks=tuple(
+        hidden_elements=tuple(
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.array([[1, 0], [0, 1]]), _B=np.array([0, 0])
                             ),
                         )
@@ -224,12 +232,12 @@ def m2() -> MultiLayerPerceptron:
                 )
             ]
         ),
-        output_block=Output(
+        output_element=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=2,
                     output_dimensions=2,
-                    parameters=Dense.Parameters(
+                    parameters=Linear.Parameters(
                         _W=np.array([[1, 0], [0, 1]]), _B=np.array([0, 0])
                     ),
                 )
@@ -254,14 +262,14 @@ def test_backward_prop_update(m2: MultiLayerPerceptron):
 def m3() -> MultiLayerPerceptron:
     return MultiLayerPerceptron(
         input_dimensions=2,
-        hidden_blocks=tuple(
+        hidden_elements=tuple(
             [
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.array([[1, 1], [1, 1]]), _B=np.array([0, 0])
                             ),
                         ),
@@ -269,10 +277,10 @@ def m3() -> MultiLayerPerceptron:
                 ),
                 Hidden(
                     layers=[
-                        Dense(
+                        Linear(
                             input_dimensions=2,
                             output_dimensions=2,
-                            parameters=Dense.Parameters(
+                            parameters=Linear.Parameters(
                                 _W=np.array([[1, 1], [1, 1]]), _B=np.array([0, 0])
                             ),
                         ),
@@ -280,12 +288,12 @@ def m3() -> MultiLayerPerceptron:
                 ),
             ]
         ),
-        output_block=Output(
+        output_element=Output(
             layers=[
-                Dense(
+                Linear(
                     input_dimensions=2,
                     output_dimensions=2,
-                    parameters=Dense.Parameters(
+                    parameters=Linear.Parameters(
                         _W=np.array([[1, 1], [1, 1]]), _B=np.array([0, 0])
                     ),
                 )
@@ -330,17 +338,19 @@ def test_serialize_deserialize(modelname: str, request: pytest.FixtureRequest):
     assert np.allclose(X_prop_before, X_prop_after)
 
 
-def test_adam_optimizer(m3: MultiLayerPerceptron):
-    X = np.array([[1, 0], [0, 1]])
-    Y_true = np.array([[0.8, 0.2], [0.2, 0.8]])
+def test_adam_optimizer(m2: MultiLayerPerceptron):
+    X = np.array([[1, 1], [1, 1]])
+    Y_true = np.array([[10, 7], [7, 10]])
+    alpha = 1e-3
+
     optimizer = AdaM(
-        model=m3,
+        model=m2,
         config=AdaM.Config(
-            scheduler=ConstantScheduler(learning_rate=0.01),
+            scheduler=ConstantScheduler(learning_rate=alpha),
         ),
     )
-    loss_before = m3.compute_loss(X=X, Y_true=Y_true)
-    for i in range(100):
+    loss_before = m2.compute_loss(X=X, Y_true=Y_true)
+    for i in range(int(1 / alpha)):
         optimizer.training_step(X_train_batch=X, Y_train_batch=Y_true)
-    loss_after = m3.compute_loss(X=X, Y_true=Y_true)
+    loss_after = m2.compute_loss(X=X, Y_true=Y_true)
     assert loss_before > loss_after, loss_before - loss_after
