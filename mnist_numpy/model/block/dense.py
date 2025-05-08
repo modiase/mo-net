@@ -1,7 +1,7 @@
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
 from mnist_numpy.model.layer.dense import Dense as DenseLayer
-from mnist_numpy.types import ActivationFn
+from mnist_numpy.protos import ActivationFn
 
 
 class Dense(Hidden):

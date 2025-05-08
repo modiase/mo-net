@@ -7,7 +7,7 @@ from itertools import chain
 
 import numpy as np
 
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     Activations,
     D,
     TrainingStepHandler,

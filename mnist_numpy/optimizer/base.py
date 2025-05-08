@@ -5,7 +5,7 @@ from typing import Generic, Literal, Sequence, TypeVar, overload
 import numpy as np
 
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import SupportsGradientOperations
+from mnist_numpy.protos import SupportsGradientOperations
 
 ConfigT = TypeVar("ConfigT")
 

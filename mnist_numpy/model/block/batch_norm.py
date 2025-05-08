@@ -2,7 +2,7 @@ from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
 from mnist_numpy.model.layer.batch_norm import BatchNorm as BatchNormLayer
 from mnist_numpy.model.layer.dense import Dense
-from mnist_numpy.types import ActivationFn
+from mnist_numpy.protos import ActivationFn
 
 
 class BatchNorm(Hidden):

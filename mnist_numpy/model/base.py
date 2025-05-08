@@ -4,8 +4,7 @@ from abc import ABC, abstractmethod
 from typing import IO, Self, TypeVar
 
 import numpy as np
-
-from mnist_numpy.types import Activations
+from protos import Activations
 
 
 class ModelBase(ABC):

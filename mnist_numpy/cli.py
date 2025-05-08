@@ -29,6 +29,7 @@ from mnist_numpy.functions import (
 )
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.layer.dropout import attach_dropout_layers
+from mnist_numpy.protos import ActivationFn
 from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
@@ -36,7 +37,6 @@ from mnist_numpy.train import (
 from mnist_numpy.train.exceptions import AbortTraining
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import BasicTrainer, get_optimizer
-from mnist_numpy.types import ActivationFn
 
 P = ParamSpec("P")
 R = TypeVar("R")

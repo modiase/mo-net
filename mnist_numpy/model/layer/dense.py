@@ -9,7 +9,7 @@ from mnist_numpy.functions import Identity, LeakyReLU, ReLU, Tanh
 from mnist_numpy.model.layer.base import (
     _Hidden,
 )
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     ActivationFn,
     Activations,
     D,

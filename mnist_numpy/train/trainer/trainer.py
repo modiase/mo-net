@@ -28,7 +28,7 @@ from mnist_numpy.train.context import (
 )
 from mnist_numpy.train.monitor import Monitor
 from mnist_numpy.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
-from mnist_numpy.types import SupportsGradientOperations, UpdateGradientType
+from mnist_numpy.protos import SupportsGradientOperations, UpdateGradientType
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 

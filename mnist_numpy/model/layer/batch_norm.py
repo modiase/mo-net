@@ -9,7 +9,7 @@ import numpy as np
 from mnist_numpy.model.layer.base import (
     _Hidden,
 )
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     Activations,
     D,
     GradLayer,

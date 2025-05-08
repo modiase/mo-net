@@ -7,8 +7,8 @@ from typing import Final, Self, Sequence
 import numpy as np
 
 from mnist_numpy.model.layer.dense import Parameters
+from mnist_numpy.protos import RawGradientType, UpdateGradientType
 from mnist_numpy.train.exceptions import AbortTraining
-from mnist_numpy.types import RawGradientType, UpdateGradientType
 
 # This value has been found empirically to be a good threshold for exploding
 # gradients. Obviously, a Z score of 50 is an insanely high value, but it can be

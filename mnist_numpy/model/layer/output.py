@@ -9,7 +9,7 @@ from pyparsing import abstractmethod
 
 from mnist_numpy.functions import softmax
 from mnist_numpy.model.layer.base import _Base
-from mnist_numpy.types import Activations, D, SupportsDeserialize, SupportsSerialize
+from mnist_numpy.protos import Activations, D, SupportsDeserialize, SupportsSerialize
 
 OutputLayerT_co = TypeVar("OutputLayerT_co", bound="_OutputLayer", covariant=True)
 

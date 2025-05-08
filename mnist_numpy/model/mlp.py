@@ -27,7 +27,7 @@ from mnist_numpy.model.layer.base import (
 from mnist_numpy.model.layer.dense import Dense as DenseLayer
 from mnist_numpy.model.block.dense import Dense as DenseBlock
 from mnist_numpy.model.layer.output import SoftmaxOutputLayer
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     ActivationFn,
     Activations,
     GradLayer,

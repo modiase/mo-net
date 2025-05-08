@@ -16,9 +16,9 @@ from loguru import logger
 
 from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
-from mnist_numpy.types import EventLike, SupportsGradientOperations, UpdateGradientType
 
 _64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
 _PADDING_FACTOR: Final[float] = 1.2

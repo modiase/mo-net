@@ -9,7 +9,7 @@ import numpy as np
 
 from mnist_numpy.model.layer.dense import Dense, Parameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import RawGradientType, UpdateGradientType
+from mnist_numpy.protos import RawGradientType, UpdateGradientType
 
 
 class TracerStrategy(ABC):

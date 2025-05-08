@@ -8,7 +8,7 @@ import numpy as np
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.optimizer.base import Base
 from mnist_numpy.optimizer.scheduler import ConstantScheduler, Scheduler
-from mnist_numpy.types import GradLayer
+from mnist_numpy.protos import GradLayer
 
 DEFAULT_BETA_1: Final[float] = 0.9
 DEFAULT_BETA_2: Final[float] = 0.999

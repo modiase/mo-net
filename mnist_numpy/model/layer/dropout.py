@@ -8,7 +8,7 @@ import numpy as np
 
 from mnist_numpy.model.layer.base import _Hidden
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import Activations, D
+from mnist_numpy.protos import Activations, D
 
 
 class DropoutLayer(_Hidden):

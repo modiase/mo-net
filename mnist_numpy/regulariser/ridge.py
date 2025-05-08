@@ -4,7 +4,7 @@ import numpy as np
 
 from mnist_numpy.model.layer.dense import Dense as DenseLayer
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import Activations, D, TrainingStepHandler, d
+from mnist_numpy.protos import Activations, D, TrainingStepHandler, d
 
 
 class LayerL2Regulariser(TrainingStepHandler):
