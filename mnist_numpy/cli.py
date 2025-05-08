@@ -352,7 +352,10 @@ def infer(*, model_path: Path | None, data_path: Path):
 
     if model_path is None:
         output_dir = DATA_DIR / "output"
-        model_path = max(output_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime)
+        model_path = max(output_dir.glob("*.pkl"), key=lambda p: p.stat().st_mtime, default=None)
+        if model_path is None:
+            logger.error("No model file found in the output directory and no model path provided.")
+            sys.exit(1)
         logger.info(f"Using latest model file: {model_path}")
     if not model_path.exists():
         logger.error(f"File not found: {model_path}")
