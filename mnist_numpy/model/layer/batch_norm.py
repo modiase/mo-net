@@ -7,7 +7,7 @@ from typing import ClassVar, Self
 import numpy as np
 
 from mnist_numpy.model.layer.base import (
-    _Hidden,
+    Hidden,
 )
 from mnist_numpy.protos import (
     Activations,
@@ -132,7 +132,7 @@ class Cache(GradCache):
 type CacheType = Cache
 
 
-class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
+class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     """https://arxiv.org/abs/1502.03167"""
 
     _EPSILON: ClassVar[float] = 1e-8

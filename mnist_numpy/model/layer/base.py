@@ -69,7 +69,7 @@ class _Base(ABC):
         return (self.input_dimensions, self.output_dimensions)
 
 
-class _Hidden(_Base):
+class Hidden(_Base):
     def backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         return reduce(
             lambda acc, handler: handler(acc),

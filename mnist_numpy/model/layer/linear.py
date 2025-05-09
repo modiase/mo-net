@@ -7,7 +7,7 @@ import numpy as np
 
 from mnist_numpy.functions import Identity, LeakyReLU, ReLU, Tanh
 from mnist_numpy.model.layer.base import (
-    _Hidden,
+    Hidden,
 )
 from mnist_numpy.protos import (
     ActivationFn,
@@ -119,7 +119,7 @@ class Parameters(SupportsGradientOperations):
 type ParametersType = Parameters
 
 
-class Linear(_Hidden):
+class Linear(Hidden):
     Parameters = Parameters
     _parameters: ParametersType
     _cache: Linear.Cache

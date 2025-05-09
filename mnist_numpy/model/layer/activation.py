@@ -6,11 +6,11 @@ from typing import TypedDict
 from more_itertools import last
 
 from mnist_numpy.functions import get_activation_fn
-from mnist_numpy.model.layer.base import _Hidden
+from mnist_numpy.model.layer.base import Hidden
 from mnist_numpy.protos import ActivationFn, ActivationFnName, Activations, D
 
 
-class Activation(_Hidden):
+class Activation(Hidden):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: int

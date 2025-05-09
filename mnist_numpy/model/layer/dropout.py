@@ -6,12 +6,12 @@ from typing import TypedDict
 
 import numpy as np
 
-from mnist_numpy.model.layer.base import _Hidden
+from mnist_numpy.model.layer.base import Hidden
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.protos import Activations, D
 
 
-class DropoutLayer(_Hidden):
+class DropoutLayer(Hidden):
     """
     https://arxiv.org/abs/1207.0580
     """
