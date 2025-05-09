@@ -29,7 +29,7 @@ from mnist_numpy.functions import (
 )
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.layer.dropout import attach_dropout_layers
-from mnist_numpy.protos import ActivationFn
+from mnist_numpy.protos import ActivationFn, NormalisationType
 from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
@@ -80,7 +80,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "-o",
         "--optimizer-type",
-        type=click.Choice(["adam", "adalm", "no"]),
+        type=click.Choice(["adam", "none"]),
         help="The type of optimizer to use",
         default="adam",
     )
@@ -125,6 +125,15 @@ def cli(): ...
     type=Path,
 )
 @click.option(
+    "-t",
+    "--normalisation-type",
+    type=click.Choice(
+        [NormalisationType.LAYER, NormalisationType.BATCH, NormalisationType.NONE]
+    ),
+    help="Set the normalisation type",
+    default=NormalisationType.LAYER,
+)
+@click.option(
     "-k",
     "--dropout-keep-probs",
     type=float,
@@ -141,7 +150,6 @@ def cli(): ...
     callback=parse_activation_fn,
 )
 @click.option(
-    "-t",
     "--tracing-enabled",
     type=bool,
     is_flag=True,
@@ -211,6 +219,7 @@ def train(
     monotonic: bool,
     no_monitoring: bool,
     no_transform: bool,
+    normalisation_type: NormalisationType,
     num_epochs: int,
     optimizer_type: str,
     regulariser_lambda: float,
@@ -232,7 +241,7 @@ def train(
     if model_path is None:
         if len(dims) == 0:
             dims = DEFAULT_DIMS
-        model = MultiLayerPerceptron.of(
+        model = MultiLayerPerceptron.of(  # type: ignore[call-overload]
             block_dimensions=(
                 tuple(
                     map(
@@ -246,7 +255,8 @@ def train(
                 )
             ),
             activation_fn=activation_fn,
-            batch_norm_batch_size=batch_size,
+            batch_size=batch_size,
+            normalisation_type=normalisation_type,
             tracing_enabled=tracing_enabled,
         )
     else:
@@ -288,9 +298,10 @@ def train(
         log_path=training_log_path,
         monotonic=monotonic,
         no_monitoring=no_monitoring,
-        regulariser_lambda=regulariser_lambda,
         no_transform=no_transform,
+        normalisation_type=normalisation_type,
         num_epochs=num_epochs,
+        regulariser_lambda=regulariser_lambda,
         trace_logging=tracing_enabled,
         train_set_size=train_set_size,
         warmup_epochs=warmup_epochs,

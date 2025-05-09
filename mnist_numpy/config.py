@@ -3,6 +3,8 @@ from typing import Self
 
 from pydantic import BaseModel, model_validator
 
+from mnist_numpy.protos import NormalisationType
+
 
 class TrainingParameters(BaseModel):
     batch_size: int
@@ -13,6 +15,7 @@ class TrainingParameters(BaseModel):
     monotonic: bool
     no_monitoring: bool
     no_transform: bool
+    normalisation_type: NormalisationType
     num_epochs: int
     regulariser_lambda: float
     trace_logging: bool

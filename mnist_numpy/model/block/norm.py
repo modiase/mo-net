@@ -25,11 +25,11 @@ class LayerNormOptions:
 class Norm(Hidden):
     def __init__(
         self,
+        input_dimensions: Dimensions,
+        output_dimensions: Dimensions,
         *,
         activation_fn: ActivationFn,
-        input_dimensions: Dimensions,
         options: BatchNormOptions | LayerNormOptions,
-        output_dimensions: Dimensions,
         store_output_activations: bool,
     ):
         norm_layer: BatchNorm | LayerNorm
