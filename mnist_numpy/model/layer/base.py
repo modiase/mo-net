@@ -6,10 +6,12 @@ from functools import reduce
 from itertools import chain
 
 import numpy as np
+from more_itertools import last
 
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     Activations,
     D,
+    Dimensions,
     TrainingStepHandler,
 )
 
@@ -18,8 +20,8 @@ class _Base(ABC):
     def __init__(
         self,
         *,
-        input_dimensions: int,
-        output_dimensions: int,
+        input_dimensions: Dimensions,
+        output_dimensions: Dimensions,
     ):
         self._input_dimensions = input_dimensions
         self._output_dimensions = output_dimensions
@@ -31,7 +33,8 @@ class _Base(ABC):
         )
 
     def forward_prop(self, *, input_activations: Activations) -> Activations:
-        if np.atleast_2d(input_activations).shape[1] != self.input_dimensions:
+        # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
+        if last(np.atleast_2d(input_activations).shape) != last(self.input_dimensions):
             raise ValueError(
                 f"Input activations shape {input_activations.shape} does not match "
                 f"input dimensions {self.input_dimensions}."
@@ -57,19 +60,15 @@ class _Base(ABC):
     def _forward_prop(self, *, input_activations: Activations) -> Activations: ...
 
     @property
-    def input_dimensions(self) -> int:
+    def input_dimensions(self) -> Dimensions:
         return self._input_dimensions
 
     @property
-    def output_dimensions(self) -> int:
+    def output_dimensions(self) -> Dimensions:
         return self._output_dimensions
 
-    @property
-    def dimensions(self) -> tuple[int, int]:
-        return (self.input_dimensions, self.output_dimensions)
 
-
-class _Hidden(_Base):
+class Hidden(_Base):
     def backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         return reduce(
             lambda acc, handler: handler(acc),
@@ -96,24 +95,3 @@ class _Hidden(_Base):
         *,
         dZ: D[Activations],
     ) -> D[Activations]: ...
-
-
-class Input(_Base):
-    def __init__(
-        self,
-        *,
-        input_dimensions: int,
-    ):
-        self._input_dimensions = input_dimensions
-        self._training_step_handlers = ()
-
-    def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        return input_activations
-
-    @property
-    def input_dimensions(self) -> int:
-        return self._input_dimensions
-
-    @property
-    def output_dimensions(self) -> int:
-        return self._input_dimensions

@@ -7,9 +7,9 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from mnist_numpy.model.layer.dense import Dense, Parameters
+from mnist_numpy.model.layer.linear import Linear, Parameters
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.types import RawGradientType, UpdateGradientType
+from mnist_numpy.protos import RawGradientType, UpdateGradientType
 
 
 class TracerStrategy(ABC):
@@ -61,12 +61,12 @@ class Tracer:
         tracer_config: TracerConfig,
     ):
         self.model = model
-        self._dense_layers: Sequence[Dense] = (
+        self._linear_layers: Sequence[Linear] = (
             tuple(  # TODO: Consider reducing coupling to dense layers.
                 layer
                 for block in model.blocks
                 for layer in block.layers
-                if isinstance(layer, Dense)
+                if isinstance(layer, Linear)
             )
         )
         self.trace_logging_path = training_log_path.with_name(
@@ -80,7 +80,7 @@ class Tracer:
             f.create_group("biases")
             f.create_group("raw_gradients")
             f.create_group("updates")
-            f.attrs["layer_count"] = len(self._dense_layers)
+            f.attrs["layer_count"] = len(self._linear_layers)
             f.attrs["iterations"] = 0
 
     def post_batch(
@@ -124,11 +124,13 @@ class Tracer:
                     layer_group.attrs["min"] = np.min(activation)
                     layer_group.attrs["max"] = np.max(activation)
 
-            dense_layer_params = tuple(layer.parameters for layer in self._dense_layers)
+            linear_layer_params = tuple(
+                layer.parameters for layer in self._linear_layers
+            )
             if self._tracer_config.trace_weights:
                 weights_group = iter_group.create_group("weights")
 
-                for i, param in enumerate(dense_layer_params):
+                for i, param in enumerate(linear_layer_params):
                     layer_group = weights_group.create_group(f"layer_{i}")
                     hist_values, hist_bins = np.histogram(param._W, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
@@ -146,7 +148,7 @@ class Tracer:
             if self._tracer_config.trace_biases:
                 biases_group = iter_group.create_group("biases")
 
-                for i, param in enumerate(dense_layer_params):
+                for i, param in enumerate(linear_layer_params):
                     layer_group = biases_group.create_group(f"layer_{i}")
                     hist_values, hist_bins = np.histogram(param._B, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
@@ -162,14 +164,14 @@ class Tracer:
                     layer_group.attrs["max"] = np.max(param._B)
 
             if self._tracer_config.trace_raw_gradients:
-                dense_layer_gradients = tuple(
+                linear_layer_gradients = tuple(
                     gradient
                     for gradient in raw_gradient
                     if isinstance(gradient, Parameters)
                 )
                 raw_gradient_group = iter_group.create_group("raw_gradients")
 
-                for i, grad in enumerate(dense_layer_gradients):
+                for i, grad in enumerate(linear_layer_gradients):
                     layer_group = raw_gradient_group.create_group(f"layer_{i}")
 
                     weights_group = layer_group.create_group("weights")

@@ -3,16 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Self, TypedDict, cast
 
+from more_itertools import last, one
 import numpy as np
 
 from mnist_numpy.functions import Identity, LeakyReLU, ReLU, Tanh
 from mnist_numpy.model.layer.base import (
-    _Hidden,
+    Hidden,
 )
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     ActivationFn,
     Activations,
     D,
+    Dimensions,
     GradLayer,
     SupportsGradientOperations,
     d,
@@ -32,7 +34,7 @@ class Parameters(SupportsGradientOperations):
 
     def __add__(self, other: Self | float | int) -> Self:
         match other:
-            case self.__class__():
+            case Parameters():
                 return self.__class__(_W=self._W + other._W, _B=self._B + other._B)
             case float() | int():
                 return self.__class__(_W=self._W + other, _B=self._B + other)
@@ -63,7 +65,7 @@ class Parameters(SupportsGradientOperations):
 
     def __truediv__(self, other: Self | float | int) -> Self:
         match other:
-            case self.__class__():
+            case Parameters():
                 return self.__class__(
                     _W=self._W / other._W,
                     _B=self._B / other._B,
@@ -77,26 +79,32 @@ class Parameters(SupportsGradientOperations):
         return self.__class__(_W=self._W**scalar, _B=self._B**scalar)
 
     @classmethod
-    def random(cls, dim_in: int, dim_out: int) -> Self:
-        return cls(_W=np.random.randn(dim_in, dim_out), _B=np.zeros(dim_out))
+    def random(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+        _dim_in = one(dim_in)
+        _dim_out = one(dim_out)
+        return cls(_W=np.random.randn(_dim_in, _dim_out), _B=np.zeros(_dim_out))
 
     @classmethod
-    def xavier(cls, dim_in: int, dim_out: int) -> Self:
+    def xavier(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+        _dim_in = one(dim_in)
+        _dim_out = one(dim_out)
         return cls(
-            _W=np.random.randn(dim_in, dim_out) * np.sqrt(1 / dim_in),
-            _B=np.zeros(dim_out),
+            _W=np.random.randn(_dim_in, _dim_out) * np.sqrt(1 / _dim_in),
+            _B=np.zeros(_dim_out),
         )
 
     @classmethod
-    def he(cls, dim_in: int, dim_out: int) -> Self:
+    def he(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+        _dim_in = one(dim_in)
+        _dim_out = one(dim_out)
         return cls(
-            _W=np.random.normal(0, np.sqrt(2 / dim_in), (dim_in, dim_out)),
-            _B=np.zeros(dim_out),
+            _W=np.random.normal(0, np.sqrt(2 / _dim_in), (_dim_in, _dim_out)),
+            _B=np.zeros(_dim_out),
         )
 
     @classmethod
     def appropriate(
-        cls, dim_in: int, dim_out: int, activation_fn: ActivationFn
+        cls, dim_in: Dimensions, dim_out: Dimensions, activation_fn: ActivationFn
     ) -> Self:
         if activation_fn == ReLU or activation_fn == LeakyReLU:
             return cls.he(dim_in, dim_out)
@@ -108,8 +116,9 @@ class Parameters(SupportsGradientOperations):
             )
 
     @classmethod
-    def eye(cls, dim: int) -> Self:
-        return cls(_W=np.eye(dim), _B=np.zeros(dim))
+    def eye(cls, dim: Dimensions) -> Self:
+        _dim = one(dim)
+        return cls(_W=np.eye(_dim), _B=np.zeros(_dim))
 
     @classmethod
     def of(cls, W: np.ndarray, B: np.ndarray) -> Self:
@@ -119,10 +128,10 @@ class Parameters(SupportsGradientOperations):
 type ParametersType = Parameters
 
 
-class Dense(_Hidden):
+class Linear(Hidden):
     Parameters = Parameters
     _parameters: ParametersType
-    _cache: Dense.Cache
+    _cache: Linear.Cache
 
     class Cache(TypedDict):
         input_activations: Activations | None
@@ -131,17 +140,17 @@ class Dense(_Hidden):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
-        output_dimensions: int
+        input_dimensions: tuple[int, ...]
+        output_dimensions: tuple[int, ...]
         parameters: Parameters
 
         def deserialize(
             self,
             *,
             training: bool = False,
-        ) -> Dense:
+        ) -> Linear:
             del training  # unused
-            return Dense(
+            return Linear(
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
                 parameters=self.parameters,
@@ -150,10 +159,12 @@ class Dense(_Hidden):
     def __init__(
         self,
         *,
-        input_dimensions: int,
-        output_dimensions: int,
+        input_dimensions: Dimensions,
+        output_dimensions: Dimensions,
         parameters: ParametersType | None = None,
-        parameters_init_fn: Callable[[int, int], ParametersType] = Parameters.xavier,
+        parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType] = (
+            Parameters.xavier
+        ),
         store_output_activations: bool = False,  # Only used for tracing
     ):
         super().__init__(
@@ -162,13 +173,14 @@ class Dense(_Hidden):
         )
         self._parameters_init_fn = parameters_init_fn
         if parameters is not None:
-            if parameters._W.shape != (input_dimensions, output_dimensions):
+            # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
+            if parameters._W.shape != (last(input_dimensions), last(output_dimensions)):
                 raise ValueError(
                     f"Weight matrix shape ({parameters._W.shape}) "
                     f"does not match input dimensions ({input_dimensions}) "
                     f"and output dimensions ({output_dimensions})."
                 )
-            if parameters._B.shape != (output_dimensions,):
+            if parameters._B.shape != (last(output_dimensions),):
                 raise ValueError(
                     f"Bias vector shape ({parameters._B.shape}) "
                     f"does not match output dimensions ({output_dimensions})."
@@ -180,7 +192,7 @@ class Dense(_Hidden):
             else self._parameters_init_fn(input_dimensions, output_dimensions)
         )
         self._store_output_activations = store_output_activations
-        self._cache: Dense.Cache = {
+        self._cache: Linear.Cache = {
             "input_activations": None,
             "output_activations": None,
             "dP": None,
@@ -188,7 +200,7 @@ class Dense(_Hidden):
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
-        output_activations = (
+        output_activations = Activations(
             input_activations @ self._parameters._W + self._parameters._B
         )
         if self._store_output_activations:
@@ -224,10 +236,10 @@ class Dense(_Hidden):
             self.input_dimensions, self.output_dimensions
         )
 
-    def serialize(self) -> Dense.Serialized:
+    def serialize(self) -> Linear.Serialized:
         return self.Serialized(
-            input_dimensions=self._input_dimensions,
-            output_dimensions=self._output_dimensions,
+            input_dimensions=tuple(self._input_dimensions),
+            output_dimensions=tuple(self._output_dimensions),
             parameters=self._parameters,
         )
 
@@ -241,7 +253,7 @@ class Dense(_Hidden):
         f(self)
 
     @property
-    def cache(self) -> Dense.Cache:
+    def cache(self) -> Linear.Cache:
         return self._cache
 
     @property

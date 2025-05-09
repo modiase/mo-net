@@ -9,12 +9,14 @@ import numpy as np
 from more_itertools import first, last
 
 from mnist_numpy.model.layer.base import (
-    _Hidden,
+    Hidden as HiddenLayer,
 )
-from mnist_numpy.model.layer.output import _OutputLayer
-from mnist_numpy.types import (
+from mnist_numpy.model.layer.output import OutputLayer
+from mnist_numpy.protos import (
     Activations,
     D,
+    Dimensions,
+    HasDimensions,
     HasParameterCount,
     SupportsDeserialize,
     SupportsSerialize,
@@ -22,27 +24,23 @@ from mnist_numpy.types import (
 )
 
 
-class Base:
-    def __init__(self, *, layers: Sequence[_Hidden]):
+class Base(HasDimensions):
+    def __init__(self, *, layers: Sequence[HiddenLayer]):
         for prev, curr in pairwise(layers):
             if prev.output_dimensions != curr.input_dimensions:
                 raise ValueError(
                     f"Output dimensions of layer ({prev.output_dimensions}) "
                     f"do not match input dimensions of layer to append ({curr.input_dimensions})."
                 )
-        self._layers: Sequence[_Hidden] = tuple(layers)
+        self._layers: Sequence[HiddenLayer] = tuple(layers)
 
     @property
-    def input_dimensions(self) -> int:
+    def input_dimensions(self) -> Dimensions:
         return first(self._layers).input_dimensions
 
     @property
-    def output_dimensions(self) -> int:
+    def output_dimensions(self) -> Dimensions:
         return last(self._layers).output_dimensions
-
-    @property
-    def dimensions(self) -> tuple[int, int]:
-        return (self.input_dimensions, self.output_dimensions)
 
     def forward_prop(self, *, input_activations: Activations) -> Activations:
         return reduce(
@@ -53,7 +51,7 @@ class Base:
             input_activations,
         )
 
-    def prepend_layer(self, layer: _Hidden) -> None:
+    def prepend_layer(self, layer: HiddenLayer) -> None:
         if not layer.output_dimensions == self.input_dimensions:
             raise ValueError(
                 f"Output dimensions of layer to prepend ({layer.output_dimensions}) "
@@ -61,7 +59,7 @@ class Base:
             )
         self._layers = tuple([layer, *self._layers])
 
-    def append_layer(self, layer: _Hidden) -> None:
+    def append_layer(self, layer: HiddenLayer) -> None:
         if not self.output_dimensions == layer.input_dimensions:
             raise ValueError(
                 f"Output dimensions of block ({self.output_dimensions}) "
@@ -70,7 +68,7 @@ class Base:
         self._layers = tuple([*self._layers, layer])
 
     @property
-    def layers(self) -> Sequence[_Hidden]:
+    def layers(self) -> Sequence[HiddenLayer]:
         return self._layers
 
     def update_parameters(self) -> None:
@@ -90,7 +88,7 @@ class Base:
 class Hidden(Base):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        layers: Sequence[SupportsDeserialize[_Hidden]]
+        layers: Sequence[SupportsDeserialize[HiddenLayer]]
 
         def deserialize(
             self,
@@ -123,8 +121,8 @@ class Hidden(Base):
 class Output(Base):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        layers: Sequence[SupportsDeserialize[_Hidden]]
-        output_layer: SupportsDeserialize[_OutputLayer]
+        layers: Sequence[SupportsDeserialize[HiddenLayer]]
+        output_layer: SupportsDeserialize[OutputLayer]
 
         def deserialize(
             self,
@@ -141,8 +139,8 @@ class Output(Base):
     def __init__(
         self,
         *,
-        layers: Sequence[_Hidden],
-        output_layer: _OutputLayer,
+        layers: Sequence[HiddenLayer],
+        output_layer: OutputLayer,
     ):
         super().__init__(layers=layers)
         self._output_layer = output_layer
@@ -170,5 +168,5 @@ class Output(Base):
         )
 
     @property
-    def output_layer(self) -> _OutputLayer:
+    def output_layer(self) -> OutputLayer:
         return self._output_layer

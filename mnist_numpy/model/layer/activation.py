@@ -6,14 +6,20 @@ from typing import TypedDict
 from more_itertools import last
 
 from mnist_numpy.functions import get_activation_fn
-from mnist_numpy.model.layer.base import _Hidden
-from mnist_numpy.types import ActivationFn, ActivationFnName, Activations, D
+from mnist_numpy.model.layer.base import Hidden
+from mnist_numpy.protos import (
+    ActivationFn,
+    ActivationFnName,
+    Activations,
+    D,
+    Dimensions,
+)
 
 
-class Activation(_Hidden):
+class Activation(Hidden):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
+        input_dimensions: tuple[int, ...]
         activation_fn: ActivationFnName
 
         def deserialize(
@@ -34,7 +40,7 @@ class Activation(_Hidden):
         self,
         *,
         activation_fn: ActivationFn,
-        input_dimensions: int,
+        input_dimensions: Dimensions,
     ):
         super().__init__(
             input_dimensions=input_dimensions,
@@ -46,7 +52,8 @@ class Activation(_Hidden):
         }
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        if last(input_activations.shape) != self._input_dimensions:
+        # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
+        if last(input_activations.shape) != last(self._input_dimensions):
             raise ValueError(
                 f"Input activations of layer ({last(input_activations.shape)}) "
                 f"do not match input dimensions of layer ({self._input_dimensions})."
@@ -60,15 +67,15 @@ class Activation(_Hidden):
         return self._activation_fn.deriv(input_activations) * dZ
 
     @property
-    def input_dimensions(self) -> int:
+    def input_dimensions(self) -> Dimensions:
         return self._input_dimensions
 
     @property
-    def output_dimensions(self) -> int:
+    def output_dimensions(self) -> Dimensions:
         return self._input_dimensions
 
     def serialize(self) -> Activation.Serialized:
         return Activation.Serialized(
-            input_dimensions=self._input_dimensions,
+            input_dimensions=tuple(self._input_dimensions),
             activation_fn=self._activation_fn.name,
         )

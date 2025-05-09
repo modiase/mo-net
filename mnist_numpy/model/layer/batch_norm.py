@@ -4,12 +4,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar, Self
 
+from more_itertools import one
 import numpy as np
 
 from mnist_numpy.model.layer.base import (
-    _Hidden,
+    Hidden,
 )
-from mnist_numpy.types import (
+from mnist_numpy.protos import (
     Activations,
     D,
     GradLayer,
@@ -112,10 +113,10 @@ class Parameters(SupportsGradientOperations):
         return self.__mul__(other)
 
     @classmethod
-    def empty(cls, *, dimensions: int) -> Self:
+    def empty(cls, *, neurons: int) -> Self:
         return cls(
-            _gamma=np.ones(dimensions),
-            _beta=np.zeros(dimensions),
+            _gamma=np.ones(neurons),
+            _beta=np.zeros(neurons),
         )
 
 
@@ -132,7 +133,7 @@ class Cache(GradCache):
 type CacheType = Cache
 
 
-class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
+class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     """https://arxiv.org/abs/1502.03167"""
 
     _EPSILON: ClassVar[float] = 1e-8
@@ -141,8 +142,7 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
-        output_dimensions: int
+        neurons: int
         momentum: float
         batch_size: int
         parameters: Parameters
@@ -155,8 +155,7 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
             training: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
-                input_dimensions=self.input_dimensions,
-                output_dimensions=self.output_dimensions,
+                neurons=self.neurons,
                 momentum=self.momentum,
                 batch_size=self.batch_size,
                 parameters=self.parameters,
@@ -169,9 +168,8 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
         self,
         *,
         batch_size: int,
-        input_dimensions: int,
+        neurons: int,
         momentum: float = 0.9,
-        output_dimensions: int,
         parameters: ParametersType | None = None,
         running_mean: np.ndarray | None = None,
         running_variance: np.ndarray | None = None,
@@ -179,17 +177,15 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
         training: bool = True,
     ):
         super().__init__(
-            input_dimensions=input_dimensions,
-            output_dimensions=output_dimensions,
+            input_dimensions=(neurons,),
+            output_dimensions=(neurons,),
         )
         self._momentum = momentum
         self._running_mean = (
-            running_mean if running_mean is not None else np.zeros(input_dimensions)
+            running_mean if running_mean is not None else np.zeros(neurons)
         )
         self._running_variance = (
-            running_variance
-            if running_variance is not None
-            else np.ones(input_dimensions)
+            running_variance if running_variance is not None else np.ones(neurons)
         )
         self._training = training
         self._cache: CacheType = {
@@ -295,7 +291,7 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
         )
 
     def empty_parameters(self) -> ParametersType:
-        return self.Parameters.empty(dimensions=self._input_dimensions)
+        return self.Parameters.empty(neurons=one(self._input_dimensions))
 
     def update_parameters(self) -> None:
         if (dP := self._cache["dP"]) is None:
@@ -319,8 +315,7 @@ class BatchNorm(_Hidden, GradLayer[ParametersType, CacheType]):
 
     def serialize(self) -> SupportsDeserialize[BatchNorm]:
         return self.Serialized(
-            input_dimensions=self._input_dimensions,
-            output_dimensions=self._output_dimensions,
+            neurons=one(self._input_dimensions),
             momentum=self._momentum,
             batch_size=self._batch_size,
             parameters=self._parameters,

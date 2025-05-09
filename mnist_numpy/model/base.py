@@ -5,7 +5,7 @@ from typing import IO, Self, TypeVar
 
 import numpy as np
 
-from mnist_numpy.types import Activations
+from mnist_numpy.protos import Activations
 
 
 class ModelBase(ABC):
@@ -15,6 +15,7 @@ class ModelBase(ABC):
     @abstractmethod
     def predict(self, X: np.ndarray) -> np.ndarray: ...
 
+    @classmethod
     @abstractmethod
     def get_name(cls) -> str: ...
 
@@ -27,7 +28,7 @@ class ModelBase(ABC):
 
     @classmethod
     @abstractmethod
-    def load(cls, io: IO[bytes]) -> Self: ...
+    def load(cls, source: IO[bytes], training: bool = False) -> Self: ...
 
     @abstractmethod
     def forward_prop(self, X: np.ndarray) -> Activations: ...
