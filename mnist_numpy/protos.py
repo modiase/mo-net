@@ -167,3 +167,20 @@ def d_op(value: D[Activations], op: Callable[[np.ndarray], np.ndarray]) -> np.nd
     The type-checker is unable to recognise that D[Activations] is a numpy array, so we need to cast it.
     """
     return op(cast(np.ndarray, value))
+
+
+type Dimensions = Sequence[int]
+
+
+class HasDimensions(Protocol):
+    @property
+    def input_dimensions(self) -> Dimensions: ...
+
+    @property
+    def output_dimensions(self) -> Dimensions: ...
+
+    @staticmethod
+    def get_dimensions(
+        dimensioned: HasDimensions,
+    ) -> tuple[Dimensions, Dimensions]:
+        return dimensioned.input_dimensions, dimensioned.output_dimensions

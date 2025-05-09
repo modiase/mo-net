@@ -8,7 +8,7 @@ import numpy as np
 
 from mnist_numpy.model.layer.base import Hidden
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.protos import Activations, D
+from mnist_numpy.protos import Activations, D, Dimensions
 
 
 class DropoutLayer(Hidden):
@@ -18,7 +18,7 @@ class DropoutLayer(Hidden):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
+        input_dimensions: tuple[int, ...]
         keep_prob: float
 
         def deserialize(self, *, training: bool) -> DropoutLayer:
@@ -35,7 +35,7 @@ class DropoutLayer(Hidden):
     def __init__(
         self,
         *,
-        input_dimensions: int,
+        input_dimensions: Dimensions,
         keep_prob: float,
         training: bool = False,
     ):
@@ -75,7 +75,7 @@ class DropoutLayer(Hidden):
 
     def serialize(self) -> DropoutLayer.Serialized:
         return DropoutLayer.Serialized(
-            input_dimensions=self.input_dimensions,
+            input_dimensions=tuple(self.input_dimensions),
             keep_prob=self._keep_prob,
         )
 

@@ -1,8 +1,10 @@
+from more_itertools import one
+
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
 from mnist_numpy.model.layer.batch_norm import BatchNorm as BatchNormLayer
 from mnist_numpy.model.layer.linear import Linear
-from mnist_numpy.protos import ActivationFn
+from mnist_numpy.protos import ActivationFn, Dimensions
 
 
 class BatchNorm(Hidden):
@@ -11,9 +13,9 @@ class BatchNorm(Hidden):
         *,
         activation_fn: ActivationFn,
         batch_size: int,
-        input_dimensions: int,
+        input_dimensions: Dimensions,
+        output_dimensions: Dimensions,
         momentum: float = 0.9,
-        output_dimensions: int,
         store_output_activations: bool = False,
     ):
         super().__init__(
@@ -30,8 +32,7 @@ class BatchNorm(Hidden):
                         store_output_activations=store_output_activations,
                     ),
                     BatchNormLayer(
-                        input_dimensions=output_dimensions,
-                        output_dimensions=output_dimensions,
+                        neurons=one(output_dimensions),
                         momentum=momentum,
                         batch_size=batch_size,
                         store_output_activations=store_output_activations,

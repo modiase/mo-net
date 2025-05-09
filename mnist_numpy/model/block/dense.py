@@ -1,15 +1,15 @@
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
 from mnist_numpy.model.layer.linear import Linear
-from mnist_numpy.protos import ActivationFn
+from mnist_numpy.protos import ActivationFn, Dimensions
 
 
 class Dense(Hidden):
     def __init__(
         self,
         *,
-        input_dimensions: int,
-        output_dimensions: int,
+        input_dimensions: Dimensions,
+        output_dimensions: Dimensions,
         activation_fn: ActivationFn,
         store_output_activations: bool = False,
     ):

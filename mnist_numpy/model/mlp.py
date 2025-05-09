@@ -12,7 +12,7 @@ from typing import (
 )
 
 import numpy as np
-from more_itertools import last, pairwise
+from more_itertools import first, last, pairwise
 
 from mnist_numpy.functions import (
     cross_entropy,
@@ -21,16 +21,17 @@ from mnist_numpy.functions import (
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.block.base import Base, Hidden, Output
 from mnist_numpy.model.block.batch_norm import BatchNorm
-from mnist_numpy.model.layer.base import (
-    Input,
-)
+from mnist_numpy.model.layer.base import Hidden as HiddenLayer
+from mnist_numpy.model.layer.input import Input
 from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.block.dense import Dense
 from mnist_numpy.model.layer.output import SoftmaxOutputLayer
 from mnist_numpy.protos import (
     ActivationFn,
     Activations,
+    Dimensions,
     GradLayer,
+    HasDimensions,
     LossContributor,
     SupportsDeserialize,
     SupportsReinitialisation,
@@ -41,7 +42,7 @@ from mnist_numpy.protos import (
 class MultiLayerPerceptron(ModelBase):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
+        input_dimensions: tuple[int, ...]
         hidden_blocks: tuple[SupportsDeserialize, ...]
         output_block: SupportsDeserialize
 
@@ -58,28 +59,31 @@ class MultiLayerPerceptron(ModelBase):
         return tuple([*self.hidden_blocks, self.output_block])
 
     @property
-    def input_dimensions(self) -> int:
+    def input_dimensions(self) -> Dimensions:
         return self.input_layer.input_dimensions
 
     @property
-    def output_dimensions(self) -> int:
+    def output_dimensions(self) -> Dimensions:
         return self.output_block.output_layer.output_dimensions
 
     @classmethod
     def of(
         cls,
         *,
-        dimensions: Sequence[int],
+        block_dimensions: Sequence[Dimensions],
         activation_fn: ActivationFn = Identity,
         regularisers: Sequence[Regulariser] = (),
         batch_norm_batch_size: int | None = None,
         tracing_enabled: bool = False,
     ) -> Self:
-        if len(dimensions) < 2:
+        if len(block_dimensions) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
 
+        model_input_dimension: Dimensions
+        model_hidden_dimensions: Sequence[Dimensions]
+        model_output_dimension: Dimensions
         model_input_dimension, model_hidden_dimensions, model_output_dimension = (
-            itemgetter(0, slice(1, -1), -1)(dimensions)
+            itemgetter(0, slice(1, -1), -1)(block_dimensions)
         )
         hidden_blocks: Sequence[Hidden] = tuple(
             Dense(
@@ -132,7 +136,7 @@ class MultiLayerPerceptron(ModelBase):
     def __init__(
         self,
         *,
-        input_dimensions: int,
+        input_dimensions: Dimensions,
         hidden_blocks: Sequence[Hidden],
         output_block: Output,
     ):
@@ -195,7 +199,7 @@ class MultiLayerPerceptron(ModelBase):
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(
             self.Serialized(
-                input_dimensions=self.input_layer.input_dimensions,
+                input_dimensions=tuple(self.input_layer.input_dimensions),
                 hidden_blocks=tuple(block.serialize() for block in self.hidden_blocks),
                 output_block=self.output_block.serialize(),
             ),
@@ -227,7 +231,7 @@ class MultiLayerPerceptron(ModelBase):
 
     def serialize(self) -> Serialized:
         return self.Serialized(
-            input_dimensions=self.input_dimensions,
+            input_dimensions=tuple(self.input_dimensions),
             hidden_blocks=tuple(block.serialize() for block in self.hidden_blocks),
             output_block=self.output_block.serialize(),
         )
@@ -253,8 +257,20 @@ class MultiLayerPerceptron(ModelBase):
         return sum(block.parameter_count for block in self.blocks)
 
     @property
-    def dimensions(self) -> Sequence[tuple[int, int]]:
-        return tuple(block.dimensions for block in self.blocks)
+    def block_dimensions(self) -> Sequence[tuple[Dimensions, Dimensions]]:
+        return tuple(HasDimensions.get_dimensions(block) for block in self.blocks)
+
+    def append_block(self, block: Hidden) -> None:
+        self._hidden_blocks = tuple([*self._hidden_blocks, block])
+
+    def prepend_block(self, block: Hidden) -> None:
+        self._hidden_blocks = tuple([block, *self._hidden_blocks])
+
+    def append_layer(self, layer: HiddenLayer) -> None:
+        last(self._hidden_blocks).append_layer(layer)
+
+    def prepend_layer(self, layer: HiddenLayer) -> None:
+        first(self._hidden_blocks).prepend_layer(layer)
 
 
 type Regulariser = Callable[[MultiLayerPerceptron], None]

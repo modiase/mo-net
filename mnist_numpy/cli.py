@@ -233,7 +233,18 @@ def train(
         if len(dims) == 0:
             dims = DEFAULT_DIMS
         model = MultiLayerPerceptron.of(
-            dimensions=(X_train.shape[1], *dims, N_DIGITS),
+            block_dimensions=(
+                tuple(
+                    map(
+                        lambda d: (d,),
+                        [
+                            X_train.shape[1],
+                            *dims,
+                            N_DIGITS,
+                        ],
+                    )
+                )
+            ),
             activation_fn=activation_fn,
             batch_norm_batch_size=batch_size,
             tracing_enabled=tracing_enabled,

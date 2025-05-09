@@ -9,12 +9,18 @@ from pyparsing import abstractmethod
 
 from mnist_numpy.functions import softmax
 from mnist_numpy.model.layer.base import _Base
-from mnist_numpy.protos import Activations, D, SupportsDeserialize, SupportsSerialize
+from mnist_numpy.protos import (
+    Activations,
+    D,
+    Dimensions,
+    SupportsDeserialize,
+    SupportsSerialize,
+)
 
-OutputLayerT_co = TypeVar("OutputLayerT_co", bound="_OutputLayer", covariant=True)
+OutputLayerT_co = TypeVar("OutputLayerT_co", bound="OutputLayer", covariant=True)
 
 
-class _OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
+class OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
     class Cache(TypedDict):
         output_activations: Activations | None
 
@@ -23,13 +29,13 @@ class _OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
     def __init__(
         self,
         *,
-        input_dimensions: int,
+        input_dimensions: Dimensions,
     ):
         super().__init__(
             input_dimensions=input_dimensions,
             output_dimensions=input_dimensions,
         )
-        self._cache: _OutputLayer.Cache = {
+        self._cache: OutputLayer.Cache = {
             "output_activations": None,
         }
 
@@ -51,10 +57,10 @@ class _OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
     def serialize(self) -> SupportsDeserialize: ...
 
 
-class SoftmaxOutputLayer(_OutputLayer):
+class SoftmaxOutputLayer(OutputLayer):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
+        input_dimensions: tuple[int, ...]
 
         def deserialize(
             self,
@@ -84,17 +90,21 @@ class SoftmaxOutputLayer(_OutputLayer):
         return np.atleast_1d(output_activations - Y_true)
 
     @property
-    def output_dimensions(self) -> int:
+    def output_dimensions(self) -> Dimensions:
         return self._input_dimensions
 
     def serialize(self) -> SoftmaxOutputLayer.Serialized:
-        return self.Serialized(input_dimensions=self._input_dimensions)
+        return self.Serialized(input_dimensions=tuple(self._input_dimensions))
 
 
 class RawOutputLayer(SoftmaxOutputLayer):
+    """
+    Uses softmax backprop but does not apply softmax to the output.
+    """
+
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        input_dimensions: int
+        input_dimensions: tuple[int, ...]
 
         def deserialize(
             self,

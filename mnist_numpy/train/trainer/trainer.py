@@ -173,7 +173,7 @@ class BasicTrainer:
             f" using optimizer {self._optimizer.__class__.__name__}."
         )
         logger.info(
-            f"Model has dimensions: {self._model.dimensions} and parameter count: {self._model.parameter_count}."
+            f"Model has dimensions: {self._model.block_dimensions} and parameter count: {self._model.parameter_count}."
         )
 
         self._model_checkpoint_path = self._training_parameters.log_path.with_name(
