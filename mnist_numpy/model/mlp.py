@@ -3,12 +3,15 @@ from __future__ import annotations
 import pickle
 from collections.abc import Callable, MutableSequence
 from dataclasses import dataclass
-from functools import reduce
+from functools import partial, reduce
 from operator import itemgetter
 from typing import (
     IO,
+    Literal,
     Self,
     Sequence,
+    assert_never,
+    overload,
 )
 
 import numpy as np
@@ -20,7 +23,7 @@ from mnist_numpy.functions import (
 )
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.block.base import Base, Hidden, Output
-from mnist_numpy.model.block.batch_norm import BatchNorm
+from mnist_numpy.model.block.norm import BatchNormOptions, LayerNormOptions, Norm
 from mnist_numpy.model.layer.base import Hidden as HiddenLayer
 from mnist_numpy.model.layer.input import Input
 from mnist_numpy.model.layer.linear import Linear
@@ -33,6 +36,7 @@ from mnist_numpy.protos import (
     GradLayer,
     HasDimensions,
     LossContributor,
+    NormalisationType,
     SupportsDeserialize,
     SupportsReinitialisation,
     UpdateGradientType,
@@ -66,6 +70,7 @@ class MultiLayerPerceptron(ModelBase):
     def output_dimensions(self) -> Dimensions:
         return self.output_block.output_layer.output_dimensions
 
+    @overload
     @classmethod
     def of(
         cls,
@@ -73,7 +78,35 @@ class MultiLayerPerceptron(ModelBase):
         block_dimensions: Sequence[Dimensions],
         activation_fn: ActivationFn = Identity,
         regularisers: Sequence[Regulariser] = (),
-        batch_norm_batch_size: int | None = None,
+        normalisation_type: Literal[NormalisationType.NONE, NormalisationType.LAYER] = (
+            NormalisationType.NONE
+        ),
+        batch_size: None = None,
+        tracing_enabled: bool = False,
+    ) -> Self: ...
+
+    @overload
+    @classmethod
+    def of(
+        cls,
+        *,
+        block_dimensions: Sequence[Dimensions],
+        activation_fn: ActivationFn = Identity,
+        regularisers: Sequence[Regulariser] = (),
+        normalisation_type: Literal[NormalisationType.BATCH],
+        batch_size: int,
+        tracing_enabled: bool = False,
+    ) -> Self: ...
+
+    @classmethod
+    def of(
+        cls,
+        *,
+        block_dimensions: Sequence[Dimensions],
+        activation_fn: ActivationFn = Identity,
+        regularisers: Sequence[Regulariser] = (),
+        normalisation_type: NormalisationType = NormalisationType.NONE,
+        batch_size: int | None = None,
         tracing_enabled: bool = False,
     ) -> Self:
         if len(block_dimensions) < 2:
@@ -85,20 +118,42 @@ class MultiLayerPerceptron(ModelBase):
         model_input_dimension, model_hidden_dimensions, model_output_dimension = (
             itemgetter(0, slice(1, -1), -1)(block_dimensions)
         )
+        Block: Callable[[Dimensions, Dimensions], Hidden]
+        match normalisation_type:
+            case NormalisationType.LAYER:
+                Block = partial(
+                    Norm,
+                    activation_fn=activation_fn,
+                    store_output_activations=tracing_enabled,
+                    options=LayerNormOptions(),
+                )
+            case NormalisationType.BATCH:
+                if batch_size is None:
+                    raise ValueError(
+                        "Batch size must be provided when using batch normalisation."
+                    )
+                Block = partial(
+                    Norm,
+                    activation_fn=activation_fn,
+                    store_output_activations=tracing_enabled,
+                    options=BatchNormOptions(
+                        batch_size=batch_size,
+                        momentum=0.9,
+                    ),
+                )
+            case NormalisationType.NONE:
+                Block = partial(
+                    Dense,
+                    activation_fn=activation_fn,
+                    store_output_activations=tracing_enabled,
+                )
+            case never:
+                assert_never(never)
+
         hidden_blocks: Sequence[Hidden] = tuple(
-            Dense(
+            Block(
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
-                activation_fn=activation_fn,
-                store_output_activations=tracing_enabled,
-            )
-            if batch_norm_batch_size is None
-            else BatchNorm(
-                input_dimensions=input_dimensions,
-                output_dimensions=output_dimensions,
-                activation_fn=activation_fn,
-                batch_size=batch_norm_batch_size,
-                store_output_activations=tracing_enabled,
             )
             for input_dimensions, output_dimensions in pairwise(
                 [model_input_dimension, *model_hidden_dimensions]

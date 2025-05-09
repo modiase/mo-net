@@ -1,5 +1,5 @@
 from .base import Base, Output
-from .batch_norm import BatchNorm
 from .dense import Dense
+from .norm import Norm
 
-__all__ = ["Base", "BatchNorm", "Dense", "Output"]
+__all__ = ["Base", "Norm", "Dense", "Output"]

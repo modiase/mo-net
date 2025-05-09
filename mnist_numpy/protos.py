@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from enum import StrEnum
 from typing import Generic, NewType, Protocol, Self, TypeVar, TypedDict, cast
 
 import numpy as np
@@ -184,3 +185,9 @@ class HasDimensions(Protocol):
         dimensioned: HasDimensions,
     ) -> tuple[Dimensions, Dimensions]:
         return dimensioned.input_dimensions, dimensioned.output_dimensions
+
+
+class NormalisationType(StrEnum):
+    LAYER = "layer"
+    BATCH = "batch"
+    NONE = "none"

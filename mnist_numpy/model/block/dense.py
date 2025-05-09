@@ -7,9 +7,9 @@ from mnist_numpy.protos import ActivationFn, Dimensions
 class Dense(Hidden):
     def __init__(
         self,
-        *,
         input_dimensions: Dimensions,
         output_dimensions: Dimensions,
+        *,
         activation_fn: ActivationFn,
         store_output_activations: bool = False,
     ):
