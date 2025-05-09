@@ -20,9 +20,8 @@ class WeightDecayRegulariser(TrainingStepHandler):
         self._layer.cache["dP"] = d(
             dP
             + Linear.Parameters(
-                _W=dP._W  # type: ignore[attr-defined]
-                + self._lambda * self._layer.parameters._W,
-                _B=dP._B,  # type: ignore[attr-defined]
+                _W=self._lambda * self._layer.parameters._W,
+                _B=np.zeros_like(dP._B),  # type: ignore[attr-defined]
             )
         )
         return dZ

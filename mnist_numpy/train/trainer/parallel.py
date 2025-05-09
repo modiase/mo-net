@@ -13,11 +13,11 @@ from typing import ContextManager, Final
 
 import numpy as np
 from loguru import logger
-from regulariser.weight_decay import attach_weight_decay_regulariser
 
 from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
+from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
 
 _64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
