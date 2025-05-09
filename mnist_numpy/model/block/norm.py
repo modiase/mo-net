@@ -1,23 +1,54 @@
+from dataclasses import dataclass
+from typing import assert_never
+
 from more_itertools import one
 
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
-from mnist_numpy.model.layer.batch_norm import BatchNorm as BatchNormLayer
+from mnist_numpy.model.layer.batch_norm import BatchNorm
+from mnist_numpy.model.layer.layer_norm import LayerNorm
 from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.protos import ActivationFn, Dimensions
 
 
-class BatchNorm(Hidden):
+@dataclass(kw_only=True, frozen=True)
+class BatchNormOptions:
+    batch_size: int
+    momentum: float
+
+
+@dataclass(kw_only=True, frozen=True)
+class LayerNormOptions:
+    pass
+
+
+class Norm(Hidden):
     def __init__(
         self,
         *,
         activation_fn: ActivationFn,
-        batch_size: int,
         input_dimensions: Dimensions,
+        options: BatchNormOptions | LayerNormOptions,
         output_dimensions: Dimensions,
-        momentum: float = 0.9,
-        store_output_activations: bool = False,
+        store_output_activations: bool,
     ):
+        norm_layer: BatchNorm | LayerNorm
+        match options:
+            case BatchNormOptions():
+                norm_layer = BatchNorm(
+                    neurons=one(output_dimensions),
+                    momentum=options.momentum,
+                    batch_size=options.batch_size,
+                    store_output_activations=store_output_activations,
+                )
+            case LayerNormOptions():
+                norm_layer = LayerNorm(
+                    neurons=one(output_dimensions),
+                    store_output_activations=store_output_activations,
+                )
+            case never:
+                assert_never(never)
+
         super().__init__(
             layers=tuple(
                 [
@@ -31,12 +62,7 @@ class BatchNorm(Hidden):
                         ),
                         store_output_activations=store_output_activations,
                     ),
-                    BatchNormLayer(
-                        neurons=one(output_dimensions),
-                        momentum=momentum,
-                        batch_size=batch_size,
-                        store_output_activations=store_output_activations,
-                    ),
+                    norm_layer,
                     Activation(
                         input_dimensions=output_dimensions,
                         activation_fn=activation_fn,

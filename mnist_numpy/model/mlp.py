@@ -20,7 +20,7 @@ from mnist_numpy.functions import (
 )
 from mnist_numpy.model import ModelBase
 from mnist_numpy.model.block.base import Base, Hidden, Output
-from mnist_numpy.model.block.batch_norm import BatchNorm
+from mnist_numpy.model.block.norm import LayerNormOptions, Norm
 from mnist_numpy.model.layer.base import Hidden as HiddenLayer
 from mnist_numpy.model.layer.input import Input
 from mnist_numpy.model.layer.linear import Linear
@@ -93,12 +93,12 @@ class MultiLayerPerceptron(ModelBase):
                 store_output_activations=tracing_enabled,
             )
             if batch_norm_batch_size is None
-            else BatchNorm(
+            else Norm(
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
                 activation_fn=activation_fn,
-                batch_size=batch_norm_batch_size,
                 store_output_activations=tracing_enabled,
+                options=LayerNormOptions(),
             )
             for input_dimensions, output_dimensions in pairwise(
                 [model_input_dimension, *model_hidden_dimensions]
