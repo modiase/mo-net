@@ -13,6 +13,7 @@ import numpy as np
 from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import peekable, sample
+from regulariser.weight_decay import attach_weight_decay_regulariser
 
 from mnist_numpy.data import (
     DATA_DIR,
@@ -30,7 +31,6 @@ from mnist_numpy.functions import (
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.layer.dropout import attach_dropout_layers
 from mnist_numpy.protos import ActivationFn, NormalisationType
-from mnist_numpy.regulariser.ridge import attach_l2_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
@@ -273,7 +273,7 @@ def train(
             training=True,
         )
     if regulariser_lambda > 0:
-        attach_l2_regulariser(
+        attach_weight_decay_regulariser(
             model=model,
             lambda_=regulariser_lambda,
             batch_size=batch_size,

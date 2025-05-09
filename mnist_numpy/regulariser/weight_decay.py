@@ -7,7 +7,7 @@ from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.protos import Activations, D, TrainingStepHandler, d
 
 
-class LayerL2Regulariser(TrainingStepHandler):
+class WeightDecayRegulariser(TrainingStepHandler):
     def __init__(self, *, lambda_: float, batch_size: int, layer: Linear):
         self._lambda = lambda_
         self._layer = layer
@@ -36,7 +36,7 @@ class LayerL2Regulariser(TrainingStepHandler):
         return self.compute_regularisation_loss()
 
 
-def attach_l2_regulariser(
+def attach_weight_decay_regulariser(
     *,
     lambda_: float,
     batch_size: int,
@@ -45,7 +45,7 @@ def attach_l2_regulariser(
     for layer in chain.from_iterable(block.layers for block in model.blocks):
         if not isinstance(layer, Linear):
             continue
-        layer_regulariser = LayerL2Regulariser(
+        layer_regulariser = WeightDecayRegulariser(
             lambda_=lambda_, batch_size=batch_size, layer=layer
         )
         layer.register_training_step_handler(layer_regulariser)
