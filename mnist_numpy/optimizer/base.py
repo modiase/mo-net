@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, Literal, Sequence, TypeVar, overload
+from typing import Generic, Literal, Protocol, Sequence, TypeVar, overload
 
 import numpy as np
 
@@ -10,11 +10,16 @@ from mnist_numpy.protos import SupportsGradientOperations
 ConfigT = TypeVar("ConfigT")
 
 
+class AfterComputeUpdateHandler(Protocol):
+    def __call__(self, learning_rate: float) -> None: ...
+
+
 class Base(ABC, Generic[ConfigT]):
     def __init__(self, *, model: MultiLayerPerceptron, config: ConfigT):
         self._model = model
         self._config = config
         self._iterations = 0
+        self._after_compute_update_handlers: Sequence[AfterComputeUpdateHandler] = ()
 
     @overload
     def training_step(
@@ -50,6 +55,8 @@ class Base(ABC, Generic[ConfigT]):
         if return_gradients:
             gradient = self._model.get_gradient_caches()
         self.compute_update()
+        for handler in self._after_compute_update_handlers:
+            handler(self.learning_rate)
         if return_gradients:
             update = self._model.get_gradient_caches()
             self._model.update_parameters()
@@ -79,6 +86,13 @@ class Base(ABC, Generic[ConfigT]):
     @property
     def config(self) -> ConfigT:
         return self._config
+
+    def register_after_compute_update_handler(
+        self, handler: AfterComputeUpdateHandler
+    ) -> None:
+        self._after_compute_update_handlers = tuple(
+            [*self._after_compute_update_handlers, handler]
+        )
 
 
 @dataclass(frozen=True, kw_only=True)

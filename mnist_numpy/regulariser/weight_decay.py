@@ -4,28 +4,27 @@ import numpy as np
 
 from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.mlp import MultiLayerPerceptron
-from mnist_numpy.protos import Activations, D, TrainingStepHandler, d
+from mnist_numpy.optimizer.base import Base as BaseOptimizer
+from mnist_numpy.protos import TrainingStepHandler, d
 
 
-class LayerL2Regulariser(TrainingStepHandler):
+class WeightDecayRegulariser(TrainingStepHandler):
+    """https://arxiv.org/pdf/1711.05101"""
+
     def __init__(self, *, lambda_: float, batch_size: int, layer: Linear):
         self._lambda = lambda_
         self._layer = layer
         self._batch_size = batch_size
 
-    def post_backward(self, dZ: D[Activations]) -> D[Activations]:
-        if self._layer.cache["dP"] is None:
-            raise ValueError("dP was not set during forward pass.")
-        dP = self._layer.cache["dP"]
+    def after_compute_update(self, learning_rate: float) -> None:
+        dP = self._layer.cache.get("dP", self._layer.empty_gradient())
         self._layer.cache["dP"] = d(
             dP
             + Linear.Parameters(
-                _W=dP._W  # type: ignore[attr-defined]
-                + self._lambda * self._layer.parameters._W,
-                _B=dP._B,  # type: ignore[attr-defined]
+                _W=self._lambda * learning_rate * self._layer.parameters._W,
+                _B=np.zeros_like(dP._B),  # type: ignore[attr-defined]
             )
         )
-        return dZ
 
     def compute_regularisation_loss(self) -> float:
         return (
@@ -36,17 +35,20 @@ class LayerL2Regulariser(TrainingStepHandler):
         return self.compute_regularisation_loss()
 
 
-def attach_l2_regulariser(
+def attach_weight_decay_regulariser(
     *,
     lambda_: float,
     batch_size: int,
+    optimizer: BaseOptimizer,
     model: MultiLayerPerceptron,
 ) -> None:
     for layer in chain.from_iterable(block.layers for block in model.blocks):
         if not isinstance(layer, Linear):
             continue
-        layer_regulariser = LayerL2Regulariser(
+        layer_regulariser = WeightDecayRegulariser(
             lambda_=lambda_, batch_size=batch_size, layer=layer
         )
-        layer.register_training_step_handler(layer_regulariser)
+        optimizer.register_after_compute_update_handler(
+            layer_regulariser.after_compute_update
+        )
         model.register_loss_contributor(layer_regulariser)

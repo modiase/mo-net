@@ -30,7 +30,7 @@ from mnist_numpy.functions import (
 from mnist_numpy.model import MultiLayerPerceptron
 from mnist_numpy.model.layer.dropout import attach_dropout_layers
 from mnist_numpy.protos import ActivationFn, NormalisationType
-from mnist_numpy.regulariser.ridge import attach_l2_regulariser
+from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
@@ -272,12 +272,6 @@ def train(
             keep_probs=dropout_keep_probs,
             training=True,
         )
-    if regulariser_lambda > 0:
-        attach_l2_regulariser(
-            model=model,
-            lambda_=regulariser_lambda,
-            batch_size=batch_size,
-        )
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
@@ -307,6 +301,14 @@ def train(
         warmup_epochs=warmup_epochs,
         workers=workers,
     )
+    optimizer = get_optimizer(optimizer_type, model, training_parameters)
+    if regulariser_lambda > 0:
+        attach_weight_decay_regulariser(
+            lambda_=regulariser_lambda,
+            batch_size=batch_size,
+            optimizer=optimizer,
+            model=model,
+        )
 
     def save_model(model_checkpoint_path: Path | None) -> None:
         if model_checkpoint_path is None:
@@ -328,7 +330,7 @@ def train(
         Y_test=Y_test,
         Y_train=Y_train,
         model=model,
-        optimizer=get_optimizer(optimizer_type, model, training_parameters),
+        optimizer=optimizer,
         start_epoch=start_epoch,
         training_parameters=training_parameters,
         disable_shutdown=training_parameters.workers != 0,

@@ -17,7 +17,7 @@ from loguru import logger
 from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
-from mnist_numpy.regulariser.ridge import attach_l2_regulariser
+from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
 
 _64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
@@ -130,7 +130,7 @@ def worker_process(
     )
 
     if regulariser_lambda > 0:
-        attach_l2_regulariser(
+        attach_weight_decay_regulariser(
             lambda_=regulariser_lambda,
             batch_size=X_train.shape[0],
             model=model,

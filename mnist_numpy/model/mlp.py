@@ -151,7 +151,7 @@ class MultiLayerPerceptron(ModelBase):
                 assert_never(never)
 
         hidden_blocks: Sequence[Hidden] = tuple(
-            Block(
+            Block(  # type: ignore[call-arg]
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
             )
