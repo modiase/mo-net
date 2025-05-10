@@ -18,6 +18,7 @@ from mnist_numpy.model.layer.output import (
     RawOutputLayer,
     SoftmaxOutputLayer,
 )
+from mnist_numpy.model.layer.reshape import Reshape
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import ConstantScheduler
@@ -345,3 +346,17 @@ def test_adam_optimizer(m3: MultiLayerPerceptron):
         optimizer.training_step(X_train_batch=X, Y_train_batch=Y_true)
     loss_after = m3.compute_loss(X=X, Y_true=Y_true)
     assert loss_before > loss_after, loss_before - loss_after
+
+
+def test_reshape_layer():
+    X = np.array([[1, 2, 3, 4], [1, 2, 3, 4]])
+    reshape = Reshape(input_dimensions=(4,), output_dimensions=(2, 2))
+    assert np.allclose(
+        reshape.forward_prop(input_activations=X), X.reshape(X.shape[0], 2, 2)
+    )
+
+
+def test_reshape_layer_backward_prop():
+    reshape = Reshape(input_dimensions=(4,), output_dimensions=(2, 2))
+    dZ = np.array([[[1, 2], [3, 4]], [[1, 2], [3, 4]]])
+    assert reshape._backward_prop(dZ=dZ).shape == (2, 4)
