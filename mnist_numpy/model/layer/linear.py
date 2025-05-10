@@ -173,14 +173,13 @@ class Linear(Hidden):
         )
         self._parameters_init_fn = parameters_init_fn
         if parameters is not None:
-            # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
-            if parameters._W.shape != (last(input_dimensions), last(output_dimensions)):
+            if parameters._W.shape != (one(input_dimensions), one(output_dimensions)):
                 raise ValueError(
                     f"Weight matrix shape ({parameters._W.shape}) "
                     f"does not match input dimensions ({input_dimensions}) "
                     f"and output dimensions ({output_dimensions})."
                 )
-            if parameters._B.shape != (last(output_dimensions),):
+            if parameters._B.shape != (one(output_dimensions),):
                 raise ValueError(
                     f"Bias vector shape ({parameters._B.shape}) "
                     f"does not match output dimensions ({output_dimensions})."
