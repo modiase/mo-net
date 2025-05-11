@@ -13,6 +13,7 @@ from mnist_numpy.model.block.base import Hidden, Output
 from mnist_numpy.model.layer import (
     Activation,
 )
+from mnist_numpy.model.layer.convolution import Convolution2D
 from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.layer.output import (
     RawOutputLayer,
@@ -360,3 +361,70 @@ def test_reshape_layer_backward_prop():
     reshape = Reshape(input_dimensions=(4,), output_dimensions=(2, 2))
     dZ = np.array([[[1, 2], [3, 4]], [[1, 2], [3, 4]]])
     assert reshape._backward_prop(dZ=dZ).shape == (2, 4)
+
+
+def test_pad_input():
+    layer1 = Convolution2D(input_dimensions=(1, 5, 5), kernel_size=1, padding=1, n_kernels=1)
+    layer2 = Convolution2D(input_dimensions=(1, 5, 5), kernel_size=1, padding=2, n_kernels=1)
+
+    input_activations = np.ones((5, 5)).reshape(1, 1, 5, 5)
+    assert np.array_equal(
+        layer1._pad_input(input_activations),
+        np.array([[[[0] * 7, *([0, 1, 1, 1, 1, 1, 0] for _ in range(5)), [0] * 7]]]),
+    )
+    assert np.array_equal(
+        layer2._pad_input(input_activations),
+        np.array(
+            [
+                [
+                    [
+                        *([0] * 9 for _ in range(2)),
+                        *([0, 0, 1, 1, 1, 1, 1, 0, 0] for _ in range(5)),
+                        *([0] * 9 for _ in range(2)),
+                    ]
+                ]
+            ]
+        ),
+    )
+
+def test_convolution_layer_output_shape():
+    layer1 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=1, padding=1, n_kernels=1)
+    input_activations = np.ones((1, 1, 3, 3))
+    output = layer1.forward_prop(input_activations=input_activations)
+    assert output.shape == tuple([input_activations.shape[0], *layer1.output_dimensions])
+
+    layer2 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, padding=1, n_kernels=1)
+    input_activations = np.ones((1, 1, 3, 3))
+    output = layer2.forward_prop(input_activations=input_activations)
+    assert output.shape == tuple([input_activations.shape[0], *layer2.output_dimensions])
+
+    layer3 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, padding=0, n_kernels=2)
+    input_activations = np.ones((1, 1, 3, 3))
+    output = layer3.forward_prop(input_activations=input_activations)
+    assert output.shape == tuple([input_activations.shape[0], *layer3.output_dimensions])
+
+def test_convolution_layer_forward_prop():
+    conv_layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, padding=1, n_kernels=1)
+    conv_layer._kernel_weights = Convolution2D.Parameters(weights=np.ones((1, 1, 2, 2)), bias=np.array([-2]))
+    activation_layer = Activation(input_dimensions=conv_layer.output_dimensions, activation_fn=ReLU)
+    # [[[[1, 1],
+    #    [1, 1]]]]
+    input_activations = np.ones((1, 1, 3, 3))
+    # Before padding:
+    # [[[[1, 1, 1],
+    #    [1, 1, 1],
+    #    [1, 1, 1]]]]
+    # After padding:
+    # [[[[0, 0, 0, 0, 0],
+    #    [0, 1, 1, 1, 0],
+    #    [0, 1, 1, 1, 0],
+    #    [0, 1, 1, 1, 0],
+    #    [0, 0, 0, 0, 0]]]]
+    output = activation_layer.forward_prop(input_activations=conv_layer.forward_prop(input_activations=input_activations))
+    expected_output = np.array([[[[0., 0., 0., 0.],
+                                  [0., 2., 2., 0.],
+                                  [0., 2., 2., 0.],
+                                  [0., 0., 0., 0.]]]])
+    assert np.allclose(output, expected_output)
+    
+    
