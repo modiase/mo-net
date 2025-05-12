@@ -138,13 +138,6 @@ def affine_transform(
 ) -> np.ndarray:
     transformations = (
         partial(
-            translate,
-            x_offset=np.random.randint(min_translation_pixels, max_translation_pixels),
-            y_offset=np.random.randint(min_translation_pixels, max_translation_pixels),
-            x_size=x_size,
-            y_size=y_size,
-        ),
-        partial(
             rotate,
             theta=np.random.random() * (max_rotation_radians - min_rotation_radians)
             + min_rotation_radians,
@@ -162,6 +155,13 @@ def affine_transform(
             scale,
             x_scale=np.random.random() * (max_scale - min_scale) + min_scale,
             y_scale=np.random.random() * (max_scale - min_scale) + min_scale,
+            x_size=x_size,
+            y_size=y_size,
+        ),
+        partial(
+            translate,
+            x_offset=np.random.randint(min_translation_pixels, max_translation_pixels),
+            y_offset=np.random.randint(min_translation_pixels, max_translation_pixels),
             x_size=x_size,
             y_size=y_size,
         ),
