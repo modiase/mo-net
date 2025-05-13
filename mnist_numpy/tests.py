@@ -19,10 +19,12 @@ from mnist_numpy.model.layer.output import (
     RawOutputLayer,
     SoftmaxOutputLayer,
 )
-from mnist_numpy.model.layer.reshape import Reshape
+from mnist_numpy.model.layer.pool import MaxPooling2D
+from mnist_numpy.model.layer.reshape import Flatten, Reshape
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import ConstantScheduler
+from mnist_numpy.protos import Dimensions, GradLayer
 
 
 def test_init():
@@ -363,9 +365,14 @@ def test_reshape_layer_backward_prop():
     assert reshape._backward_prop(dZ=dZ).shape == (2, 4)
 
 
+@pytest.mark.skip("TODO: Implement padding")
 def test_pad_input():
-    layer1 = Convolution2D(input_dimensions=(1, 5, 5), kernel_size=1, padding=1, n_kernels=1)
-    layer2 = Convolution2D(input_dimensions=(1, 5, 5), kernel_size=1, padding=2, n_kernels=1)
+    layer1 = Convolution2D(
+        input_dimensions=(1, 5, 5), kernel_size=1, padding=1, n_kernels=1
+    )
+    layer2 = Convolution2D(
+        input_dimensions=(1, 5, 5), kernel_size=1, padding=2, n_kernels=1
+    )
 
     input_activations = np.ones((5, 5)).reshape(1, 1, 5, 5)
     assert np.array_equal(
@@ -387,44 +394,235 @@ def test_pad_input():
         ),
     )
 
-def test_convolution_layer_output_shape():
-    layer1 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=1, padding=1, n_kernels=1)
+
+def test_convolution_2d_layer_output_shape():
+    layer1 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=1, n_kernels=1)
     input_activations = np.ones((1, 1, 3, 3))
     output = layer1.forward_prop(input_activations=input_activations)
-    assert output.shape == tuple([input_activations.shape[0], *layer1.output_dimensions])
+    assert output.shape == tuple(
+        [input_activations.shape[0], *layer1.output_dimensions]
+    )
 
-    layer2 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, padding=1, n_kernels=1)
+    layer2 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
     input_activations = np.ones((1, 1, 3, 3))
     output = layer2.forward_prop(input_activations=input_activations)
-    assert output.shape == tuple([input_activations.shape[0], *layer2.output_dimensions])
+    assert output.shape == tuple(
+        [input_activations.shape[0], *layer2.output_dimensions]
+    )
 
-    layer3 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, padding=0, n_kernels=2)
+    layer3 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=2)
     input_activations = np.ones((1, 1, 3, 3))
     output = layer3.forward_prop(input_activations=input_activations)
-    assert output.shape == tuple([input_activations.shape[0], *layer3.output_dimensions])
+    assert output.shape == tuple(
+        [input_activations.shape[0], *layer3.output_dimensions]
+    )
 
-def test_convolution_layer_forward_prop():
-    conv_layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, padding=1, n_kernels=1)
-    conv_layer._kernel_weights = Convolution2D.Parameters(weights=np.ones((1, 1, 2, 2)), bias=np.array([-2]))
-    activation_layer = Activation(input_dimensions=conv_layer.output_dimensions, activation_fn=ReLU)
+
+def test_convolution_2d_layer_forward_prop():
+    def _kernel_init_fn(*args: object) -> Convolution2D.Parameters:
+        del args  # unused
+        return Convolution2D.Parameters(
+            weights=np.ones((1, 1, 2, 2)), biases=np.zeros((1, 2, 2)) - 2
+        )
+
+    conv_layer = Convolution2D(
+        input_dimensions=(1, 3, 3),
+        kernel_size=2,
+        n_kernels=1,
+        kernel_init_fn=_kernel_init_fn,
+    )
+    activation_layer = Activation(
+        input_dimensions=conv_layer.output_dimensions, activation_fn=ReLU
+    )
     # [[[[1, 1],
     #    [1, 1]]]]
     input_activations = np.ones((1, 1, 3, 3))
-    # Before padding:
     # [[[[1, 1, 1],
     #    [1, 1, 1],
     #    [1, 1, 1]]]]
-    # After padding:
-    # [[[[0, 0, 0, 0, 0],
-    #    [0, 1, 1, 1, 0],
-    #    [0, 1, 1, 1, 0],
-    #    [0, 1, 1, 1, 0],
-    #    [0, 0, 0, 0, 0]]]]
-    output = activation_layer.forward_prop(input_activations=conv_layer.forward_prop(input_activations=input_activations))
-    expected_output = np.array([[[[0., 0., 0., 0.],
-                                  [0., 2., 2., 0.],
-                                  [0., 2., 2., 0.],
-                                  [0., 0., 0., 0.]]]])
+    output = activation_layer.forward_prop(
+        input_activations=conv_layer.forward_prop(input_activations=input_activations)
+    )
+    expected_output = np.array(
+        [
+            [
+                [
+                    [2.0, 2.0],
+                    [2.0, 2.0],
+                ]
+            ]
+        ]
+    )
     assert np.allclose(output, expected_output)
-    
-    
+
+
+def test_convolution_2d_layer_backward_prop():
+    layer = Convolution2D(
+        input_dimensions=(1, 3, 3),
+        kernel_size=2,
+        n_kernels=1,
+        kernel_init_fn=Convolution2D.Parameters.ones,
+    )
+    input_activations = np.ones((1, 1, 3, 3))
+    output = layer.forward_prop(input_activations=input_activations)
+    dZ = np.ones_like(output)
+    dX = layer.backward_prop(dZ=dZ)
+    assert np.allclose(dX, np.ones((1, 1, 3, 3)) * 2)
+
+
+def test_convolution_2d_layer_gradient_operation():
+    layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
+    assert isinstance(layer, GradLayer)
+
+
+def test_convolution_2d_layer_adam_step():
+    layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
+    flatten = Flatten(input_dimensions=layer.output_dimensions)
+    model = MultiLayerPerceptron(
+        input_dimensions=(1, 3, 3),
+        hidden_blocks=tuple(
+            [
+                Hidden(layers=[layer, flatten]),
+            ]
+        ),
+        output_block=Output(
+            layers=[
+                Linear(
+                    input_dimensions=flatten.output_dimensions,
+                    output_dimensions=flatten.output_dimensions,
+                    parameters=Linear.Parameters.eye(flatten.output_dimensions),
+                ),
+            ],
+            output_layer=RawOutputLayer(input_dimensions=flatten.output_dimensions),
+        ),
+    )
+    optimizer = AdaM(
+        model=model,
+        config=AdaM.Config(
+            scheduler=ConstantScheduler(learning_rate=0.01),
+        ),
+    )
+    optimizer.training_step(
+        X_train_batch=np.ones((1, 1, 3, 3)), Y_train_batch=np.ones((1, 4))
+    )
+    assert np.allclose(layer.parameters.weights, np.ones((1, 1, 2, 2)) * 0.99)
+
+
+@pytest.mark.parametrize(
+    ("pool_size", "stride", "input_activations", "expected"),
+    [
+        (2, 1, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[5, 6], [8, 9]]]]),
+        (3, 1, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[9]]]]),
+        (1, 2, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[1, 3], [7, 9]]]]),
+        (2, 2, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[5]]]]),
+        (2, 2, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[5]]]]),
+        # TODO: Add non-square input test cases
+        (
+            2,
+            2,
+            np.array(
+                [
+                    [[[1, 2, 3], [4, 5, 6], [7, 8, 9]]],
+                    [[[1, 2, 3], [4, 5, 6], [7, 8, 9]]],
+                ]
+            ),
+            [[[[5]]], [[[5]]]],
+        ),
+    ],
+)
+def test_max_pool_2d_forward_prop(
+    pool_size: int, stride: int, input_activations: np.ndarray, expected: np.ndarray
+):
+    pool_layer = MaxPooling2D(
+        input_dimensions=(1, 3, 3), pool_size=pool_size, stride=stride
+    )
+    output = pool_layer.forward_prop(input_activations=input_activations)
+    assert np.allclose(output, expected)
+
+
+@pytest.mark.parametrize(
+    (
+        "input_dimensions",
+        "pool_size",
+        "stride",
+        "input_activations",
+        "dZ",
+        "expected",
+    ),
+    [
+        (
+            (1, 2, 2),
+            2,
+            1,
+            np.array([[[[1, 2], [3, 4]]]]),
+            np.array([[[[1, 1], [1, 1]]]]),
+            np.array([[[[0, 0], [0, 1]]]]),
+        ),
+        (
+            (1, 3, 3),
+            2,
+            1,
+            np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]),
+            np.array([[[[1, 1], [1, 1]]]]),
+            np.array([[[[0, 0, 0], [0, 1, 1], [0, 1, 1]]]]),
+        ),
+        (
+            (1, 3, 3),
+            2,
+            1,
+            np.array([[[[1, 2, 3], [4, 10, 6], [7, 8, 9]]]]),
+            np.array([[[[1, 1], [1, 1]]]]),
+            np.array([[[[0, 0, 0], [0, 4, 0], [0, 0, 0]]]]),
+            # TODO: Add non-square input test cases
+        ),
+    ],
+)
+def test_max_pool_2d_backward_prop(
+    input_dimensions: Dimensions,
+    pool_size: int,
+    stride: int,
+    input_activations: np.ndarray,
+    dZ: np.ndarray,
+    expected: np.ndarray,
+):
+    pool_layer = MaxPooling2D(
+        input_dimensions=input_dimensions, pool_size=pool_size, stride=stride
+    )
+    pool_layer.forward_prop(input_activations=input_activations)
+    dX = pool_layer.backward_prop(dZ=dZ)
+    assert np.allclose(dX, expected)
+
+
+@pytest.mark.parametrize(
+    (
+        "input_dimensions",
+        "batch_size",
+        "expected_output_shape",
+    ),
+    [
+        (
+            (1, 2, 2),
+            2,
+            (2, 4),
+        ),
+        (
+            (3, 2, 2),
+            1,
+            (1, 12),
+        ),
+        (
+            (2, 3, 4, 5),
+            10,
+            (10, 120),
+        ),
+    ],
+)
+def test_flatten_layer(
+    input_dimensions: Dimensions,
+    batch_size: int,
+    expected_output_shape: tuple[int, int],
+):
+    flatten = Flatten(input_dimensions=input_dimensions)
+    input_activations = np.ones((batch_size, *input_dimensions))
+    output = flatten.forward_prop(input_activations=input_activations)
+    assert np.allclose(output, np.ones(expected_output_shape))

@@ -29,8 +29,8 @@ class Base(HasDimensions):
         for prev, curr in pairwise(layers):
             if prev.output_dimensions != curr.input_dimensions:
                 raise ValueError(
-                    f"Output dimensions of layer ({prev.output_dimensions}) "
-                    f"do not match input dimensions of layer to append ({curr.input_dimensions})."
+                    f"Output dimensions of layer {prev} ({prev.output_dimensions}) "
+                    f"do not match input dimensions of layer {curr} ({curr.input_dimensions})."
                 )
         self._layers: Sequence[HiddenLayer] = tuple(layers)
 

@@ -43,7 +43,7 @@ from mnist_numpy.protos import (
 )
 
 
-class MultiLayerPerceptron(ModelBase):
+class MultiLayerPerceptron(ModelBase):  # TODO: Rename
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: tuple[int, ...]
