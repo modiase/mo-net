@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 
 from mnist_numpy.model.layer.linear import Linear, Parameters
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.protos import RawGradientType, UpdateGradientType
 
 
@@ -56,7 +56,7 @@ class Tracer:
     def __init__(
         self,
         *,
-        model: MultiLayerPerceptron,
+        model: Model,
         training_log_path: Path,
         tracer_config: TracerConfig,
     ):

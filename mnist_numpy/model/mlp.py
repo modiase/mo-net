@@ -43,7 +43,7 @@ from mnist_numpy.protos import (
 )
 
 
-class MultiLayerPerceptron(ModelBase):  # TODO: Rename
+class Model(ModelBase):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: tuple[int, ...]
@@ -52,11 +52,11 @@ class MultiLayerPerceptron(ModelBase):  # TODO: Rename
 
     @classmethod
     def get_name(cls) -> str:
-        return "mlp"
+        return "model"
 
     @classmethod
     def get_description(cls) -> str:
-        return "MultiLayer Perceptron"
+        return "Model"
 
     @property
     def blocks(self) -> Sequence[Base]:
@@ -328,4 +328,4 @@ class MultiLayerPerceptron(ModelBase):  # TODO: Rename
         first(self._hidden_blocks).prepend_layer(layer)
 
 
-type Regulariser = Callable[[MultiLayerPerceptron], None]
+type Regulariser = Callable[[Model], None]

@@ -7,7 +7,7 @@ from more_itertools import one
 
 from mnist_numpy.functions import ReLU
 from mnist_numpy.model import (
-    MultiLayerPerceptron,
+    Model,
 )
 from mnist_numpy.model.block.base import Hidden, Output
 from mnist_numpy.model.layer import (
@@ -28,7 +28,7 @@ from mnist_numpy.protos import Dimensions, GradLayer
 
 
 def test_init():
-    model = MultiLayerPerceptron.of(block_dimensions=((2,), (2,), (2,)))
+    model = Model.of(block_dimensions=((2,), (2,), (2,)))
 
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
@@ -42,7 +42,7 @@ def test_init():
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
 @pytest.mark.parametrize("n_neurons", [2, 3, 4])
 def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
-    model = MultiLayerPerceptron(
+    model = Model(
         input_dimensions=(n_neurons,),
         hidden_blocks=tuple(
             Hidden(
@@ -77,7 +77,7 @@ def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
 def test_forward_prop_basic_math(factor: int):
     bias_1 = np.array([1, 2])
     bias_2 = np.array([1, 1])
-    model = MultiLayerPerceptron(
+    model = Model(
         input_dimensions=(5,),
         hidden_blocks=tuple(
             [
@@ -126,7 +126,7 @@ def test_forward_prop_basic_math(factor: int):
 
 @pytest.mark.parametrize(("X", "expected"), [(np.array([1]), 1), (np.array([-1]), 0)])
 def test_forward_prop_ReLU(X: np.ndarray, expected: float):
-    model = MultiLayerPerceptron(
+    model = Model(
         input_dimensions=(1,),
         hidden_blocks=tuple(
             [
@@ -161,8 +161,8 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
 
 
 @pytest.fixture
-def m1() -> MultiLayerPerceptron:
-    return MultiLayerPerceptron(
+def m1() -> Model:
+    return Model(
         input_dimensions=(1,),
         hidden_blocks=tuple(
             [
@@ -191,7 +191,7 @@ def m1() -> MultiLayerPerceptron:
     )
 
 
-def test_backward_prop_basic_math(m1: MultiLayerPerceptron):
+def test_backward_prop_basic_math(m1: Model):
     X = Y_true = np.array([[1]])
     m1.forward_prop(X)
     m1.backward_prop(Y_true)
@@ -211,8 +211,8 @@ def test_backward_prop_basic_math(m1: MultiLayerPerceptron):
 
 
 @pytest.fixture
-def m2() -> MultiLayerPerceptron:
-    return MultiLayerPerceptron(
+def m2() -> Model:
+    return Model(
         input_dimensions=(2,),
         hidden_blocks=tuple(
             [
@@ -244,7 +244,7 @@ def m2() -> MultiLayerPerceptron:
     )
 
 
-def test_backward_prop_update(m2: MultiLayerPerceptron):
+def test_backward_prop_update(m2: Model):
     X = np.array([[1, 0], [0, 1]])
     Y_true = np.array([[0.5, 0.5], [0.5, 0.5]])
     optimizer = Null(model=m2, config=Null.Config(learning_rate=0.1))
@@ -256,8 +256,8 @@ def test_backward_prop_update(m2: MultiLayerPerceptron):
 
 
 @pytest.fixture
-def m3() -> MultiLayerPerceptron:
-    return MultiLayerPerceptron(
+def m3() -> Model:
+    return Model(
         input_dimensions=(2,),
         hidden_blocks=tuple(
             [
@@ -303,7 +303,7 @@ def m3() -> MultiLayerPerceptron:
 @pytest.mark.skip(
     "This test is not currently testing anything. We need to think about a better test."
 )
-def test_backward_prop_update_deeper(m3: MultiLayerPerceptron, delta: float):
+def test_backward_prop_update_deeper(m3: Model, delta: float):
     X = np.array([[1, 1], [1, 1]])
     Y_true = np.array([[-1, -1], [-1, -1]])
     optimizer = AdaM(
@@ -321,21 +321,21 @@ def test_backward_prop_update_deeper(m3: MultiLayerPerceptron, delta: float):
 
 @pytest.mark.parametrize("modelname", ["m1", "m2", "m3"])
 def test_serialize_deserialize(modelname: str, request: pytest.FixtureRequest):
-    model: MultiLayerPerceptron = request.getfixturevalue(modelname)
+    model: Model = request.getfixturevalue(modelname)
     X = np.ones((1, one(model.input_dimensions)))
 
     X_prop_before = model.forward_prop(X)
     buffer = io.BytesIO()
     buffer.write(pickle.dumps(model.serialize()))
     buffer.seek(0)
-    deserialized = MultiLayerPerceptron.load(buffer)
+    deserialized = Model.load(buffer)
     X_prop_after = deserialized.forward_prop(X)
 
     assert model.block_dimensions == deserialized.block_dimensions
     assert np.allclose(X_prop_before, X_prop_after)
 
 
-def test_adam_optimizer(m3: MultiLayerPerceptron):
+def test_adam_optimizer(m3: Model):
     X = np.array([[1, 0], [0, 1]])
     Y_true = np.array([[0.8, 0.2], [0.2, 0.8]])
     optimizer = AdaM(
@@ -478,7 +478,7 @@ def test_convolution_2d_layer_gradient_operation():
 def test_convolution_2d_layer_adam_step():
     layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
     flatten = Flatten(input_dimensions=layer.output_dimensions)
-    model = MultiLayerPerceptron(
+    model = Model(
         input_dimensions=(1, 3, 3),
         hidden_blocks=tuple(
             [

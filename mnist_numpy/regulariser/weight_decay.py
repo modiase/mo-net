@@ -3,7 +3,7 @@ from itertools import chain
 import numpy as np
 
 from mnist_numpy.model.layer.linear import Linear
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.optimizer.base import Base as BaseOptimizer
 from mnist_numpy.protos import TrainingStepHandler, d
 
@@ -40,7 +40,7 @@ def attach_weight_decay_regulariser(
     lambda_: float,
     batch_size: int,
     optimizer: BaseOptimizer,
-    model: MultiLayerPerceptron,
+    model: Model,
 ) -> None:
     for layer in chain.from_iterable(block.layers for block in model.blocks):
         if not isinstance(layer, Linear):

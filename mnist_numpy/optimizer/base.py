@@ -4,7 +4,7 @@ from typing import Generic, Literal, Protocol, Sequence, TypeVar, overload
 
 import numpy as np
 
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.protos import SupportsGradientOperations
 
 ConfigT = TypeVar("ConfigT")
@@ -15,7 +15,7 @@ class AfterComputeUpdateHandler(Protocol):
 
 
 class Base(ABC, Generic[ConfigT]):
-    def __init__(self, *, model: MultiLayerPerceptron, config: ConfigT):
+    def __init__(self, *, model: Model, config: ConfigT):
         self._model = model
         self._config = config
         self._iterations = 0
@@ -74,7 +74,7 @@ class Base(ABC, Generic[ConfigT]):
     @abstractmethod
     def learning_rate(self) -> float: ...
 
-    def set_model(self, model: MultiLayerPerceptron) -> None:
+    def set_model(self, model: Model) -> None:
         self._model = model
 
     def snapshot(self) -> None:

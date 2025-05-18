@@ -1,7 +1,7 @@
 from .base import ModelBase
-from .mlp import MultiLayerPerceptron
+from .mlp import Model
 
 __all__ = [
     "ModelBase",
-    "MultiLayerPerceptron",
+    "Model",
 ]

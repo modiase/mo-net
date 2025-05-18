@@ -5,7 +5,7 @@ from typing import Final
 
 import numpy as np
 
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.optimizer.base import Base
 from mnist_numpy.optimizer.scheduler import ConstantScheduler, Scheduler
 from mnist_numpy.protos import GradLayer
@@ -34,7 +34,7 @@ class AdaM(Base[Config]):
     def __init__(
         self,
         *,
-        model: MultiLayerPerceptron,
+        model: Model,
         config: ConfigType,
     ):
         super().__init__(config=config, model=model)

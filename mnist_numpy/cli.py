@@ -27,7 +27,7 @@ from mnist_numpy.functions import (
     Tanh,
     parse_activation_fn,
 )
-from mnist_numpy.model import MultiLayerPerceptron
+from mnist_numpy.model import Model
 from mnist_numpy.model.block.base import Hidden, Output
 from mnist_numpy.model.block.convolution import Convolution
 from mnist_numpy.model.layer.dropout import attach_dropout_layers
@@ -239,14 +239,14 @@ def train(
     np.random.seed(seed)
     logger.info(f"Training model with {seed=}.")
 
-    model: MultiLayerPerceptron
+    model: Model
     train_set_size = X_train.shape[0]
     batch_size = batch_size if batch_size is not None else train_set_size
 
     if model_path is None:
         if len(dims) == 0:
             dims = DEFAULT_DIMS
-        model = MultiLayerPerceptron.of(  # type: ignore[call-overload]
+        model = Model.of(  # type: ignore[call-overload]
             block_dimensions=(
                 tuple(
                     map(
@@ -264,7 +264,7 @@ def train(
             normalisation_type=normalisation_type,
             tracing_enabled=tracing_enabled,
         )
-        model = MultiLayerPerceptron(
+        model = Model(
             input_dimensions=(784,),
             hidden_blocks=tuple(
                 [
@@ -311,7 +311,7 @@ def train(
             raise ValueError(
                 "Dims must not be provided when loading a model from a file."
             )
-        model = MultiLayerPerceptron.load(open(model_path, "rb"), training=True)
+        model = Model.load(open(model_path, "rb"), training=True)
 
     if dropout_keep_probs:
         attach_dropout_layers(
@@ -435,7 +435,7 @@ def infer(*, model_path: Path | None, data_path: Path):
         logger.error(f"File not found: {model_path}")
         sys.exit(1)
 
-    model = MultiLayerPerceptron.load(open(model_path, "rb"))
+    model = Model.load(open(model_path, "rb"))
 
     Y_pred = model.predict(X_train)
     Y_true = np.argmax(Y_train, axis=1)

@@ -15,7 +15,7 @@ import numpy as np
 from loguru import logger
 
 from mnist_numpy.augment import affine_transform
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
@@ -112,7 +112,7 @@ def worker_process(
     """Worker process that trains on batches and submits updates"""
 
     with open(model_checkpoint_path, "rb") as f:
-        model = MultiLayerPerceptron.load(f, training=True)
+        model = Model.load(f, training=True)
 
     worker_ready_event.set()
     X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
@@ -140,7 +140,7 @@ def worker_process(
         try:
             if reload_event.is_set():
                 with open(model_checkpoint_path, "rb") as f:
-                    model = MultiLayerPerceptron.load(f, training=True)
+                    model = Model.load(f, training=True)
                 reload_event.clear()
                 worker_ready_event.set()
 
@@ -188,9 +188,7 @@ class ParallelTrainer(BasicTrainer):
         logger.info(f"Resuming training from epoch {start_epoch}.")
 
         self._start_epoch = start_epoch
-        self._model = MultiLayerPerceptron.load(
-            open(model_checkpoint_path, "rb"), training=True
-        )
+        self._model = Model.load(open(model_checkpoint_path, "rb"), training=True)
         self._optimizer.set_model(self._model)
         self._optimizer.restore()
         if self._monitor is not None:

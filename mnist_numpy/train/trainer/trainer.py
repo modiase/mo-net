@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from mnist_numpy.augment import affine_transform
 from mnist_numpy.config import TrainingParameters
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.optimizer import Base, OptimizerConfigT
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
@@ -40,7 +40,7 @@ class TrainingResult:
 
 def get_optimizer(
     optimizer_type: str,
-    model: MultiLayerPerceptron,
+    model: Model,
     training_parameters: TrainingParameters,
 ) -> Base[Any]:
     if optimizer_type == "adam":
@@ -77,7 +77,7 @@ class BasicTrainer:
         self,
         *,
         disable_shutdown: bool = False,
-        model: MultiLayerPerceptron,
+        model: Model,
         optimizer: Base[OptimizerConfigT],
         training_parameters: TrainingParameters,
         start_epoch: int | None = None,
@@ -136,9 +136,7 @@ class BasicTrainer:
         logger.info(f"Resuming training from epoch {start_epoch}.")
 
         self._start_epoch = start_epoch
-        self._model = MultiLayerPerceptron.load(
-            open(model_checkpoint_path, "rb"), training=True
-        )
+        self._model = Model.load(open(model_checkpoint_path, "rb"), training=True)
         if self._monitor is not None:
             self._monitor.reset(restore_history=True)
         self._optimizer.set_model(self._model)
@@ -209,7 +207,7 @@ class BasicTrainer:
 
         if self._training_parameters.trace_logging:
             tracer = Tracer(
-                model=cast(MultiLayerPerceptron, self._model),  # TODO: Fix-types
+                model=cast(Model, self._model),  # TODO: Fix-types
                 training_log_path=self._training_parameters.log_path,
                 tracer_config=TracerConfig(
                     trace_strategy=PerEpochTracerStrategy(

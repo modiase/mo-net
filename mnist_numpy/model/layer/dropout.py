@@ -7,7 +7,7 @@ from typing import TypedDict
 import numpy as np
 
 from mnist_numpy.model.layer.base import Hidden
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.mlp import Model
 from mnist_numpy.protos import Activations, D, Dimensions
 
 
@@ -82,7 +82,7 @@ class DropoutLayer(Hidden):
 
 def attach_dropout_layers(
     *,
-    model: MultiLayerPerceptron,
+    model: Model,
     keep_probs: Sequence[float],
     training: bool,
 ) -> None:
