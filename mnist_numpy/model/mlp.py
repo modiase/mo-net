@@ -137,7 +137,6 @@ class Model(ModelBase):
                     activation_fn=activation_fn,
                     store_output_activations=tracing_enabled,
                     options=BatchNormOptions(
-                        batch_size=batch_size,
                         momentum=0.9,
                     ),
                 )

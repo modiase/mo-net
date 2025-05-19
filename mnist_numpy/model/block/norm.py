@@ -13,7 +13,6 @@ from mnist_numpy.protos import ActivationFn, Dimensions
 
 @dataclass(kw_only=True, frozen=True)
 class BatchNormOptions:
-    batch_size: int
     momentum: float
 
 
@@ -38,7 +37,6 @@ class Norm(Hidden):
                 norm_layer = BatchNorm(
                     neurons=one(output_dimensions),
                     momentum=options.momentum,
-                    batch_size=options.batch_size,
                     store_output_activations=store_output_activations,
                 )
             case LayerNormOptions():

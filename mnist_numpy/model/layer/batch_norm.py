@@ -128,6 +128,7 @@ class Cache(GradCache):
     mean: np.ndarray | None
     output_activations: Activations | None
     var: np.ndarray | None
+    size: int | None
 
 
 type CacheType = Cache
@@ -144,7 +145,6 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     class Serialized:
         neurons: int
         momentum: float
-        batch_size: int
         parameters: Parameters
         running_mean: np.ndarray
         running_variance: np.ndarray
@@ -157,7 +157,6 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             return BatchNorm(
                 neurons=self.neurons,
                 momentum=self.momentum,
-                batch_size=self.batch_size,
                 parameters=self.parameters,
                 running_mean=self.running_mean,
                 running_variance=self.running_variance,
@@ -167,7 +166,6 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     def __init__(
         self,
         *,
-        batch_size: int,
         neurons: int,
         momentum: float = 0.9,
         parameters: ParametersType | None = None,
@@ -193,10 +191,10 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             "input_activations": None,
             "mean": None,
             "output_activations": None,
+            "batch_size": None,
             "var": None,
         }
         self._store_output_activations = store_output_activations
-        self._batch_size = batch_size
         self._parameters = (
             parameters if parameters is not None else self.empty_parameters()
         )
@@ -222,6 +220,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
                     "input_activations": input_activations,
                     "mean": batch_mean,
                     "var": batch_variance,
+                    "batch_size": input_activations.shape[0],
                 }
             )
         else:
@@ -262,6 +261,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
                     _beta=d_beta,
                 )
             )
+        batch_size = self._cache["batch_size"]
 
         d_batch_variance = -0.5 * np.sum(
             dX_norm * (input_activations - mean) * np.power(var + self._EPSILON, -1.5),
@@ -271,13 +271,13 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
             + d_batch_variance
             * np.sum(-2 * (input_activations - mean), axis=0)
-            / self._batch_size
+            / batch_size
         )
 
         dX = (
             dX_norm / np.sqrt(var + self._EPSILON)
-            + d_batch_variance * 2 * (input_activations - mean) / self._batch_size
-            + d_batch_mean / self._batch_size
+            + d_batch_variance * 2 * (input_activations - mean) / batch_size
+            + d_batch_mean / batch_size
         )
 
         return dX
@@ -317,7 +317,6 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         return self.Serialized(
             neurons=one(self._input_dimensions),
             momentum=self._momentum,
-            batch_size=self._batch_size,
             parameters=self._parameters,
             running_mean=self._running_mean,
             running_variance=self._running_variance,
