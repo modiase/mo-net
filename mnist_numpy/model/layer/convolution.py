@@ -8,16 +8,27 @@ import numpy as np
 from scipy import signal
 
 from mnist_numpy.model.layer.base import Hidden
-from mnist_numpy.protos import Activations, D, Dimensions, GradLayer, d
+from mnist_numpy.protos import (
+    Activations,
+    D,
+    Dimensions,
+    GradLayer,
+    SupportsGradientOperations,
+    d,
+)
 
 
 class Cache(TypedDict):
+    input_activations: Activations | None
     output_activations: Activations | None
-    dP: D[Activations] | None
+    dP: D[Parameters] | None
+
+
+type CacheType = Cache
 
 
 @dataclass(frozen=True, kw_only=True)
-class Parameters:
+class Parameters(SupportsGradientOperations):
     weights: np.ndarray
     biases: np.ndarray
 
@@ -95,6 +106,9 @@ class Parameters:
                 )
             case never:
                 assert_never(never)
+
+    def __sub__(self, other: Parameters | float | int) -> Parameters:
+        return self + (-other)
 
     @classmethod
     def random(
@@ -247,21 +261,8 @@ class Convolution2D(Hidden):
             self._out_height,
             self._out_width,
         )
-        self._cache = self.Cache(output_activations=None, dP=None)
-
-    def _pad_input(self, input_activations: Activations) -> Activations:
-        if self._padding_x == 0 and self._padding_y == 0:
-            return input_activations
-        return np.pad(
-            input_activations,
-            (
-                (0, 0),
-                (0, 0),
-                (self._padding_y, self._padding_y),
-                (self._padding_x, self._padding_x),
-            ),
-            mode="constant",
-            constant_values=(0, 0),
+        self._cache = self.Cache(
+            input_activations=None, output_activations=None, dP=None
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
@@ -291,10 +292,10 @@ class Convolution2D(Hidden):
                         + self._parameters.biases[kernel_idx]
                     )
 
-        return output
+        return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        batch_size, n_kernels, _, _ = dZ.shape
+        batch_size, n_kernels, _, _ = dZ.shape  # type: ignore[attr-defined]
         input_activations = self._cache["input_activations"]
         if input_activations is None:
             raise ValueError("input_activations not set during forward_prop.")
@@ -307,24 +308,24 @@ class Convolution2D(Hidden):
         for batch_idx in range(batch_size):
             for kernel_idx in range(n_kernels):
                 for channel_idx in range(self._in_channels):
-                    dK[kernel_idx, channel_idx] += signal.correlate2d(
+                    dK[kernel_idx, channel_idx] += signal.correlate2d(  # type: ignore[index]
                         input_activations[batch_idx, channel_idx],
-                        dZ[batch_idx, kernel_idx],
+                        dZ[batch_idx, kernel_idx],  # type: ignore[index]
                         mode="valid",
                     )
-                    db[kernel_idx] += np.sum(dZ[batch_idx, kernel_idx])
-                    dX += signal.convolve2d(
+                    db[kernel_idx] += np.sum(dZ[batch_idx, kernel_idx])  # type: ignore[index]
+                    dX += signal.convolve2d(  # type: ignore[index]
                         self._parameters.weights[kernel_idx, channel_idx],
-                        dZ[batch_idx, kernel_idx],
+                        dZ[batch_idx, kernel_idx],  # type: ignore[index]
                         mode="full",
                     )
-        self._cache["dP"] = self.Parameters(weights=dK, biases=db)
-        return dX
+        self._cache["dP"] = d(self.Parameters(weights=dK, biases=db))
+        return d(Activations(dX))
 
-    def gradient_operation(self, *, f: Callable[[GradLayer], None]) -> None:
+    def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:
         f(self)
 
-    def empty_gradient(self) -> D[Parameters]:
+    def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
                 weights=np.zeros_like(self._parameters.weights),
@@ -333,11 +334,11 @@ class Convolution2D(Hidden):
         )
 
     @property
-    def cache(self) -> Cache:
+    def cache(self) -> CacheType:
         return self._cache
 
     @property
-    def parameters(self) -> Parameters:
+    def parameters(self) -> ParametersType:
         return self._parameters
 
     def update_parameters(self) -> None:
@@ -348,11 +349,12 @@ class Convolution2D(Hidden):
         self._cache["dP"] = None
 
     def serialize(self) -> Convolution2D.Serialized:
+        channels, height, width = self.input_dimensions
         return Convolution2D.Serialized(
-            input_dimensions=self.input_dimensions,
+            input_dimensions=(channels, height, width),
             n_kernels=self._n_kernels,
-            kernel_size=self._kernel_width,
-            stride=self._stride_x,
-            output_dimensions=self.output_dimensions,
+            kernel_size=(self._kernel_width, self._kernel_height),
+            stride=(self._stride_x, self._stride_y),
+            output_dimensions=(self._n_kernels, self._out_height, self._out_width),
             parameters=self._parameters,
         )

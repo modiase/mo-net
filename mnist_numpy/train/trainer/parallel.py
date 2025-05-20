@@ -18,7 +18,11 @@ from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.mlp import Model
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
-from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
+from mnist_numpy.train.trainer.trainer import (
+    BasicTrainer,
+    TrainingResult,
+    TrainingSuccessful,
+)
 
 _64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
 _PADDING_FACTOR: Final[float] = 1.2
@@ -129,13 +133,6 @@ def worker_process(
         buffer=Y_shared_memory.buf,
     )
 
-    if regulariser_lambda > 0:
-        attach_weight_decay_regulariser(
-            lambda_=regulariser_lambda,
-            batch_size=X_train.shape[0],
-            model=model,
-        )
-
     while not stop_event.is_set():
         try:
             if reload_event.is_set():
@@ -203,7 +200,7 @@ class ParallelTrainer(BasicTrainer):
         with self._create_training_loop_context():
             self._training_loop()
 
-        return TrainingResult(
+        return TrainingSuccessful(
             model_checkpoint_path=model_checkpoint_path,
         )
 
@@ -245,6 +242,13 @@ class ParallelTrainer(BasicTrainer):
         return p
 
     def _before_training_loop(self) -> None:
+        if self._training_parameters.regulariser_lambda > 0:
+            attach_weight_decay_regulariser(
+                lambda_=self._training_parameters.regulariser_lambda,
+                batch_size=self._X_train.shape[0],
+                model=self._model,
+                optimizer=self._optimizer,
+            )
         self._X_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._X_train.nbytes
         )

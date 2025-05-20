@@ -1,13 +1,12 @@
 from collections.abc import Sequence
-import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
 
 from mnist_numpy.model.mlp import Model
 from mnist_numpy.optimizer.base import Base
-from mnist_numpy.optimizer.scheduler import ConstantScheduler, Scheduler
+from mnist_numpy.optimizer.scheduler import Scheduler
 from mnist_numpy.protos import GradLayer
 
 DEFAULT_BETA_1: Final[float] = 0.9

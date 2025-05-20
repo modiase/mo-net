@@ -128,7 +128,7 @@ class Cache(GradCache):
     mean: np.ndarray | None
     output_activations: Activations | None
     var: np.ndarray | None
-    size: int | None
+    batch_size: int | None
 
 
 type CacheType = Cache

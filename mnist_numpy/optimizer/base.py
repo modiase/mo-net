@@ -20,6 +20,7 @@ class Base(ABC, Generic[ConfigT]):
         self._config = config
         self._iterations = 0
         self._after_compute_update_handlers: Sequence[AfterComputeUpdateHandler] = ()
+        self._learning_rate_snapshot_iterations: int | None = None
 
     @overload
     def training_step(
@@ -81,6 +82,8 @@ class Base(ABC, Generic[ConfigT]):
         self._learning_rate_snapshot_iterations = self._iterations
 
     def restore(self) -> None:
+        if self._learning_rate_snapshot_iterations is None:
+            raise ValueError("No snapshot to restore.")
         self._iterations = self._learning_rate_snapshot_iterations
 
     @property

@@ -21,10 +21,10 @@ class Reshape(Hidden):
             )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        return input_activations.reshape(-1, *self.output_dimensions)
+        return Activations(input_activations.reshape(-1, *self.output_dimensions))
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        return dZ.reshape(-1, *self.input_dimensions)
+        return dZ.reshape(-1, *self.input_dimensions)  # type: ignore[attr-defined]
 
     def serialize(self) -> Reshape.Serialized:
         return Reshape.Serialized(
@@ -33,7 +33,7 @@ class Reshape(Hidden):
         )
 
 
-class Flatten(Reshape):
+class Flatten(Hidden):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: tuple[int, ...]
@@ -50,10 +50,10 @@ class Flatten(Reshape):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        return input_activations.reshape(input_activations.shape[0], -1)
+        return Activations(input_activations.reshape(input_activations.shape[0], -1))
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        return dZ.reshape(dZ.shape[0], *self.input_dimensions)
+        return dZ.reshape(dZ.shape[0], *self.input_dimensions)  # type: ignore[attr-defined]
 
     def serialize(self) -> Flatten.Serialized:
         return Flatten.Serialized(

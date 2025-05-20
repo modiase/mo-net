@@ -18,6 +18,8 @@ class WeightDecayRegulariser(TrainingStepHandler):
 
     def after_compute_update(self, learning_rate: float) -> None:
         dP = self._layer.cache.get("dP", self._layer.empty_gradient())
+        if dP is None:
+            return
         self._layer.cache["dP"] = d(
             dP
             + Linear.Parameters(

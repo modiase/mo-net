@@ -5,8 +5,9 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ContextManager, Final, cast
+from typing import Any, ContextManager, Final, assert_never, cast
 
+from mnist_numpy.train.exceptions import CheckFailed
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -20,12 +21,6 @@ from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.train.batcher import Batcher
-from mnist_numpy.train.context import (
-    TrainingContext,
-    set_model_checkpoint_save_epoch,
-    set_training_progress,
-    training_context,
-)
 from mnist_numpy.train.monitor import Monitor
 from mnist_numpy.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 from mnist_numpy.protos import SupportsGradientOperations, UpdateGradientType
@@ -34,8 +29,19 @@ DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
 
 @dataclass(frozen=True, kw_only=True)
-class TrainingResult:
+class TrainingSuccessful:
     model_checkpoint_path: Path
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrainingFailed:
+    message: str
+    model_checkpoint_path: Path
+    model_checkpoint_save_epoch: int | None = None
+    training_progress: float | None = None
+
+
+type TrainingResult = TrainingSuccessful | TrainingFailed
 
 
 def get_optimizer(
@@ -68,7 +74,7 @@ def get_optimizer(
 
 type AfterTrainingStepHandler = Callable[
     [Sequence[SupportsGradientOperations], Sequence[SupportsGradientOperations]],
-    None,
+    None | CheckFailed,
 ]
 
 
@@ -141,12 +147,9 @@ class BasicTrainer:
             self._monitor.reset(restore_history=True)
         self._optimizer.set_model(self._model)
         self._optimizer.restore()
-        with self._create_training_loop_context():
-            self._training_loop()
 
-        return TrainingResult(
-            model_checkpoint_path=model_checkpoint_path,
-        )
+        with self._create_training_loop_context():
+            return self._training_loop()
 
     def train(self) -> TrainingResult:
         if not self._training_parameters.log_path.exists():
@@ -230,19 +233,8 @@ class BasicTrainer:
 
         self._before_training_loop()
 
-        training_context.set(
-            TrainingContext(
-                training_progress=0.0,
-                model_checkpoint_path=self._model_checkpoint_path,
-                model_checkpoint_save_epoch=self._start_epoch,
-            )
-        )
         with self._create_training_loop_context():
-            self._training_loop()
-
-        return TrainingResult(
-            model_checkpoint_path=self._model_checkpoint_path,
-        )
+            return self._training_loop()
 
     def _before_training_loop(self) -> None:
         x_size = y_size = int(
@@ -257,7 +249,7 @@ class BasicTrainer:
             else partial(affine_transform, x_size=x_size, y_size=y_size),
         )
 
-    def _training_loop(self) -> None:
+    def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
         for i in tqdm(
             range(
@@ -274,11 +266,22 @@ class BasicTrainer:
             unit_scale=1 / self._training_parameters.batches_per_epoch,
             bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         ):
-            set_training_progress(self._training_parameters.current_progress(i))
             with self._create_training_step_context():
                 gradient, update = self._training_step()
             for handler in self._after_training_step:
-                handler(gradient, update)
+                match handler(gradient, update):
+                    case CheckFailed() as check:
+                        return TrainingFailed(
+                            model_checkpoint_path=self._model_checkpoint_path,
+                            message=check.message,
+                            model_checkpoint_save_epoch=self._training_parameters.current_epoch(
+                                i
+                            ),
+                        )
+                    case None:
+                        pass
+                    case never:
+                        assert_never(never)
 
             if i % self._training_parameters.batches_per_epoch == 0:
                 L_train = self._model.compute_loss(
@@ -292,11 +295,21 @@ class BasicTrainer:
                     if self._monitor is not None:
                         self._monitor.clear_history()
                     self._optimizer.snapshot()
-                    set_model_checkpoint_save_epoch(
-                        self._training_parameters.current_epoch(i)
-                    )
                     self._L_test_min = L_test
-                self._post_epoch(L_test)
+                match self._post_epoch(L_test):
+                    case CheckFailed() as check:
+                        return TrainingFailed(
+                            model_checkpoint_path=self._model_checkpoint_path,
+                            message=check.message,
+                            model_checkpoint_save_epoch=self._training_parameters.current_epoch(
+                                i
+                            ),
+                        )
+                    case None:
+                        pass
+                    case never:
+                        assert_never(never)
+
                 pd.DataFrame(
                     [
                         [
@@ -328,6 +341,10 @@ class BasicTrainer:
                 )
                 last_log_time = time.time()
 
+        return TrainingSuccessful(
+            model_checkpoint_path=self._model_checkpoint_path,
+        )
+
     def _training_step(
         self,
     ) -> tuple[
@@ -344,9 +361,10 @@ class BasicTrainer:
             self._last_update = update
         return gradient, update
 
-    def _post_epoch(self, L_test: float) -> None:
+    def _post_epoch(self, L_test: float) -> CheckFailed | None:
         if not self._training_parameters.no_monitoring and self._monitor is not None:
-            self._monitor.post_epoch(L_test)
+            return self._monitor.post_epoch(L_test)
+        return None
 
     def shutdown(self) -> None:
         pass

@@ -1,4 +1,3 @@
-import atexit
 import functools
 import os
 import re
@@ -6,7 +5,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Final, ParamSpec, TypeVar
+from typing import Callable, Final, ParamSpec, TypeVar, assert_never
 
 import click
 import numpy as np
@@ -34,9 +33,13 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
-from mnist_numpy.train.exceptions import AbortTraining
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
-from mnist_numpy.train.trainer.trainer import BasicTrainer, get_optimizer
+from mnist_numpy.train.trainer.trainer import (
+    BasicTrainer,
+    TrainingFailed,
+    TrainingSuccessful,
+    get_optimizer,
+)
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -320,8 +323,6 @@ def train(
     if training_parameters.trace_logging:
         max_restarts = 0
 
-    # TODO: The control flow here is a bit messy.  Remove AbortTraining and use
-    # a return value instead. Augment TrainingResult to support resuming.
     start_epoch: int = 0
     model_checkpoint_path: Path | None = None
     trainer = (ParallelTrainer if training_parameters.workers > 0 else BasicTrainer)(
@@ -335,9 +336,8 @@ def train(
         training_parameters=training_parameters,
         disable_shutdown=training_parameters.workers != 0,
     )
-    atexit.register(trainer.shutdown)
-    while max_restarts is None or restarts <= max_restarts:
-        try:
+    try:
+        while max_restarts is None or restarts <= max_restarts:
             if restarts > 0:
                 if model_checkpoint_path is None:
                     raise ValueError(
@@ -346,15 +346,20 @@ def train(
                 training_result = trainer.resume(start_epoch, model_checkpoint_path)
             else:
                 training_result = trainer.train()
-        except AbortTraining as e:
-            logger.exception(e)
-            model_checkpoint_path = e.model_checkpoint_path
-            if e.model_checkpoint_save_epoch is not None:
-                start_epoch = e.model_checkpoint_save_epoch
-            restarts += 1
-        else:
-            save_model(training_result.model_checkpoint_path)
-            break
+            match training_result:
+                case TrainingSuccessful() as result:
+                    save_model(result.model_checkpoint_path)
+                    break
+                case TrainingFailed() as result:
+                    logger.error(result.message)
+                    model_checkpoint_path = result.model_checkpoint_path
+                    if result.model_checkpoint_save_epoch is not None:
+                        start_epoch = result.model_checkpoint_save_epoch
+                    restarts += 1
+                case never:
+                    assert_never(never)
+    finally:
+        trainer.shutdown()
 
 
 @cli.command(help="Run inference using the model")

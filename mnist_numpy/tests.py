@@ -24,7 +24,7 @@ from mnist_numpy.model.layer.reshape import Flatten, Reshape
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import ConstantScheduler
-from mnist_numpy.protos import Dimensions, GradLayer
+from mnist_numpy.protos import Activations, D, Dimensions, GradLayer
 
 
 def test_init():
@@ -365,36 +365,6 @@ def test_reshape_layer_backward_prop():
     assert reshape._backward_prop(dZ=dZ).shape == (2, 4)
 
 
-@pytest.mark.skip("TODO: Implement padding")
-def test_pad_input():
-    layer1 = Convolution2D(
-        input_dimensions=(1, 5, 5), kernel_size=1, padding=1, n_kernels=1
-    )
-    layer2 = Convolution2D(
-        input_dimensions=(1, 5, 5), kernel_size=1, padding=2, n_kernels=1
-    )
-
-    input_activations = np.ones((5, 5)).reshape(1, 1, 5, 5)
-    assert np.array_equal(
-        layer1._pad_input(input_activations),
-        np.array([[[[0] * 7, *([0, 1, 1, 1, 1, 1, 0] for _ in range(5)), [0] * 7]]]),
-    )
-    assert np.array_equal(
-        layer2._pad_input(input_activations),
-        np.array(
-            [
-                [
-                    [
-                        *([0] * 9 for _ in range(2)),
-                        *([0, 0, 1, 1, 1, 1, 1, 0, 0] for _ in range(5)),
-                        *([0] * 9 for _ in range(2)),
-                    ]
-                ]
-            ]
-        ),
-    )
-
-
 def test_convolution_2d_layer_output_shape():
     layer1 = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=1, n_kernels=1)
     input_activations = np.ones((1, 1, 3, 3))
@@ -531,7 +501,7 @@ def test_convolution_2d_layer_adam_step():
     ],
 )
 def test_max_pool_2d_forward_prop(
-    pool_size: int, stride: int, input_activations: np.ndarray, expected: np.ndarray
+    pool_size: int, stride: int, input_activations: Activations, expected: Activations
 ):
     pool_layer = MaxPooling2D(
         input_dimensions=(1, 3, 3), pool_size=pool_size, stride=stride
@@ -581,16 +551,16 @@ def test_max_pool_2d_backward_prop(
     input_dimensions: Dimensions,
     pool_size: int,
     stride: int,
-    input_activations: np.ndarray,
-    dZ: np.ndarray,
-    expected: np.ndarray,
+    input_activations: Activations,
+    dZ: D[Activations],
+    expected: D[Activations],
 ):
     pool_layer = MaxPooling2D(
         input_dimensions=input_dimensions, pool_size=pool_size, stride=stride
     )
     pool_layer.forward_prop(input_activations=input_activations)
     dX = pool_layer.backward_prop(dZ=dZ)
-    assert np.allclose(dX, expected)
+    assert np.allclose(dX, expected)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -623,6 +593,6 @@ def test_flatten_layer(
     expected_output_shape: tuple[int, int],
 ):
     flatten = Flatten(input_dimensions=input_dimensions)
-    input_activations = np.ones((batch_size, *input_dimensions))
+    input_activations = Activations(np.ones((batch_size, *input_dimensions)))
     output = flatten.forward_prop(input_activations=input_activations)
     assert np.allclose(output, np.ones(expected_output_shape))

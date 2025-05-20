@@ -41,7 +41,11 @@ module = "h5py"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module="plotille"
+module = "plotille"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "scipy"
 ignore_missing_imports = true
 
 [tool.setuptools]

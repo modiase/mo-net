@@ -103,8 +103,8 @@ class MaxPooling2D(Hidden):
                 h_indices = h_indices.reshape(batch_size, channels)
                 w_indices = w_indices.reshape(batch_size, channels)
 
-                self._cache["max_indices"][:, :, h, w, 0] = h_indices
-                self._cache["max_indices"][:, :, h, w, 1] = w_indices
+                self._cache["max_indices"][:, :, h, w, 0] = h_indices  # type: ignore[index]
+                self._cache["max_indices"][:, :, h, w, 1] = w_indices  # type: ignore[index]
 
                 output[:, :, h, w] = input_activations[
                     np.arange(batch_size)[:, None],
@@ -113,7 +113,7 @@ class MaxPooling2D(Hidden):
                     w_start + w_indices,
                 ]
 
-        return output
+        return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if (input_activations := self._cache["input_activations"]) is None:
@@ -140,13 +140,14 @@ class MaxPooling2D(Hidden):
                 batch_indices = np.arange(batch_size)[:, None]
                 channel_indices = np.arange(channels)[None, :]
 
-                dX[batch_indices, channel_indices, h_abs, w_abs] += dZ[:, :, h, w]
+                dX[batch_indices, channel_indices, h_abs, w_abs] += dZ[:, :, h, w]  # type: ignore[index]
 
         return dX
 
     def serialize(self) -> MaxPooling2D.Serialized:
+        channels, height, width = self.input_dimensions
         return MaxPooling2D.Serialized(
-            pool_size=self._pool_size_x,
-            stride=self._stride_x,
-            input_dimensions=self.input_dimensions,
+            pool_size=(self._pool_size_x, self._pool_size_y),
+            stride=(self._stride_x, self._stride_y),
+            input_dimensions=(channels, height, width),
         )

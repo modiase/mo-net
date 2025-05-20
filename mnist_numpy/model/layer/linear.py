@@ -21,6 +21,8 @@ from mnist_numpy.protos import (
     d_op,
 )
 
+EPSILON = 1e-8
+
 
 @dataclass(kw_only=True, frozen=True)
 class Parameters(SupportsGradientOperations):
@@ -67,8 +69,8 @@ class Parameters(SupportsGradientOperations):
         match other:
             case Parameters():
                 return self.__class__(
-                    _W=self._W / other._W,
-                    _B=self._B / other._B,
+                    _W=self._W / (other._W + EPSILON),
+                    _B=self._B / (other._B + EPSILON),
                 )
             case float() | int():
                 return self.__mul__(1 / other)
