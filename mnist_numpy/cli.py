@@ -396,29 +396,43 @@ def infer(*, model_path: Path | None, data_path: Path):
 
     model = Model.load(open(model_path, "rb"))
 
-    Y_pred = model.predict(X_train)
-    Y_true = np.argmax(Y_train, axis=1)
-    logger.info(f"Training Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
+    Y_train_pred = model.predict(X_train)
+    Y_train_true = np.argmax(Y_train, axis=1)
+    logger.info(
+        f"Training Set Accuracy: {np.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
+    )
 
-    Y_pred = model.predict(X_test)
-    Y_true = np.argmax(Y_test, axis=1)
-    logger.info(f"Test Set Accuracy: {np.sum(Y_pred == Y_true) / len(Y_pred)}")
+    Y_test_pred = model.predict(X_test)
+    Y_test_true = np.argmax(Y_test, axis=1)
+
+    X_cv = np.zeros_like(X_train)
+    for idx in range(len(X_cv)):
+        X_cv[idx] = affine_transform(X_train[idx], 28, 28)
+    Y_cv_pred = model.predict(X_cv)
+    Y_cv_true = np.argmax(Y_train, axis=1)
+    logger.info(f"CV Set Accuracy: {np.sum(Y_cv_pred == Y_cv_true) / len(Y_cv_pred)}")
+
+    precision = np.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)
+    recall = np.sum(Y_test_true == Y_test_pred) / len(Y_test_true)
+    f1_score = 2 * precision * recall / (precision + recall)
+    logger.info(f"F1 Score: {f1_score}")
 
     plt.figure(figsize=(15, 8))
     plt.suptitle("Mislabelled Examples (Sample)", fontsize=16)
 
-    sample_indices = sample(np.where(Y_true != Y_pred)[0], 25)
+    sample_indices = sample(np.where(Y_test_true != Y_test_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(8, 5, idx + 1)
         plt.imshow(X_test[i].reshape(28, 28), cmap="gray")
-        plt.title(f"Pred: {Y_pred[i]}, True: {Y_true[i]}")
+        plt.title(f"Pred: {Y_test_pred[i]}, True: {Y_test_true[i]}")
         plt.axis("off")
     plt.subplot(8, 1, (6, 8))
     unique_labels = list(range(10))
-    counts_pred = [np.sum(Y_pred == label) for label in unique_labels]
-    counts_true = [np.sum(Y_true == label) for label in unique_labels]
+    counts_pred = [np.sum(Y_test_pred == label) for label in unique_labels]
+    counts_true = [np.sum(Y_test_true == label) for label in unique_labels]
     counts_correct = [
-        np.sum((Y_true == Y_pred) & (Y_true == label)) for label in unique_labels
+        np.sum((Y_test_true == Y_test_pred) & (Y_test_true == label))
+        for label in unique_labels
     ]
 
     bar_width = 0.25
