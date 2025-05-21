@@ -13,6 +13,7 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import peekable, sample
 
+from mnist_numpy.augment import affine_transform
 from mnist_numpy.data import (
     DATA_DIR,
     DEFAULT_DATA_PATH,
@@ -447,11 +448,22 @@ def infer(*, model_path: Path | None, data_path: Path):
     help="Set the path to the data file",
     default=DEFAULT_DATA_PATH,
 )
-def sample_data(*, data_path: Path):
+@click.option(
+    "--with-transformed",
+    type=bool,
+    is_flag=True,
+    help="Sample the transformed data",
+    default=False,
+)
+def sample_data(*, data_path: Path, with_transformed: bool):
     X_train = load_data(data_path)[0]
     sample_indices = sample(range(len(X_train)), 25)
+    if with_transformed:
+        for i in sample_indices:
+            X_train[i] = affine_transform(X_train[i], 28, 28)
+    X_train = X_train.reshape(-1, 28, 28)
     for idx, i in enumerate(sample_indices):
         plt.subplot(5, 5, idx + 1)
-        plt.imshow(X_train[i].reshape(28, 28), cmap="gray")
+        plt.imshow(X_train[i], cmap="gray")
         plt.axis("off")
     plt.show()
