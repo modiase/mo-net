@@ -28,7 +28,7 @@ from mnist_numpy.model.layer.base import Hidden as HiddenLayer
 from mnist_numpy.model.layer.input import Input
 from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.block.dense import Dense
-from mnist_numpy.model.layer.output import SoftmaxOutputLayer
+from mnist_numpy.model.layer.output import OutputLayer, SoftmaxOutputLayer
 from mnist_numpy.protos import (
     ActivationFn,
     Activations,
@@ -72,10 +72,10 @@ class Model(ModelBase):
 
     @overload
     @classmethod
-    def of(
+    def mlp_of(
         cls,
         *,
-        block_dimensions: Sequence[Dimensions],
+        module_dimensions: Sequence[Dimensions],
         activation_fn: ActivationFn = Identity,
         regularisers: Sequence[Regulariser] = (),
         normalisation_type: Literal[NormalisationType.NONE, NormalisationType.LAYER] = (
@@ -87,10 +87,10 @@ class Model(ModelBase):
 
     @overload
     @classmethod
-    def of(
+    def mlp_of(
         cls,
         *,
-        block_dimensions: Sequence[Dimensions],
+        module_dimensions: Sequence[Dimensions],
         activation_fn: ActivationFn = Identity,
         regularisers: Sequence[Regulariser] = (),
         normalisation_type: Literal[NormalisationType.BATCH],
@@ -99,24 +99,24 @@ class Model(ModelBase):
     ) -> Self: ...
 
     @classmethod
-    def of(
+    def mlp_of(
         cls,
         *,
-        block_dimensions: Sequence[Dimensions],
+        module_dimensions: Sequence[Dimensions],
         activation_fn: ActivationFn = Identity,
         regularisers: Sequence[Regulariser] = (),
         normalisation_type: NormalisationType = NormalisationType.NONE,
         batch_size: int | None = None,
         tracing_enabled: bool = False,
     ) -> Self:
-        if len(block_dimensions) < 2:
+        if len(module_dimensions) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
 
         model_input_dimension: Dimensions
         model_hidden_dimensions: Sequence[Dimensions]
         model_output_dimension: Dimensions
         model_input_dimension, model_hidden_dimensions, model_output_dimension = (
-            itemgetter(0, slice(1, -1), -1)(block_dimensions)
+            itemgetter(0, slice(1, -1), -1)(module_dimensions)
         )
         Block: Callable[[Dimensions, Dimensions], Hidden]
         match normalisation_type:
@@ -180,8 +180,8 @@ class Model(ModelBase):
         )
         model = cls(
             input_dimensions=model_input_dimension,
-            hidden_blocks=hidden_blocks,
-            output_block=output_block,
+            hidden=hidden_blocks,
+            output=output_block,
         )
         for regulariser in regularisers:
             regulariser(model)
@@ -191,12 +191,23 @@ class Model(ModelBase):
         self,
         *,
         input_dimensions: Dimensions,
-        hidden_blocks: Sequence[Hidden],
-        output_block: Output,
+        hidden: Sequence[Hidden | HiddenLayer],
+        output: Output | OutputLayer,
     ):
         self._input_layer = Input(input_dimensions=input_dimensions)
-        self._hidden_blocks = hidden_blocks
-        self._output_block = output_block
+        if invalid := tuple(
+            module for module in hidden if not isinstance(module, (Hidden, HiddenLayer))
+        ):
+            raise ValueError(f"Invalid hidden modules: {invalid}")
+        self._hidden_blocks = tuple(
+            module if isinstance(module, Hidden) else Hidden(layers=(module,))
+            for module in hidden
+        )
+        if not isinstance(output, (Output, OutputLayer)):
+            raise ValueError(f"Invalid output module: {output}")
+        self._output_block = (
+            output if isinstance(output, Output) else Output(output_layer=output)
+        )
         self._loss_contributors: MutableSequence[LossContributor] = []
 
     def reinitialise(self) -> None:
@@ -267,11 +278,11 @@ class Model(ModelBase):
             raise ValueError(f"Invalid serialized model: {serialized}")
         return cls(
             input_dimensions=serialized.input_dimensions,
-            hidden_blocks=tuple(
+            hidden=tuple(
                 block.deserialize(training=training)
                 for block in serialized.hidden_blocks
             ),
-            output_block=serialized.output_block.deserialize(training=training),
+            output=serialized.output_block.deserialize(training=training),
         )
 
     def predict(self, X: np.ndarray) -> np.ndarray:

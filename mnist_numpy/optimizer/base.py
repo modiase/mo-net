@@ -4,7 +4,7 @@ from typing import Generic, Literal, Protocol, Sequence, TypeVar, overload
 
 import numpy as np
 
-from mnist_numpy.model.mlp import Model
+from mnist_numpy.model.model import Model
 from mnist_numpy.protos import SupportsGradientOperations
 
 ConfigT = TypeVar("ConfigT")

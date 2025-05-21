@@ -5,7 +5,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Final, ParamSpec, TypeVar, assert_never
+from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never
 
 import click
 import numpy as np
@@ -30,6 +30,7 @@ from mnist_numpy.functions import (
 from mnist_numpy.model import Model
 from mnist_numpy.model.layer.dropout import attach_dropout_layers
 from mnist_numpy.protos import ActivationFn, NormalisationType
+from mnist_numpy.quickstart import mnist_cnn, mnist_mlp
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
@@ -45,10 +46,8 @@ from mnist_numpy.train.trainer.trainer import (
 P = ParamSpec("P")
 R = TypeVar("R")
 
-DEFAULT_DIMS: Final[Sequence[int]] = (10, 10)
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "1e-4, 1e-2"
-DEFAULT_NUM_EPOCHS: Final[int] = 1000
-MINIMUM_PROGRESS_FOR_SAVING: Final[float] = 0.1
+DEFAULT_NUM_EPOCHS: Final[int] = 100
 N_DIGITS: Final[int] = 10
 
 
@@ -209,6 +208,13 @@ def cli(): ...
     help="Set the maximum length of the history",
     default=100,
 )
+@click.option(
+    "-q",
+    "--quickstart",
+    type=click.Choice(["mlp", "cnn"]),
+    help="Set the quickstart",
+    default=None,
+)
 def train(
     *,
     activation_fn: ActivationFn,
@@ -226,6 +232,7 @@ def train(
     normalisation_type: NormalisationType,
     num_epochs: int,
     optimizer_type: str,
+    quickstart: Literal["mlp", "cnn"] | None,
     regulariser_lambda: float,
     training_log_path: Path | None,
     tracing_enabled: bool,
@@ -242,27 +249,52 @@ def train(
     train_set_size = X_train.shape[0]
     batch_size = batch_size if batch_size is not None else train_set_size
 
+    training_parameters = TrainingParameters(
+        batch_size=batch_size,
+        dropout_keep_probs=tuple(dropout_keep_probs),
+        history_max_len=history_max_len,
+        learning_rate_limits=learning_rate_limits,
+        monotonic=monotonic,
+        no_monitoring=no_monitoring,
+        no_transform=no_transform,
+        normalisation_type=normalisation_type,
+        num_epochs=num_epochs,
+        regulariser_lambda=regulariser_lambda,
+        trace_logging=tracing_enabled,
+        train_set_size=train_set_size,
+        warmup_epochs=warmup_epochs,
+        workers=workers,
+    )
+
     if model_path is None:
-        if len(dims) == 0:
-            dims = DEFAULT_DIMS
-        model = Model.of(  # type: ignore[call-overload]
-            block_dimensions=(
-                tuple(
-                    map(
-                        lambda d: (d,),
-                        [
-                            X_train.shape[1],
-                            *dims,
-                            N_DIGITS,
-                        ],
-                    )
+        match quickstart:
+            case None:
+                if len(dims) == 0:
+                    raise ValueError("Dims must be provided when training a new model.")
+                model = Model.mlp_of(  # type: ignore[call-overload]
+                    module_dimensions=(
+                        tuple(
+                            map(
+                                lambda d: (d,),
+                                [
+                                    X_train.shape[1],
+                                    *dims,
+                                    N_DIGITS,
+                                ],
+                            )
+                        )
+                    ),
+                    activation_fn=activation_fn,
+                    batch_size=batch_size,
+                    normalisation_type=normalisation_type,
+                    tracing_enabled=tracing_enabled,
                 )
-            ),
-            activation_fn=activation_fn,
-            batch_size=batch_size,
-            normalisation_type=normalisation_type,
-            tracing_enabled=tracing_enabled,
-        )
+            case "mlp":
+                model = mnist_mlp(training_parameters)
+            case "cnn":
+                model = mnist_cnn(training_parameters)
+            case never_quickstart:
+                assert_never(never_quickstart)
     else:
         if len(dims) != 0:
             raise ValueError(
@@ -288,23 +320,6 @@ def train(
         model_path = OUTPUT_PATH / training_log_path.name.replace(
             "training_log.csv", ".pkl"
         )
-    training_parameters = TrainingParameters(
-        batch_size=batch_size,
-        dropout_keep_probs=tuple(dropout_keep_probs),
-        history_max_len=history_max_len,
-        learning_rate_limits=learning_rate_limits,
-        log_path=training_log_path,
-        monotonic=monotonic,
-        no_monitoring=no_monitoring,
-        no_transform=no_transform,
-        normalisation_type=normalisation_type,
-        num_epochs=num_epochs,
-        regulariser_lambda=regulariser_lambda,
-        trace_logging=tracing_enabled,
-        train_set_size=train_set_size,
-        warmup_epochs=warmup_epochs,
-        workers=workers,
-    )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
     if regulariser_lambda > 0:
         attach_weight_decay_regulariser(
@@ -331,6 +346,7 @@ def train(
         X_train=X_train,
         Y_test=Y_test,
         Y_train=Y_train,
+        log_path=training_log_path,
         model=model,
         optimizer=optimizer,
         start_epoch=start_epoch,
@@ -357,8 +373,8 @@ def train(
                     if result.model_checkpoint_save_epoch is not None:
                         start_epoch = result.model_checkpoint_save_epoch
                     restarts += 1
-                case never:
-                    assert_never(never)
+                case never_training_result:
+                    assert_never(never_training_result)
     finally:
         trainer.shutdown()
 

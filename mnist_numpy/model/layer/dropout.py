@@ -7,7 +7,7 @@ from typing import TypedDict
 import numpy as np
 
 from mnist_numpy.model.layer.base import Hidden
-from mnist_numpy.model.mlp import Model
+from mnist_numpy.model.model import Model
 from mnist_numpy.protos import Activations, D, Dimensions
 
 

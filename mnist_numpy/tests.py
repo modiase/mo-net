@@ -28,7 +28,7 @@ from mnist_numpy.protos import Activations, D, Dimensions, GradLayer
 
 
 def test_init():
-    model = Model.of(block_dimensions=((2,), (2,), (2,)))
+    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
 
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
@@ -44,7 +44,7 @@ def test_init():
 def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
     model = Model(
         input_dimensions=(n_neurons,),
-        hidden_blocks=tuple(
+        hidden=tuple(
             Hidden(
                 layers=[
                     Linear(
@@ -56,7 +56,7 @@ def test_forward_prop_eye(n_hidden_layers: int, n_neurons: int):
             )
             for _ in range(n_hidden_layers)
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=(n_neurons,),
@@ -79,7 +79,7 @@ def test_forward_prop_basic_math(factor: int):
     bias_2 = np.array([1, 1])
     model = Model(
         input_dimensions=(5,),
-        hidden_blocks=tuple(
+        hidden=tuple(
             [
                 Hidden(
                     layers=[
@@ -104,7 +104,7 @@ def test_forward_prop_basic_math(factor: int):
                 )
             ]
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=(2,),
@@ -128,7 +128,7 @@ def test_forward_prop_basic_math(factor: int):
 def test_forward_prop_ReLU(X: np.ndarray, expected: float):
     model = Model(
         input_dimensions=(1,),
-        hidden_blocks=tuple(
+        hidden=tuple(
             [
                 Hidden(
                     layers=[
@@ -145,7 +145,7 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
                 )
             ]
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=(1,),
@@ -164,7 +164,7 @@ def test_forward_prop_ReLU(X: np.ndarray, expected: float):
 def m1() -> Model:
     return Model(
         input_dimensions=(1,),
-        hidden_blocks=tuple(
+        hidden=tuple(
             [
                 Hidden(
                     layers=[
@@ -178,7 +178,7 @@ def m1() -> Model:
                 )
             ]
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=(1,),
@@ -214,7 +214,7 @@ def test_backward_prop_basic_math(m1: Model):
 def m2() -> Model:
     return Model(
         input_dimensions=(2,),
-        hidden_blocks=tuple(
+        hidden=tuple(
             [
                 Hidden(
                     layers=[
@@ -229,7 +229,7 @@ def m2() -> Model:
                 )
             ]
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=(2,),
@@ -259,7 +259,7 @@ def test_backward_prop_update(m2: Model):
 def m3() -> Model:
     return Model(
         input_dimensions=(2,),
-        hidden_blocks=tuple(
+        hidden=tuple(
             [
                 Hidden(
                     layers=[
@@ -285,7 +285,7 @@ def m3() -> Model:
                 ),
             ]
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=(2,),
@@ -450,12 +450,12 @@ def test_convolution_2d_layer_adam_step():
     flatten = Flatten(input_dimensions=layer.output_dimensions)
     model = Model(
         input_dimensions=(1, 3, 3),
-        hidden_blocks=tuple(
+        hidden=tuple(
             [
                 Hidden(layers=[layer, flatten]),
             ]
         ),
-        output_block=Output(
+        output=Output(
             layers=[
                 Linear(
                     input_dimensions=flatten.output_dimensions,

@@ -4,7 +4,7 @@ from typing import Final
 
 import numpy as np
 
-from mnist_numpy.model.mlp import Model
+from mnist_numpy.model.model import Model
 from mnist_numpy.optimizer.base import Base
 from mnist_numpy.optimizer.scheduler import Scheduler
 from mnist_numpy.protos import GradLayer

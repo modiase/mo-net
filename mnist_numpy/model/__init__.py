@@ -1,5 +1,5 @@
 from .base import ModelBase
-from .mlp import Model
+from .model import Model
 
 __all__ = [
     "ModelBase",

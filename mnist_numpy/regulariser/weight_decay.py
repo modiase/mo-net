@@ -3,7 +3,7 @@ from itertools import chain
 import numpy as np
 
 from mnist_numpy.model.layer.linear import Linear
-from mnist_numpy.model.mlp import Model
+from mnist_numpy.model.model import Model
 from mnist_numpy.optimizer.base import Base as BaseOptimizer
 from mnist_numpy.protos import TrainingStepHandler, d
 

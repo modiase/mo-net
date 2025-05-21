@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 
 from mnist_numpy.model.layer.linear import Linear, Parameters
-from mnist_numpy.model.mlp import Model
+from mnist_numpy.model.model import Model
 from mnist_numpy.protos import RawGradientType, UpdateGradientType
 
 

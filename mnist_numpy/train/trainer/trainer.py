@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from mnist_numpy.augment import affine_transform
 from mnist_numpy.config import TrainingParameters
-from mnist_numpy.model.mlp import Model
+from mnist_numpy.model.model import Model
 from mnist_numpy.optimizer import Base, OptimizerConfigT
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
@@ -86,6 +86,7 @@ class BasicTrainer:
         model: Model,
         optimizer: Base[OptimizerConfigT],
         training_parameters: TrainingParameters,
+        log_path: Path,
         start_epoch: int | None = None,
         X_train: np.ndarray,
         Y_train: np.ndarray,
@@ -93,6 +94,7 @@ class BasicTrainer:
         Y_test: np.ndarray,
     ) -> None:
         self._disable_shutdown = disable_shutdown
+        self._log_path = log_path
         self._model = model
         self._monitor: Monitor | None = None
         self._start_epoch = start_epoch if start_epoch is not None else 0
@@ -152,7 +154,7 @@ class BasicTrainer:
             return self._training_loop()
 
     def train(self) -> TrainingResult:
-        if not self._training_parameters.log_path.exists():
+        if not self._log_path.exists():
             self._training_log = pd.DataFrame(
                 columns=[
                     "epoch",
@@ -164,9 +166,9 @@ class BasicTrainer:
                     "timestamp",
                 ]
             )
-            self._training_log.to_csv(self._training_parameters.log_path, index=False)
+            self._training_log.to_csv(self._log_path, index=False)
         else:
-            self._training_log = pd.read_csv(self._training_parameters.log_path)
+            self._training_log = pd.read_csv(self._log_path)
 
         logger.info(
             f"Training model {self._model.__class__.__name__}"
@@ -174,20 +176,14 @@ class BasicTrainer:
             f" using optimizer {self._optimizer.__class__.__name__}."
         )
         logger.info(
-            f"Model has dimensions: {self._model.block_dimensions} and parameter count: {self._model.parameter_count}."
+            f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.block_dimensions)} and parameter count: {self._model.parameter_count}."
         )
 
-        self._model_checkpoint_path = self._training_parameters.log_path.with_name(
-            self._training_parameters.log_path.name.replace(
-                "training_log.csv", "partial.pkl"
-            )
+        self._model_checkpoint_path = self._log_path.with_name(
+            self._log_path.name.replace("training_log.csv", "partial.pkl")
         )
-        self._model_training_parameters_path = (
-            self._training_parameters.log_path.with_name(
-                self._training_parameters.log_path.name.replace(
-                    "training_log.csv", "training_parameters.json"
-                )
-            )
+        self._model_training_parameters_path = self._log_path.with_name(
+            self._log_path.name.replace("training_log.csv", "training_parameters.json")
         )
         if not self._model_training_parameters_path.exists():
             self._model_training_parameters_path.write_text(
@@ -200,7 +196,7 @@ class BasicTrainer:
 
         logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
         logger.info(f"Training parameters: {self._training_parameters}.")
-        logger.info(f"Training log path: {self._training_parameters.log_path}.")
+        logger.info(f"Training log path: {self._log_path}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
         self._L_train_min = self._model.compute_loss(
@@ -211,7 +207,7 @@ class BasicTrainer:
         if self._training_parameters.trace_logging:
             tracer = Tracer(
                 model=cast(Model, self._model),  # TODO: Fix-types
-                training_log_path=self._training_parameters.log_path,
+                training_log_path=self._log_path,
                 tracer_config=TracerConfig(
                     trace_strategy=PerEpochTracerStrategy(
                         training_set_size=self._training_parameters.train_set_size,
@@ -324,7 +320,7 @@ class BasicTrainer:
                     ],
                     columns=self._training_log.columns,
                 ).to_csv(
-                    self._training_parameters.log_path,
+                    self._log_path,
                     mode="a",
                     header=False,
                     index=False,
