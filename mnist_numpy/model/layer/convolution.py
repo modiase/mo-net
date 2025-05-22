@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TypedDict, assert_never
 
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 from scipy import signal
 
 from mnist_numpy.model.layer.base import Hidden
@@ -266,59 +267,107 @@ class Convolution2D(Hidden):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        batch_size, in_channels = input_activations.shape[:2]
+        batch_size = input_activations.shape[0]
         self._cache["input_activations"] = input_activations
 
-        output = np.zeros(
-            (
+        input_windows = as_strided(
+            input_activations,
+            shape=(
                 batch_size,
-                self._n_kernels,
+                self._in_channels,
                 self._out_height,
                 self._out_width,
-            )
+                self._kernel_height,
+                self._kernel_width,
+            ),
+            strides=(
+                input_activations.strides[0],
+                input_activations.strides[1],
+                input_activations.strides[2] * self._stride_y,
+                input_activations.strides[3] * self._stride_x,
+                input_activations.strides[2],
+                input_activations.strides[3],
+            ),
+            writeable=False,
         )
 
-        # TODO: This is a slow implementation because it uses explicit looping.
-        # Explore vectorized implementation (k.w. search for 'unroll' method).
-        for batch_idx in range(batch_size):
-            for kernel_idx in range(self._n_kernels):
-                for channel_idx in range(in_channels):
-                    output[batch_idx, kernel_idx] += (
-                        signal.correlate2d(
-                            input_activations[batch_idx, channel_idx],
-                            self._parameters.weights[kernel_idx, channel_idx],
-                            mode="valid",
-                        )[:: self._stride_y, :: self._stride_x]
-                        + self._parameters.biases[kernel_idx]
-                    )
+        output = np.einsum(
+            "bchwij,kcij->bkhw", input_windows, self._parameters.weights, optimize=True
+        )
+
+        output += self._parameters.biases[np.newaxis, :, :, :]
 
         return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        batch_size, n_kernels, _, _ = dZ.shape  # type: ignore[attr-defined]
+        batch_size, n_kernels, dZ_height, dZ_width = dZ.shape
         input_activations = self._cache["input_activations"]
         if input_activations is None:
             raise ValueError("input_activations not set during forward_prop.")
 
-        dX = np.zeros(self.input_dimensions[1:])
-        dK = np.zeros(self._parameters.weights.shape)
-        db = np.zeros(self._parameters.biases.shape)
-        # TODO: This is a slow implementation because it uses explicit looping.
-        # Explore vectorized implementation (k.w. search for 'unroll' method).
-        for batch_idx in range(batch_size):
-            for kernel_idx in range(n_kernels):
-                for channel_idx in range(self._in_channels):
-                    dK[kernel_idx, channel_idx] += signal.correlate2d(  # type: ignore[index]
-                        input_activations[batch_idx, channel_idx],
-                        dZ[batch_idx, kernel_idx],  # type: ignore[index]
-                        mode="valid",
-                    )
-                    db[kernel_idx] += np.sum(dZ[batch_idx, kernel_idx])  # type: ignore[index]
-                    dX += signal.convolve2d(  # type: ignore[index]
-                        self._parameters.weights[kernel_idx, channel_idx],
-                        dZ[batch_idx, kernel_idx],  # type: ignore[index]
-                        mode="full",
-                    )
+        input_windows = as_strided(
+            input_activations,
+            shape=(
+                batch_size,
+                self._in_channels,
+                dZ_height,
+                dZ_width,
+                self._kernel_height,
+                self._kernel_width,
+            ),
+            strides=(
+                input_activations.strides[0],
+                input_activations.strides[1],
+                input_activations.strides[2] * self._stride_y,
+                input_activations.strides[3] * self._stride_x,
+                input_activations.strides[2],
+                input_activations.strides[3],
+            ),
+            writeable=False,
+        )
+
+        dK = np.einsum("bchwij,bmhw->mcij", input_windows, dZ)
+
+        db = np.sum(dZ, axis=(0, 2, 3))
+        db = np.broadcast_to(
+            db[:, np.newaxis, np.newaxis],
+            (n_kernels, self._out_height, self._out_width),
+        )
+
+        pad_h = self._kernel_height - 1
+        pad_w = self._kernel_width - 1
+        dZ_padded = np.pad(
+            dZ,
+            ((0, 0), (0, 0), (pad_h, pad_h), (pad_w, pad_w)),
+            mode="constant",
+            constant_values=0,
+        )
+
+        in_height, in_width = input_activations.shape[2:]
+        dZ_windows = as_strided(
+            dZ_padded,
+            shape=(
+                batch_size,
+                n_kernels,
+                in_height,
+                in_width,
+                self._kernel_height,
+                self._kernel_width,
+            ),
+            strides=(
+                dZ_padded.strides[0],
+                dZ_padded.strides[1],
+                dZ_padded.strides[2],
+                dZ_padded.strides[3],
+                dZ_padded.strides[2],
+                dZ_padded.strides[3],
+            ),
+            writeable=False,
+        )
+
+        flipped_weights = np.flip(self._parameters.weights, axis=(2, 3))
+        dX = np.einsum("bmhwij,mcij->bchw", dZ_windows, flipped_weights)
+
         self._cache["dP"] = d(self.Parameters(weights=dK, biases=db))
         return d(Activations(dX))
 
