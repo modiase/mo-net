@@ -1,8 +1,7 @@
-from typing import Literal
-
 from mnist_numpy.functions import ReLU
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.activation import Activation
+from mnist_numpy.model.layer.batch_norm import BatchNorm
 from mnist_numpy.model.layer.convolution import Convolution2D
 from mnist_numpy.model.layer.pool import MaxPooling2D
 from mnist_numpy.model.layer.reshape import Flatten
@@ -19,11 +18,9 @@ class Convolution(Hidden):
         stride: int | tuple[int, int] = 1,
         pool_size: int | tuple[int, int] = 2,
         pool_stride: int | tuple[int, int] = 1,
-        pool_type: Literal["max"] = "max",
         activation_fn: ActivationFn = ReLU,
         flatten_output: bool = False,
     ):
-        del pool_type  # unused # TODO: Add average pooling
         super().__init__(
             layers=(
                 conv_layer := Convolution2D(
@@ -37,8 +34,11 @@ class Convolution(Hidden):
                     pool_size=pool_size,
                     stride=pool_stride,
                 ),
-                Activation(
+                batch_norm_layer := BatchNorm(
                     input_dimensions=pool_layer.output_dimensions,
+                ),
+                Activation(
+                    input_dimensions=batch_norm_layer.output_dimensions,
                     activation_fn=activation_fn,
                 ),
             )

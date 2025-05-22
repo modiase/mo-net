@@ -35,7 +35,7 @@ class Norm(Hidden):
         match options:
             case BatchNormOptions():
                 norm_layer = BatchNorm(
-                    neurons=one(output_dimensions),
+                    input_dimensions=output_dimensions,
                     momentum=options.momentum,
                     store_output_activations=store_output_activations,
                 )

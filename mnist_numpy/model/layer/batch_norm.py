@@ -13,6 +13,7 @@ from mnist_numpy.model.layer.base import (
 from mnist_numpy.protos import (
     Activations,
     D,
+    Dimensions,
     GradLayer,
     GradCache,
     SupportsDeserialize,
@@ -113,10 +114,10 @@ class Parameters(SupportsGradientOperations):
         return self.__mul__(other)
 
     @classmethod
-    def empty(cls, *, neurons: int) -> Self:
+    def empty(cls, *, input_dimensions: Dimensions) -> Self:
         return cls(
-            _gamma=np.ones(neurons),
-            _beta=np.zeros(neurons),
+            _gamma=np.ones(input_dimensions),
+            _beta=np.zeros(input_dimensions),
         )
 
 
@@ -143,7 +144,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        neurons: int
+        input_dimensions: tuple[int, ...]
         momentum: float
         parameters: Parameters
         running_mean: np.ndarray
@@ -155,7 +156,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             training: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
-                neurons=self.neurons,
+                input_dimensions=self.input_dimensions,
                 momentum=self.momentum,
                 parameters=self.parameters,
                 running_mean=self.running_mean,
@@ -166,7 +167,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     def __init__(
         self,
         *,
-        neurons: int,
+        input_dimensions: Dimensions,
         momentum: float = 0.9,
         parameters: ParametersType | None = None,
         running_mean: np.ndarray | None = None,
@@ -175,15 +176,17 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         training: bool = True,
     ):
         super().__init__(
-            input_dimensions=(neurons,),
-            output_dimensions=(neurons,),
+            input_dimensions=input_dimensions,
+            output_dimensions=input_dimensions,
         )
         self._momentum = momentum
         self._running_mean = (
-            running_mean if running_mean is not None else np.zeros(neurons)
+            running_mean if running_mean is not None else np.zeros(input_dimensions)
         )
         self._running_variance = (
-            running_variance if running_variance is not None else np.ones(neurons)
+            running_variance
+            if running_variance is not None
+            else np.ones(input_dimensions)
         )
         self._training = training
         self._cache: CacheType = {
@@ -291,7 +294,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         )
 
     def empty_parameters(self) -> ParametersType:
-        return self.Parameters.empty(neurons=one(self._input_dimensions))
+        return self.Parameters.empty(input_dimensions=self._input_dimensions)
 
     def update_parameters(self) -> None:
         if (dP := self._cache["dP"]) is None:
@@ -315,7 +318,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     def serialize(self) -> SupportsDeserialize[BatchNorm]:
         return self.Serialized(
-            neurons=one(self._input_dimensions),
+            input_dimensions=self._input_dimensions,
             momentum=self._momentum,
             parameters=self._parameters,
             running_mean=self._running_mean,
