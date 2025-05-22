@@ -222,7 +222,7 @@ class Convolution2D(Hidden):
     ):
         if len(input_dimensions) != 3:
             raise ValueError(
-                "input_dimensions must be a 3-tuple: (channel, dim_x, dim_y)."
+                f"input_dimensions must be a 3-tuple: (channel, dim_x, dim_y). Got {input_dimensions}."
             )
         if not isinstance(kernel_size, (int, tuple)):
             raise ValueError("Invalid kernel_size. Must be an integer or a pair.")
