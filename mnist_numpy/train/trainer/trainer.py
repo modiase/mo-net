@@ -106,6 +106,7 @@ class BasicTrainer:
         self._Y_test = Y_test
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
+        self._L_train_min_epoch: int | None = None
 
     def subscribe_to_after_training_step(
         self,
@@ -244,6 +245,7 @@ class BasicTrainer:
             if self._training_parameters.no_transform
             else partial(affine_transform, x_size=x_size, y_size=y_size),
         )
+        self._optimizer.snapshot()
 
     def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
@@ -270,9 +272,7 @@ class BasicTrainer:
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
-                            model_checkpoint_save_epoch=self._training_parameters.current_epoch(
-                                i
-                            ),
+                            model_checkpoint_save_epoch=self._L_train_min_epoch,
                         )
                     case None:
                         pass
@@ -292,14 +292,13 @@ class BasicTrainer:
                         self._monitor.clear_history()
                     self._optimizer.snapshot()
                     self._L_test_min = L_test
+                    self._L_train_min_epoch = self._training_parameters.current_epoch(i)
                 match self._post_epoch(L_test):
                     case CheckFailed() as check:
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
-                            model_checkpoint_save_epoch=self._training_parameters.current_epoch(
-                                i
-                            ),
+                            model_checkpoint_save_epoch=self._L_train_min_epoch,
                         )
                     case None:
                         pass
