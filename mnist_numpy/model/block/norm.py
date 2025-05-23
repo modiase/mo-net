@@ -59,6 +59,9 @@ class Norm(Hidden):
                             activation_fn=activation_fn,
                         ),
                         store_output_activations=store_output_activations,
+                        clip_gradients=True,
+                        weight_max_norm=1.0,
+                        bias_max_norm=0.5,
                     ),
                     norm_layer,
                     Activation(

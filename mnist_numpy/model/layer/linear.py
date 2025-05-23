@@ -169,6 +169,9 @@ class Linear(Hidden):
         ),
         store_output_activations: bool = False,  # Only used for tracing
         freeze_parameters: bool = False,
+        clip_gradients: bool = True,
+        weight_max_norm: float = 1.0,
+        bias_max_norm: float = 1.0,
     ):
         super().__init__(
             input_dimensions=input_dimensions,
@@ -176,6 +179,9 @@ class Linear(Hidden):
         )
         self._parameters_init_fn = parameters_init_fn
         self._freeze_parameters = freeze_parameters
+        self._clip_gradients = clip_gradients
+        self._weight_max_norm = weight_max_norm
+        self._bias_max_norm = bias_max_norm
         if parameters is not None:
             if parameters._W.shape != (one(input_dimensions), one(output_dimensions)):
                 raise ValueError(
@@ -217,12 +223,22 @@ class Linear(Hidden):
     ) -> D[Activations]:
         if (input_activations := self._cache["input_activations"]) is None:
             raise ValueError("Input activations not set during forward pass.")
+
+        dW = input_activations.T @ dZ
+        dB = d_op(dZ, np.sum)
+
+        if self._clip_gradients:
+            W_norm = np.linalg.norm(dW)
+            if W_norm > self._weight_max_norm:
+                dW = dW * (self._weight_max_norm / W_norm)
+
+            B_norm = np.linalg.norm(dB)
+            if B_norm > self._bias_max_norm:
+                dB = dB * (self._bias_max_norm / B_norm)
+
         self._cache["dP"] = cast(
             D[Parameters],
-            self.Parameters.of(
-                W=input_activations.T @ dZ,
-                B=d_op(dZ, np.sum),
-            ),
+            self.Parameters.of(W=dW, B=dB),
         )
         return dZ @ self._parameters._W.T
 

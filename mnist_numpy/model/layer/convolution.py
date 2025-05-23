@@ -220,6 +220,9 @@ class Convolution2D(Hidden):
         # padding: int | tuple[int, int] = 0, # TODO: Implement padding.
         kernel_init_fn: KernelInitFn = Parameters.he,
         freeze_parameters: bool = False,
+        clip_gradients: bool = False,
+        weight_max_norm: float = 1.0,
+        bias_max_norm: float = 1.0,
     ):
         if len(input_dimensions) != 3:
             raise ValueError(
@@ -254,6 +257,9 @@ class Convolution2D(Hidden):
         )
         self._freeze_parameters = freeze_parameters
         self._n_kernels = n_kernels
+        self._clip_gradients = clip_gradients
+        self._weight_max_norm = weight_max_norm
+        self._bias_max_norm = bias_max_norm
         self._parameters = kernel_init_fn(
             n_kernels,
             self._in_channels,
@@ -333,6 +339,15 @@ class Convolution2D(Hidden):
             db[:, np.newaxis, np.newaxis],
             (n_kernels, self._out_height, self._out_width),
         )
+
+        if self._clip_gradients:
+            weight_norm = np.linalg.norm(dK)
+            if weight_norm > self._weight_max_norm:
+                dK = dK * (self._weight_max_norm / weight_norm)
+
+            bias_norm = np.linalg.norm(db)
+            if bias_norm > self._bias_max_norm:
+                db = db * (self._bias_max_norm / bias_norm)
 
         pad_h = self._kernel_height - 1
         pad_w = self._kernel_width - 1
