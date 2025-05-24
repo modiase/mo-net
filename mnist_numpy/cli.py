@@ -240,7 +240,7 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> None:
-    X_train, Y_train, X_test, Y_test = load_data(data_path)
+    X_train, Y_train, X_test, Y_test = load_data(data_path, split=0.8)
 
     seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)
@@ -395,7 +395,7 @@ def train(
     default=DEFAULT_DATA_PATH,
 )
 def infer(*, model_path: Path | None, data_path: Path):
-    X_train, Y_train, X_test, Y_test = load_data(data_path)
+    X_train, Y_train, X_test, Y_test = load_data(data_path, split=0.8)
 
     if model_path is None:
         output_dir = DATA_DIR / "output"
@@ -422,11 +422,9 @@ def infer(*, model_path: Path | None, data_path: Path):
     Y_test_pred = model.predict(X_test)
     Y_test_true = np.argmax(Y_test, axis=1)
 
-    X_cv = np.zeros_like(X_train)
-    for idx in range(len(X_cv)):
-        X_cv[idx] = affine_transform(X_train[idx], 28, 28)
+    Y_cv, X_cv = load_data(DATA_DIR / "mnist_test.csv")
     Y_cv_pred = model.predict(X_cv)
-    Y_cv_true = np.argmax(Y_train, axis=1)
+    Y_cv_true = np.argmax(Y_cv, axis=1)
     logger.info(f"CV Set Accuracy: {np.sum(Y_cv_pred == Y_cv_true) / len(Y_cv_pred)}")
 
     precision = np.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)
