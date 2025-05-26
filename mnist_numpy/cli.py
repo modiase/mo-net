@@ -216,6 +216,13 @@ def cli(): ...
     help="Set the quickstart",
     default=None,
 )
+@click.option(
+    "--only-misclassified-examples",
+    type=bool,
+    is_flag=True,
+    help="Only use misclassified examples for training",
+    default=False,
+)
 def train(
     *,
     activation_fn: ActivationFn,
@@ -233,6 +240,7 @@ def train(
     normalisation_type: NormalisationType,
     num_epochs: int,
     optimizer_type: OptimizerType,
+    only_misclassified_examples: bool,
     quickstart: Literal["mlp", "cnn"] | None,
     regulariser_lambda: float,
     training_log_path: Path | None,
@@ -328,6 +336,17 @@ def train(
             batch_size=batch_size,
             optimizer=optimizer,
             model=model,
+        )
+
+    if only_misclassified_examples:
+        Y_train_pred = model.predict(X_train)
+        Y_train_true = np.argmax(Y_train, axis=1)
+        misclassified_indices = np.where(Y_train_pred != Y_train_true)[0]
+        X_train = X_train[misclassified_indices]
+        Y_train = Y_train[misclassified_indices]
+        training_parameters.train_set_size = X_train.shape[0]
+        training_parameters.batch_size = min(
+            training_parameters.batch_size, X_train.shape[0]
         )
 
     def save_model(model_checkpoint_path: Path | None) -> None:
