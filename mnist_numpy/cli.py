@@ -248,7 +248,7 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> None:
-    X_train, Y_train, X_test, Y_test = load_data(data_path, split=0.8)
+    X_train, Y_train, X_test, Y_test = load_data(data_path, split=0.9)
 
     seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)

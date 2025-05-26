@@ -106,11 +106,23 @@ class BasicTrainer:
         self._training_parameters = training_parameters
         self._X_train = X_train
         self._Y_train = Y_train
+        self._batcher = Batcher(
+            X=X_train,
+            Y=Y_train,
+            batch_size=self._training_parameters.batch_size,
+            transform=None
+            if self._training_parameters.no_transform
+            else partial(
+                affine_transform,
+                x_size=(x_size := int(np.sqrt(X_train.shape[1]))),
+                y_size=x_size,
+            ),
+        )
         self._X_test = X_test
         self._Y_test = Y_test
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
-        self._L_train_min_epoch: int | None = None
+        self._L_test_min_epoch: int | None = None
 
     def subscribe_to_after_training_step(
         self,
@@ -163,8 +175,7 @@ class BasicTrainer:
             self._training_log = pd.DataFrame(
                 columns=[
                     "epoch",
-                    "training_loss",
-                    "monotonic_training_loss",
+                    "batch_loss",
                     "test_loss",
                     "monotonic_test_loss",
                     "learning_rate",
@@ -204,9 +215,6 @@ class BasicTrainer:
         logger.info(f"Training log path: {self._log_path}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
-        self._L_train_min = self._model.compute_loss(
-            X=self._X_train, Y_true=self._Y_train
-        )
         self._L_test_min = self._model.compute_loss(X=self._X_test, Y_true=self._Y_test)
 
         if self._training_parameters.trace_logging:
@@ -224,8 +232,6 @@ class BasicTrainer:
 
         if not self._training_parameters.no_monitoring:
             self._monitor = Monitor(
-                X_train=self._X_train,
-                Y_train=self._Y_train,
                 batches_per_epoch=self._training_parameters.batches_per_epoch,
                 history_max_len=self._training_parameters.history_max_len,
                 warmup_epochs=self._training_parameters.warmup_epochs,
@@ -238,17 +244,6 @@ class BasicTrainer:
             return self._training_loop()
 
     def _before_training_loop(self) -> None:
-        x_size = y_size = int(
-            np.sqrt(self._X_train.shape[1])
-        )  # TODO: Fix: handle non-square images
-        self._batcher = Batcher(
-            X=self._X_train,
-            Y=self._Y_train,
-            batch_size=self._training_parameters.batch_size,
-            transform=None
-            if self._training_parameters.no_transform
-            else partial(affine_transform, x_size=x_size, y_size=y_size),
-        )
         self._optimizer.snapshot()
 
     def _training_loop(self) -> TrainingResult:
@@ -269,14 +264,18 @@ class BasicTrainer:
             bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         ):
             with self._create_training_step_context():
-                gradient, update = self._training_step()
+                X_train_batch, Y_train_batch = next(self._batcher)
+                gradient, update = self._training_step(
+                    X_train_batch=X_train_batch,
+                    Y_train_batch=Y_train_batch,
+                )
             for handler in self._after_training_step:
                 match handler(gradient, update):
                     case CheckFailed() as check:
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
-                            model_checkpoint_save_epoch=self._L_train_min_epoch,
+                            model_checkpoint_save_epoch=self._L_test_min_epoch,
                         )
                     case None:
                         pass
@@ -285,24 +284,23 @@ class BasicTrainer:
 
             if i % self._training_parameters.batches_per_epoch == 0:
                 L_train = self._model.compute_loss(
-                    X=self._X_train, Y_true=self._Y_train
+                    X=X_train_batch, Y_true=Y_train_batch
                 )
                 L_test = self._model.compute_loss(X=self._X_test, Y_true=self._Y_test)
 
-                self._L_train_min = min(self._L_train_min, L_train)
                 if L_test < self._L_test_min:
                     self._model.dump(open(self._model_checkpoint_path, "wb"))
                     if self._monitor is not None:
                         self._monitor.clear_history()
                     self._optimizer.snapshot()
                     self._L_test_min = L_test
-                    self._L_train_min_epoch = self._training_parameters.current_epoch(i)
+                    self._L_test_min_epoch = self._training_parameters.current_epoch(i)
                 match self._post_epoch(L_test):
                     case CheckFailed() as check:
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
-                            model_checkpoint_save_epoch=self._L_train_min_epoch,
+                            model_checkpoint_save_epoch=self._L_test_min_epoch,
                         )
                     case None:
                         pass
@@ -314,7 +312,6 @@ class BasicTrainer:
                         [
                             self._training_parameters.current_epoch(i),
                             L_train,
-                            self._L_train_min,
                             L_test,
                             self._L_test_min,
                             self._optimizer.learning_rate,
@@ -331,7 +328,7 @@ class BasicTrainer:
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 tqdm.write(
-                    f"Epoch {self._training_parameters.current_epoch(i)}, Training Loss = {L_train}, Test Loss = {L_test}"
+                    f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_train}, Test Loss = {L_test}"
                     + (
                         f", {report}"
                         if (report := self._optimizer.report()) != ""
@@ -346,11 +343,12 @@ class BasicTrainer:
 
     def _training_step(
         self,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
     ) -> tuple[
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],
     ]:
-        X_train_batch, Y_train_batch = next(self._batcher)
         gradient, update = self._optimizer.training_step(
             X_train_batch=X_train_batch,
             Y_train_batch=Y_train_batch,

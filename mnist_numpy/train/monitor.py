@@ -58,14 +58,10 @@ class Monitor:
         batches_per_epoch: int,
         history_max_len: int,
         warmup_epochs: int,
-        X_train: np.ndarray,
-        Y_train: np.ndarray,
     ):
         self._L_history_max_len = history_max_len
         self._L_history: deque[float] = deque(maxlen=self._L_history_max_len)
         self._L_history_snapshot: Sequence[float] = ()
-        self._X_train = X_train
-        self._Y_train = Y_train
         self._running_update_count = 0
         self._running_weights: WeightGradientRunningAverages = (
             WeightGradientRunningAverages.none()

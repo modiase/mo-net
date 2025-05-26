@@ -85,9 +85,8 @@ def main(
 
                 min_y = float(
                     min(
-                        df["training_loss"].min(),
+                        df["batch_loss"].min(),
                         df["test_loss"].min(),
-                        df["monotonic_training_loss"].min(),
                         df["monotonic_test_loss"].min(),
                     )
                     * 0.95
@@ -95,9 +94,8 @@ def main(
 
                 max_y = float(
                     max(
-                        df["training_loss"].max(),
+                        df["batch_loss"].max(),
                         df["test_loss"].max(),
-                        df["monotonic_training_loss"].max(),
                         df["monotonic_test_loss"].max(),
                     )
                     * 1.05
@@ -122,7 +120,7 @@ def main(
 
                 latest = df.iloc[-1]
                 print(f"Epoch: {int(latest['epoch'])}")
-                print(f"Training Loss: {float(latest['training_loss']):.6f}")
+                print(f"Batch Loss: {float(latest['batch_loss']):.6f}")
                 print(f"Test Loss: {float(latest['test_loss']):.6f}")
                 print(f"Learning Rate: {float(latest['learning_rate']):.8f}")
                 print(f"Last Update: {latest['timestamp']}")

@@ -1,3 +1,4 @@
+from math import ceil
 from pathlib import Path
 from typing import Final, overload
 
@@ -30,7 +31,7 @@ def _load_data_split(
     if split < 0 or split > 1:
         raise ValueError("Split must be between 0 and 1")
     df = pd.read_csv(data_path)
-    split_index: int = int(len(df) * split)
+    split_index: int = ceil(len(df) * split)
     training_set = df.iloc[:split_index, :]
     test_set = df.iloc[split_index:, :]
 

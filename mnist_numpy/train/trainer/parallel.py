@@ -115,6 +115,7 @@ def worker_process(
 ) -> None:
     """Worker process that trains on batches and submits updates"""
 
+    del regulariser_lambda  # unused
     with open(model_checkpoint_path, "rb") as f:
         model = Model.load(f, training=True)
 
@@ -176,6 +177,13 @@ def worker_process(
 
 class ParallelTrainer(BasicTrainer):
     """Implements parallel training using multiple processes."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._X_shared_memory: SharedMemory | None = None
+        self._Y_shared_memory: SharedMemory | None = None
+        self._update_shared_memory: SharedMemory | None = None
+        self._processes: tuple[mp.Process, ...] = ()
 
     def resume(
         self,
@@ -324,10 +332,13 @@ class ParallelTrainer(BasicTrainer):
 
     def _training_step(
         self,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
     ) -> tuple[
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],
     ]:
+        del X_train_batch, Y_train_batch  # unused
         with self._create_training_step_context():
             self._ready_all_workers()
             gradient = self._manager.leader_get_aggregated_results()
@@ -342,9 +353,12 @@ class ParallelTrainer(BasicTrainer):
     def shutdown(self) -> None:
         for p in self._processes:
             p.terminate()
-        self._X_shared_memory.close()
-        self._X_shared_memory.unlink()
-        self._Y_shared_memory.close()
-        self._Y_shared_memory.unlink()
-        self._update_shared_memory.close()
-        self._update_shared_memory.unlink()
+        if self._X_shared_memory is not None:
+            self._X_shared_memory.close()
+            self._X_shared_memory.unlink()
+        if self._Y_shared_memory is not None:
+            self._Y_shared_memory.close()
+            self._Y_shared_memory.unlink()
+        if self._update_shared_memory is not None:
+            self._update_shared_memory.close()
+            self._update_shared_memory.unlink()
