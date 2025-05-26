@@ -28,7 +28,7 @@ from mnist_numpy.functions import (
     parse_activation_fn,
 )
 from mnist_numpy.model import Model
-from mnist_numpy.model.layer.dropout import attach_dropout_layers
+from mnist_numpy.model.layer.dropout import Dropout
 from mnist_numpy.protos import ActivationFn, NormalisationType
 from mnist_numpy.quickstart import mnist_cnn, mnist_mlp
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
@@ -304,7 +304,7 @@ def train(
         model = Model.load(open(model_path, "rb"), training=True)
 
     if dropout_keep_probs:
-        attach_dropout_layers(
+        Dropout.attach_dropout_layers(
             model=model,
             keep_probs=dropout_keep_probs,
             training=True,

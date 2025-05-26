@@ -55,7 +55,7 @@ packages = ["mnist_numpy"]
 
 [tool.taskipy.tasks]
 format = "uv run taplo format pyproject.toml; fd -e py -x uv run ruff format"
-test = "pytest mnist_numpy/tests.py"
+test = "pytest mnist_numpy/tests"
 typecheck-all = "fd -e py -x uv run mypy"
 typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
 

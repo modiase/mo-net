@@ -135,6 +135,25 @@ class Linear(Hidden):
     _parameters: ParametersType
     _cache: Linear.Cache
 
+    @classmethod
+    def of_bias(cls, dim: Dimensions, bias: float | np.ndarray) -> Self:
+        return cls(
+            input_dimensions=dim,
+            output_dimensions=dim,
+            parameters=cls.Parameters.of(
+                W=np.zeros((one(dim), one(dim))),
+                B=(np.ones(one(dim)) * bias if isinstance(bias, float) else bias),
+            ),
+        )
+
+    @classmethod
+    def of_eye(cls, dim: Dimensions) -> Self:
+        return cls(
+            input_dimensions=dim,
+            output_dimensions=dim,
+            parameters=cls.Parameters.eye(dim),
+        )
+
     class Cache(TypedDict):
         input_activations: Activations | None
         output_activations: Activations | None
@@ -162,7 +181,7 @@ class Linear(Hidden):
         self,
         *,
         input_dimensions: Dimensions,
-        output_dimensions: Dimensions,
+        output_dimensions: Dimensions | None = None,
         parameters: ParametersType | None = None,
         parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType] = (
             Parameters.xavier
@@ -173,6 +192,8 @@ class Linear(Hidden):
         weight_max_norm: float = 1.0,
         bias_max_norm: float = 1.0,
     ):
+        if output_dimensions is None:
+            output_dimensions = input_dimensions
         super().__init__(
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,

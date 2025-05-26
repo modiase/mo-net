@@ -25,6 +25,7 @@ from mnist_numpy.model import ModelBase
 from mnist_numpy.model.block.base import Base, Hidden, Output
 from mnist_numpy.model.block.norm import BatchNormOptions, LayerNormOptions, Norm
 from mnist_numpy.model.layer.base import Hidden as HiddenLayer
+from mnist_numpy.model.layer.output import RawOutputLayer
 from mnist_numpy.model.layer.input import Input
 from mnist_numpy.model.layer.linear import Linear
 from mnist_numpy.model.block.dense import Dense
@@ -192,7 +193,7 @@ class Model(ModelBase):
         *,
         input_dimensions: Dimensions,
         hidden: Sequence[Hidden | HiddenLayer],
-        output: Output | OutputLayer,
+        output: Output | OutputLayer | None = None,
     ):
         self._input_layer = Input(input_dimensions=input_dimensions)
         if invalid := tuple(
@@ -203,6 +204,10 @@ class Model(ModelBase):
             module if isinstance(module, Hidden) else Hidden(layers=(module,))
             for module in hidden
         )
+        if output is None:
+            output = RawOutputLayer(
+                input_dimensions=last(self._hidden_blocks).output_dimensions
+            )
         if not isinstance(output, (Output, OutputLayer)):
             raise ValueError(f"Invalid output module: {output}")
         self._output_block = (

@@ -31,7 +31,7 @@ class _Base(ABC):
             chain(self._training_step_handlers, (handler,))
         )
 
-    def forward_prop(self, *, input_activations: Activations) -> Activations:
+    def forward_prop(self, input_activations: Activations) -> Activations:
         # We wish to ensure that all inputs are at least 2D arrays such that the
         # leading dimension is always the 'batch' dimension.
         input_activations = Activations(np.atleast_2d(input_activations))
@@ -70,7 +70,7 @@ class _Base(ABC):
 
 
 class Hidden(_Base):
-    def backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
+    def backward_prop(self, dZ: D[Activations]) -> D[Activations]:
         return reduce(
             lambda acc, handler: handler(acc),
             reversed(
