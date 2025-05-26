@@ -5,7 +5,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ContextManager, Final, assert_never, cast
+from typing import Any, ContextManager, Final, Literal, assert_never, cast
 
 from mnist_numpy.train.exceptions import CheckFailed
 import numpy as np
@@ -44,32 +44,36 @@ class TrainingFailed:
 type TrainingResult = TrainingSuccessful | TrainingFailed
 
 
+type OptimizerType = Literal["adam", "none"]
+
+
 def get_optimizer(
-    optimizer_type: str,
+    optimizer_type: OptimizerType,
     model: Model,
     training_parameters: TrainingParameters,
 ) -> Base[Any]:
-    if optimizer_type == "adam":
-        return AdaM(
-            model=model,
-            config=AdaM.Config(
-                scheduler=WarmupScheduler.of(
-                    training_parameters=training_parameters,
-                    next_scheduler=CosineScheduler.of(
+    match optimizer_type:
+        case "adam":
+            return AdaM(
+                model=model,
+                config=AdaM.Config(
+                    scheduler=WarmupScheduler.of(
                         training_parameters=training_parameters,
+                        next_scheduler=CosineScheduler.of(
+                            training_parameters=training_parameters,
+                        ),
                     ),
                 ),
-            ),
-        )
-    elif optimizer_type == "no":
-        return Null(
-            model=model,
-            config=Null.Config(
-                learning_rate=training_parameters.learning_rate_limits[1]
-            ),
-        )
-    else:
-        raise ValueError(f"Invalid optimizer: {optimizer_type}")
+            )
+        case "none":
+            return Null(
+                model=model,
+                config=Null.Config(
+                    learning_rate=training_parameters.learning_rate_limits[1]
+                ),
+            )
+        case never:
+            assert_never(never)
 
 
 type AfterTrainingStepHandler = Callable[

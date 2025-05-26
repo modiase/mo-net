@@ -38,6 +38,7 @@ from mnist_numpy.train import (
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
+    OptimizerType,
     TrainingFailed,
     TrainingSuccessful,
     get_optimizer,
@@ -231,7 +232,7 @@ def train(
     no_transform: bool,
     normalisation_type: NormalisationType,
     num_epochs: int,
-    optimizer_type: str,
+    optimizer_type: OptimizerType,
     quickstart: Literal["mlp", "cnn"] | None,
     regulariser_lambda: float,
     training_log_path: Path | None,
