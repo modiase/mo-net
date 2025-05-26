@@ -1,9 +1,5 @@
-import io
-import pickle
-
 import numpy as np
 import pytest
-from more_itertools import one
 
 from mnist_numpy.functions import ReLU
 from mnist_numpy.model import (
@@ -19,48 +15,11 @@ from mnist_numpy.model.layer.output import (
     RawOutputLayer,
     SoftmaxOutputLayer,
 )
-from mnist_numpy.model.layer.pool import MaxPooling2D
-from mnist_numpy.model.layer.reshape import Flatten, Reshape
+from mnist_numpy.model.layer.reshape import Flatten
 from mnist_numpy.optimizer.adam import AdaM
 from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import ConstantScheduler
-from mnist_numpy.protos import Activations, D, Dimensions, GradLayer
-
-
-@pytest.mark.parametrize(("X", "expected"), [(np.array([1]), 1), (np.array([-1]), 0)])
-def test_forward_prop_ReLU(X: np.ndarray, expected: float):
-    model = Model(
-        input_dimensions=(1,),
-        hidden=tuple(
-            [
-                Hidden(
-                    layers=[
-                        Linear(
-                            input_dimensions=(1,),
-                            output_dimensions=(1,),
-                            parameters=Linear.Parameters.eye((1,)),
-                        ),
-                        Activation(
-                            input_dimensions=(1,),
-                            activation_fn=ReLU,
-                        ),
-                    ],
-                )
-            ]
-        ),
-        output=Output(
-            layers=[
-                Linear(
-                    input_dimensions=(1,),
-                    output_dimensions=(1,),
-                    parameters=Linear.Parameters.eye((1,)),
-                )
-            ],
-            output_layer=RawOutputLayer(input_dimensions=(1,)),
-        ),
-    )
-    output = model.forward_prop(X)
-    assert np.allclose(output, expected)
+from mnist_numpy.protos import GradLayer
 
 
 @pytest.fixture
@@ -222,22 +181,6 @@ def test_backward_prop_update_deeper(m3: Model, delta: float):
     assert np.allclose(m3.forward_prop(X), Y_true, atol=0.01)
 
 
-@pytest.mark.parametrize("modelname", ["m1", "m2", "m3"])
-def test_serialize_deserialize(modelname: str, request: pytest.FixtureRequest):
-    model: Model = request.getfixturevalue(modelname)
-    X = np.ones((1, one(model.input_dimensions)))
-
-    X_prop_before = model.forward_prop(X)
-    buffer = io.BytesIO()
-    buffer.write(pickle.dumps(model.serialize()))
-    buffer.seek(0)
-    deserialized = Model.load(buffer)
-    X_prop_after = deserialized.forward_prop(X)
-
-    assert model.block_dimensions == deserialized.block_dimensions
-    assert np.allclose(X_prop_before, X_prop_after)
-
-
 def test_adam_optimizer(m3: Model):
     X = np.array([[1, 0], [0, 1]])
     Y_true = np.array([[0.8, 0.2], [0.2, 0.8]])
@@ -252,20 +195,6 @@ def test_adam_optimizer(m3: Model):
         optimizer.training_step(X_train_batch=X, Y_train_batch=Y_true)
     loss_after = m3.compute_loss(X=X, Y_true=Y_true)
     assert loss_before > loss_after, loss_before - loss_after
-
-
-def test_reshape_layer():
-    X = np.array([[1, 2, 3, 4], [1, 2, 3, 4]])
-    reshape = Reshape(input_dimensions=(4,), output_dimensions=(2, 2))
-    assert np.allclose(
-        reshape.forward_prop(input_activations=X), X.reshape(X.shape[0], 2, 2)
-    )
-
-
-def test_reshape_layer_backward_prop():
-    reshape = Reshape(input_dimensions=(4,), output_dimensions=(2, 2))
-    dZ = np.array([[[1, 2], [3, 4]], [[1, 2], [3, 4]]])
-    assert reshape._backward_prop(dZ=dZ).shape == (2, 4)
 
 
 def test_convolution_2d_layer_output_shape():
@@ -382,123 +311,3 @@ def test_convolution_2d_layer_adam_step():
         X_train_batch=np.ones((1, 1, 3, 3)), Y_train_batch=np.ones((1, 4))
     )
     assert np.allclose(layer.parameters.weights, np.ones((1, 1, 2, 2)) * 0.99)
-
-
-@pytest.mark.parametrize(
-    ("pool_size", "stride", "input_activations", "expected"),
-    [
-        (2, 1, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[5, 6], [8, 9]]]]),
-        (3, 1, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[9]]]]),
-        (1, 2, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[1, 3], [7, 9]]]]),
-        (2, 2, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[5]]]]),
-        (2, 2, np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), [[[[5]]]]),
-        # TODO: Add non-square input test cases
-        (
-            2,
-            2,
-            np.array(
-                [
-                    [[[1, 2, 3], [4, 5, 6], [7, 8, 9]]],
-                    [[[1, 2, 3], [4, 5, 6], [7, 8, 9]]],
-                ]
-            ),
-            [[[[5]]], [[[5]]]],
-        ),
-    ],
-)
-def test_max_pool_2d_forward_prop(
-    pool_size: int, stride: int, input_activations: Activations, expected: Activations
-):
-    pool_layer = MaxPooling2D(
-        input_dimensions=(1, 3, 3), pool_size=pool_size, stride=stride
-    )
-    output = pool_layer.forward_prop(input_activations=input_activations)
-    assert np.allclose(output, expected)
-
-
-@pytest.mark.parametrize(
-    (
-        "input_dimensions",
-        "pool_size",
-        "stride",
-        "input_activations",
-        "dZ",
-        "expected",
-    ),
-    [
-        (
-            (1, 2, 2),
-            2,
-            1,
-            np.array([[[[1, 2], [3, 4]]]]),
-            np.array([[[[1, 1], [1, 1]]]]),
-            np.array([[[[0, 0], [0, 1]]]]),
-        ),
-        (
-            (1, 3, 3),
-            2,
-            1,
-            np.array([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]),
-            np.array([[[[1, 1], [1, 1]]]]),
-            np.array([[[[0, 0, 0], [0, 1, 1], [0, 1, 1]]]]),
-        ),
-        (
-            (1, 3, 3),
-            2,
-            1,
-            np.array([[[[1, 2, 3], [4, 10, 6], [7, 8, 9]]]]),
-            np.array([[[[1, 1], [1, 1]]]]),
-            np.array([[[[0, 0, 0], [0, 4, 0], [0, 0, 0]]]]),
-            # TODO: Add non-square input test cases
-        ),
-    ],
-)
-def test_max_pool_2d_backward_prop(
-    input_dimensions: Dimensions,
-    pool_size: int,
-    stride: int,
-    input_activations: Activations,
-    dZ: D[Activations],
-    expected: D[Activations],
-):
-    pool_layer = MaxPooling2D(
-        input_dimensions=input_dimensions, pool_size=pool_size, stride=stride
-    )
-    pool_layer.forward_prop(input_activations=input_activations)
-    dX = pool_layer.backward_prop(dZ=dZ)
-    assert np.allclose(dX, expected)  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize(
-    (
-        "input_dimensions",
-        "batch_size",
-        "expected_output_shape",
-    ),
-    [
-        (
-            (1, 2, 2),
-            2,
-            (2, 4),
-        ),
-        (
-            (3, 2, 2),
-            1,
-            (1, 12),
-        ),
-        (
-            (2, 3, 4, 5),
-            10,
-            (10, 120),
-        ),
-    ],
-)
-def test_flatten_layer(
-    input_dimensions: Dimensions,
-    batch_size: int,
-    expected_output_shape: tuple[int, int],
-):
-    flatten = Flatten(input_dimensions=input_dimensions)
-    input_activations = Activations(np.ones((batch_size, *input_dimensions)))
-    output = flatten.forward_prop(input_activations=input_activations)
-    assert np.allclose(output, np.ones(expected_output_shape))

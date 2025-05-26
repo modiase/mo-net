@@ -1,5 +1,9 @@
+import io
+import pickle
+
 import numpy as np
 import pytest
+from more_itertools import one
 
 from mnist_numpy.model.block.base import Hidden
 from mnist_numpy.model.layer.linear import Linear
@@ -88,3 +92,18 @@ def test_forward_prop_linear_model(factor: int, dX: np.ndarray):
             ]
         ),
     )
+
+
+def test_serialize_deserialize():
+    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    X = np.ones((1, one(model.input_dimensions)))
+
+    X_prop_before = model.forward_prop(X)
+    buffer = io.BytesIO()
+    buffer.write(pickle.dumps(model.serialize()))
+    buffer.seek(0)
+    deserialized = Model.load(buffer)
+    X_prop_after = deserialized.forward_prop(X)
+
+    assert model.block_dimensions == deserialized.block_dimensions
+    assert np.allclose(X_prop_before, X_prop_after)
