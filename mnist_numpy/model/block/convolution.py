@@ -29,17 +29,17 @@ class Convolution(Hidden):
                     kernel_size=kernel_size,
                     stride=stride,
                 ),
-                pool_layer := MaxPooling2D(
-                    input_dimensions=conv_layer.output_dimensions,
-                    pool_size=pool_size,
-                    stride=pool_stride,
-                ),
                 batch_norm_layer := BatchNorm(
-                    input_dimensions=pool_layer.output_dimensions,
+                    input_dimensions=conv_layer.output_dimensions,
                 ),
                 Activation(
                     input_dimensions=batch_norm_layer.output_dimensions,
                     activation_fn=activation_fn,
+                ),
+                pool_layer := MaxPooling2D(
+                    input_dimensions=batch_norm_layer.output_dimensions,
+                    pool_size=pool_size,
+                    stride=pool_stride,
                 ),
             )
         )

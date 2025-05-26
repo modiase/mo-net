@@ -154,9 +154,12 @@ class Parameters(SupportsGradientOperations):
         out_height: int,
         out_width: int,
     ) -> Parameters:
+        fan_in = in_channels * in_height * in_width
+        limit = np.sqrt(6.0 / fan_in)
         return cls(
-            weights=np.random.rand(n_kernels, in_channels, in_height, in_width)
-            * np.sqrt(1 / (in_channels * in_height * in_width)),
+            weights=np.random.uniform(
+                -limit, limit, (n_kernels, in_channels, in_height, in_width)
+            ),
             biases=np.zeros(n_kernels),
         )
 
