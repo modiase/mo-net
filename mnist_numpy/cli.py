@@ -248,7 +248,7 @@ def train(
 
     model: Model
     train_set_size = X_train.shape[0]
-    batch_size = batch_size if batch_size is not None else train_set_size
+    batch_size = batch_size if batch_size is not None else min(train_set_size, 1e4)
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,

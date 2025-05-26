@@ -111,6 +111,9 @@ class Monitor:
                 )
             ]
         )
+        if self._running_update_count == 0:
+            return None
+
         if self._running_update_count > self._warmup_batches:
             if (
                 weight_gradients_max_Z_score := np.max(weight_gradients_max_Z_scores)

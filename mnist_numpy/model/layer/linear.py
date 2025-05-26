@@ -55,10 +55,12 @@ class Parameters(SupportsGradientOperations):
     def __rsub__(self, other: Self | float | int) -> Self:
         return self.__sub__(other)
 
-    def __mul__(self, other: float | int) -> Self:
+    def __mul__(self, other: float | int | Self) -> Self:
         match other:
             case float() | int():
                 return self.__class__(_W=other * self._W, _B=other * self._B)
+            case self.__class__():
+                return self.__class__(_W=self._W * other._W, _B=self._B * other._B)
             case _:
                 return NotImplemented
 

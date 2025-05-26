@@ -100,12 +100,17 @@ class Parameters(SupportsGradientOperations):
             case _:
                 return NotImplemented
 
-    def __mul__(self, other: float) -> Self:
+    def __mul__(self, other: float | Self) -> Self:
         match other:
             case float() | int():
                 return self.__class__(
                     _gamma=self._gamma * other,
                     _beta=self._beta * other,
+                )
+            case self.__class__():
+                return self.__class__(
+                    _gamma=self._gamma * other._gamma,
+                    _beta=self._beta * other._beta,
                 )
             case _:
                 return NotImplemented
