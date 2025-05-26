@@ -233,7 +233,7 @@ class Convolution2D(Hidden):
             )
         if not isinstance(kernel_size, (int, tuple)):
             raise ValueError("Invalid kernel_size. Must be an integer or a pair.")
-        self._kernel_width, self._kernel_height = (
+        self._kernel_height, self._kernel_width = (
             kernel_size
             if isinstance(kernel_size, tuple)
             else (kernel_size, kernel_size)
@@ -416,7 +416,7 @@ class Convolution2D(Hidden):
         return Convolution2D.Serialized(
             input_dimensions=(channels, height, width),
             n_kernels=self._n_kernels,
-            kernel_size=(self._kernel_width, self._kernel_height),
+            kernel_size=(self._kernel_height, self._kernel_width),
             stride=(self._stride_x, self._stride_y),
             output_dimensions=(self._n_kernels, self._out_height, self._out_width),
             parameters=self._parameters,

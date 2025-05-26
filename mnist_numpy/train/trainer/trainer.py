@@ -211,7 +211,7 @@ class BasicTrainer:
 
         if self._training_parameters.trace_logging:
             tracer = Tracer(
-                model=cast(Model, self._model),  # TODO: Fix-types
+                model=self._model,
                 training_log_path=self._log_path,
                 tracer_config=TracerConfig(
                     trace_strategy=PerEpochTracerStrategy(
