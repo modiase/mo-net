@@ -6,7 +6,6 @@ from typing import TypedDict, assert_never
 
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
-from scipy import signal
 
 from mnist_numpy.model.layer.base import Hidden
 from mnist_numpy.protos import (
@@ -122,8 +121,12 @@ class Parameters(SupportsGradientOperations):
         out_width: int,
     ) -> Parameters:
         return cls(
-            weights=np.random.rand(n_kernels, in_channels, in_height, in_width),
-            biases=np.random.rand(n_kernels, out_height, out_width),
+            weights=np.random.uniform(
+                -np.sqrt(1 / (in_channels * in_height * in_width)),
+                np.sqrt(1 / (in_channels * in_height * in_width)),
+                (n_kernels, in_channels, in_height, in_width),
+            ),
+            biases=np.random.rand(n_kernels),
         )
 
     @classmethod
@@ -138,7 +141,7 @@ class Parameters(SupportsGradientOperations):
     ) -> Parameters:
         return cls(
             weights=np.ones((n_kernels, in_channels, in_height, in_width)),
-            biases=np.zeros((n_kernels, out_height, out_width)),
+            biases=np.zeros(n_kernels),
         )
 
     @classmethod
@@ -154,7 +157,7 @@ class Parameters(SupportsGradientOperations):
         return cls(
             weights=np.random.rand(n_kernels, in_channels, in_height, in_width)
             * np.sqrt(1 / (in_channels * in_height * in_width)),
-            biases=np.zeros((n_kernels, out_height, out_width)),
+            biases=np.zeros(n_kernels),
         )
 
     @classmethod
@@ -173,7 +176,7 @@ class Parameters(SupportsGradientOperations):
                 np.sqrt(2 / (in_channels * in_height * in_width)),
                 (n_kernels, in_channels, in_height, in_width),
             ),
-            biases=np.zeros((n_kernels, out_height, out_width)),
+            biases=np.zeros(n_kernels),
         )
 
 
@@ -301,7 +304,7 @@ class Convolution2D(Hidden):
             "bchwij,kcij->bkhw", input_windows, self._parameters.weights, optimize=True
         )
 
-        output += self._parameters.biases[np.newaxis, :, :, :]
+        output += self._parameters.biases[np.newaxis, :, np.newaxis, np.newaxis]
 
         return Activations(output)
 
@@ -335,10 +338,6 @@ class Convolution2D(Hidden):
         dK = np.einsum("bchwij,bmhw->mcij", input_windows, dZ)
 
         db = np.sum(dZ, axis=(0, 2, 3))
-        db = np.broadcast_to(
-            db[:, np.newaxis, np.newaxis],
-            (n_kernels, self._out_height, self._out_width),
-        )
 
         if self._clip_gradients:
             weight_norm = np.linalg.norm(dK)
