@@ -1,6 +1,5 @@
 import functools
 import os
-import re
 import sys
 import time
 from collections.abc import Sequence
@@ -35,6 +34,8 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
+from mnist_numpy.train.run import Run
+from mnist_numpy.train.server.backends import CsvBackend
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
@@ -50,6 +51,7 @@ R = TypeVar("R")
 
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "1e-4, 1e-2"
 DEFAULT_NUM_EPOCHS: Final[int] = 100
+MAX_BATCH_SIZE: Final[int] = 10000
 N_DIGITS: Final[int] = 10
 
 
@@ -67,13 +69,6 @@ def setup_logging(log_level: LogLevel) -> None:
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
-    @click.option(
-        "-l",
-        "--training-log-path",
-        type=Path,
-        help="Set the path to the training log file",
-        default=None,
-    )
     @click.option(
         "-b",
         "--batch-size",
@@ -264,7 +259,6 @@ def train(
     only_misclassified_examples: bool,
     quickstart: Literal["mlp", "cnn"] | None,
     regulariser_lambda: float,
-    training_log_path: Path | None,
     tracing_enabled: bool,
     warmup_epochs: int,
     workers: int,
@@ -278,7 +272,10 @@ def train(
 
     model: Model
     train_set_size = X_train.shape[0]
-    batch_size = batch_size if batch_size is not None else min(train_set_size, 1e4)
+    if batch_size is None:
+        batch_size = min(train_set_size, MAX_BATCH_SIZE)
+    elif batch_size > MAX_BATCH_SIZE:
+        raise ValueError(f"Batch size must be less than {MAX_BATCH_SIZE}.")
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -335,17 +332,12 @@ def train(
             )
         model = Model.load(open(model_path, "rb"), training=True)
 
-    if training_log_path is None:
-        model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
-        training_log_path = RUN_PATH / (f"{model_path.stem}_training_log.csv")
-    else:
-        if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
-            training_log_path = training_log_path.with_name(
-                f"{training_log_path.stem}_training_log.csv"
-            )
-        model_path = OUTPUT_PATH / training_log_path.name.replace(
-            "training_log.csv", ".pkl"
-        )
+    model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
+    run = Run(
+        model_path=model_path,
+        training_log_path=RUN_PATH / (f"{model_path.stem}_training_log.csv"),
+        backend=CsvBackend(),
+    )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
     if regulariser_lambda > 0:
         attach_weight_decay_regulariser(
@@ -381,7 +373,7 @@ def train(
         X_train=X_train,
         Y_val=Y_val,
         Y_train=Y_train,
-        log_path=training_log_path,
+        run=run,
         model=model,
         optimizer=optimizer,
         start_epoch=start_epoch,
@@ -395,7 +387,10 @@ def train(
                     raise ValueError(
                         "Cannot resume training. Model checkpoint path is not set."
                     )
-                training_result = trainer.resume(start_epoch, model_checkpoint_path)
+                training_result = trainer.resume(
+                    start_epoch=start_epoch,
+                    model_checkpoint_path=model_checkpoint_path,
+                )
             else:
                 training_result = trainer.train()
             match training_result:

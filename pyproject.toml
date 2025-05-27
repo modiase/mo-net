@@ -22,6 +22,8 @@ dependencies = [
   "plotille>=5.0.0",
   "scipy>=1.15.3",
   "flameprof>=0.4",
+  "fastapi>=0.115.12",
+  "sqlalchemy>=2.0.41",
 ]
 
 [dependency-groups]

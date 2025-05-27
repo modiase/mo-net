@@ -23,3 +23,5 @@ build/
 *.lprof
 profile_output*.txt
 .DS_Store
+
+train.db
