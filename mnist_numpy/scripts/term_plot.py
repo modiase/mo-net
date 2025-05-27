@@ -56,6 +56,8 @@ def main(
 
     last_modified = 0.0
     last_epoch = -1
+    df = pd.read_csv(training_log_path)
+    monotonic_val_loss = df["val_loss"].cummin().tolist()
 
     try:
         while True:
@@ -65,6 +67,7 @@ def main(
                 last_modified = current_modified
 
                 df = pd.read_csv(training_log_path)
+                monotonic_val_loss = df["val_loss"].cummin().tolist()
 
                 if df.empty or (
                     not df.empty and float(df["epoch"].max()) == last_epoch
@@ -87,7 +90,6 @@ def main(
                     min(
                         df["batch_loss"].min(),
                         df["val_loss"].min(),
-                        df["monotonic_val_loss"].min(),
                     )
                     * 0.95
                 )
@@ -96,7 +98,6 @@ def main(
                     max(
                         df["batch_loss"].max(),
                         df["val_loss"].max(),
-                        df["monotonic_val_loss"].max(),
                     )
                     * 1.05
                 )

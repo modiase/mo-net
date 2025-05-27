@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ContextManager, Final, Literal, assert_never, cast
 
+from mnist_numpy.data import RUN_PATH
 from mnist_numpy.train.exceptions import CheckFailed
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.train.batcher import Batcher
 from mnist_numpy.train.monitor import Monitor
+from mnist_numpy.train.run import Run
 from mnist_numpy.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 from mnist_numpy.protos import SupportsGradientOperations, UpdateGradientType
 
@@ -89,8 +91,8 @@ class BasicTrainer:
         disable_shutdown: bool = False,
         model: Model,
         optimizer: Base[OptimizerConfigT],
+        run: Run,
         training_parameters: TrainingParameters,
-        log_path: Path,
         start_epoch: int | None = None,
         X_train: np.ndarray,
         Y_train: np.ndarray,
@@ -98,7 +100,7 @@ class BasicTrainer:
         Y_val: np.ndarray,
     ) -> None:
         self._disable_shutdown = disable_shutdown
-        self._log_path = log_path
+        self._run = run
         self._model = model
         self._monitor: Monitor | None = None
         self._start_epoch = start_epoch if start_epoch is not None else 0
@@ -123,6 +125,7 @@ class BasicTrainer:
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
+        self._on_shutdown_handlers: Sequence[Callable[[], None]] = ()
 
     def subscribe_to_after_training_step(
         self,
@@ -133,8 +136,21 @@ class BasicTrainer:
             subscription_handler,
         )
 
+    def subscribe_to_shutdown(self, handler: Callable[[], None]) -> None:
+        self._on_shutdown_handlers = (*self._on_shutdown_handlers, handler)
+
     def _create_training_loop_context(self) -> ContextManager[None]:
-        return nullcontext()
+        @contextmanager
+        def _training_loop_context() -> Iterator[None]:
+            try:
+                yield
+            finally:
+                for handler in self._on_shutdown_handlers:
+                    handler()
+                if not self._disable_shutdown:
+                    self.shutdown()
+
+        return _training_loop_context()
 
     def _create_training_step_context(self) -> ContextManager[None]:
         if self._training_parameters.monotonic:
@@ -155,8 +171,9 @@ class BasicTrainer:
 
     def resume(
         self,
-        start_epoch: int,
+        *,
         model_checkpoint_path: Path,
+        start_epoch: int,
     ) -> TrainingResult:
         logger.info(f"Resuming training from epoch {start_epoch}.")
 
@@ -171,21 +188,6 @@ class BasicTrainer:
             return self._training_loop()
 
     def train(self) -> TrainingResult:
-        if not self._log_path.exists():
-            self._training_log = pd.DataFrame(
-                columns=[
-                    "epoch",
-                    "batch_loss",
-                    "val_loss",
-                    "monotonic_val_loss",
-                    "learning_rate",
-                    "timestamp",
-                ]
-            )
-            self._training_log.to_csv(self._log_path, index=False)
-        else:
-            self._training_log = pd.read_csv(self._log_path)
-
         logger.info(
             f"Training model {self._model.__class__.__name__}"
             f" for {self._training_parameters.num_epochs=} iterations"
@@ -195,24 +197,19 @@ class BasicTrainer:
             f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.block_dimensions)} and parameter count: {self._model.parameter_count}."
         )
 
-        self._model_checkpoint_path = self._log_path.with_name(
-            self._log_path.name.replace("training_log.csv", "partial.pkl")
-        )
-        self._model_training_parameters_path = self._log_path.with_name(
-            self._log_path.name.replace("training_log.csv", "training_parameters.json")
-        )
-        if not self._model_training_parameters_path.exists():
-            self._model_training_parameters_path.write_text(
-                self._training_parameters.model_dump_json()
+        self._run.start_run()
+        self._model_checkpoint_path = Path(
+            str((RUN_PATH / self._run.id).with_suffix(".pkl")).replace(
+                "_model_training_log", ""
             )
-        else:
-            self._training_parameters = TrainingParameters.model_validate_json(
-                self._model_training_parameters_path.read_text()
-            )
+        )
+        self._run.log_training_parameters(
+            training_parameters=self._training_parameters.model_dump_json()
+        )
 
         logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
         logger.info(f"Training parameters: {self._training_parameters}.")
-        logger.info(f"Training log path: {self._log_path}.")
+        logger.info(f"Logging to: {self._run._backend.connection_string}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
         self._L_val_min = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
@@ -284,7 +281,7 @@ class BasicTrainer:
                         assert_never(never)
 
             if i % self._training_parameters.batches_per_epoch == 0:
-                L_train = self._model.compute_loss(
+                L_batch = self._model.compute_loss(
                     X=X_train_batch, Y_true=Y_train_batch
                 )
                 L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
@@ -309,28 +306,17 @@ class BasicTrainer:
                     case never:
                         assert_never(never)
 
-                pd.DataFrame(
-                    [
-                        [
-                            self._training_parameters.current_epoch(i),
-                            L_train,
-                            L_val,
-                            self._L_val_min,
-                            self._optimizer.learning_rate,
-                            datetime.now(),
-                        ]
-                    ],
-                    columns=self._training_log.columns,
-                ).to_csv(
-                    self._log_path,
-                    mode="a",
-                    header=False,
-                    index=False,
+                self._run.log_iteration(
+                    epoch=self._training_parameters.current_epoch(i),
+                    batch=i,
+                    batch_loss=L_batch,
+                    val_loss=L_val,
+                    learning_rate=self._optimizer.learning_rate,
                 )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 tqdm.write(
-                    f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_train}, Validation Loss = {L_val}"
+                    f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
                     + (
                         f", {report}"
                         if (report := self._optimizer.report()) != ""
