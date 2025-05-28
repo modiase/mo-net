@@ -178,8 +178,8 @@ def worker_process(
 class ParallelTrainer(BasicTrainer):
     """Implements parallel training using multiple processes."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
         self._X_shared_memory: SharedMemory | None = None
         self._Y_shared_memory: SharedMemory | None = None
         self._update_shared_memory: SharedMemory | None = None

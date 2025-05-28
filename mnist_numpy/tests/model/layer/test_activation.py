@@ -3,6 +3,7 @@ import pytest
 
 from mnist_numpy.functions import ReLU
 from mnist_numpy.model.layer.activation import Activation
+from mnist_numpy.protos import Activations
 
 
 @pytest.mark.parametrize(
@@ -12,7 +13,7 @@ from mnist_numpy.model.layer.activation import Activation
         (np.array([-1, -2, -3]), np.array([0, 0, 0])),
     ],
 )
-def test_relu_forward_prop(X: np.ndarray, expected: np.ndarray):
+def test_relu_forward_prop(X: Activations, expected: np.ndarray):
     activation = Activation(
         input_dimensions=(3,),
         activation_fn=ReLU,
@@ -27,11 +28,11 @@ def test_relu_forward_prop(X: np.ndarray, expected: np.ndarray):
         (np.array([-1, -2, -3]), np.zeros(3)),
     ],
 )
-def test_relu_backward_prop(X: np.ndarray, expected: np.ndarray):
+def test_relu_backward_prop(X: Activations, expected: np.ndarray):
     activation = Activation(
         input_dimensions=(3,),
         activation_fn=ReLU,
     )
     activation.forward_prop(X)
 
-    assert np.allclose(activation.backward_prop(np.ones(3)), expected)
+    assert np.allclose(activation.backward_prop(np.ones(3)), expected)  # type: ignore[arg-type]

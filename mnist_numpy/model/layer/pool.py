@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
@@ -118,7 +118,7 @@ class MaxPooling2D(Hidden):
             raise ValueError("Max indices were not set during forward pass.")
 
         batch_size, channels, _, _ = input_activations.shape
-        _, _, h_out, w_out = dZ.shape
+        _, _, h_out, w_out = cast(np.ndarray, dZ).shape
 
         dX = np.zeros_like(input_activations)
 
@@ -140,10 +140,10 @@ class MaxPooling2D(Hidden):
                 h_coords_flat * self._stride_h + h_indices_flat,
                 w_coords_flat * self._stride_w + w_indices_flat,
             ),
-            dZ.reshape(batch_size, channels, -1),
+            cast(np.ndarray, dZ).reshape(batch_size, channels, -1),
         )
 
-        return d(Activations)(dX)
+        return d(Activations(dX))
 
     def serialize(self) -> MaxPooling2D.Serialized:
         channels, height, width = self.input_dimensions

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TypedDict, assert_never
+from typing import TypedDict, assert_never, cast
 
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
@@ -302,7 +302,7 @@ class Convolution2D(Hidden):
         return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        batch_size, n_kernels, dZ_height, dZ_width = dZ.shape
+        batch_size, n_kernels, dZ_height, dZ_width = cast(np.ndarray, dZ).shape
         input_activations = self._cache["input_activations"]
         if input_activations is None:
             raise ValueError("input_activations not set during forward_prop.")
@@ -328,9 +328,9 @@ class Convolution2D(Hidden):
             writeable=False,
         )
 
-        dK = np.einsum("bchwij,bmhw->mcij", input_windows, dZ)
+        dK = np.einsum("bchwij,bmhw->mcij", input_windows, cast(np.ndarray, dZ))
 
-        db = np.sum(dZ, axis=(0, 2, 3))
+        db = np.sum(cast(np.ndarray, dZ), axis=(0, 2, 3))
 
         if self._clip_gradients:
             weight_norm = np.linalg.norm(dK)
@@ -344,7 +344,7 @@ class Convolution2D(Hidden):
         pad_h = self._kernel_height - 1
         pad_w = self._kernel_width - 1
         dZ_padded = np.pad(
-            dZ,
+            cast(np.ndarray, dZ),
             ((0, 0), (0, 0), (pad_h, pad_h), (pad_w, pad_w)),
             mode="constant",
             constant_values=0,

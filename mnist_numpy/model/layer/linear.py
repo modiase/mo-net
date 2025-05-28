@@ -64,7 +64,7 @@ class Parameters(SupportsGradientOperations):
             case _:
                 return NotImplemented
 
-    def __rmul__(self, other: float | int) -> Self:
+    def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
     def __truediv__(self, other: Self | float | int) -> Self:

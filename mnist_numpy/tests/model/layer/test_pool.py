@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from mnist_numpy.model.layer.pool import MaxPooling2D
-from mnist_numpy.protos import Activations, D, Dimensions
+from mnist_numpy.protos import Activations, Dimensions
 
 TEST_INPUT: Final[np.ndarray] = np.ones(shape=(3, 3))
 
@@ -48,9 +48,9 @@ class BackpropTestCase:
     input_dimensions: Dimensions
     pool_size: int
     stride: int
-    X: Activations
-    dZ: D[Activations]
-    expected: D[Activations]
+    X: np.ndarray
+    dZ: np.ndarray
+    expected: np.ndarray
 
 
 @pytest.mark.parametrize(
@@ -101,6 +101,6 @@ def test_max_pool_2d_backward_prop(test_case: BackpropTestCase):
         pool_size=test_case.pool_size,
         stride=test_case.stride,
     )
-    pool_layer.forward_prop(test_case.X)
+    pool_layer.forward_prop(Activations(test_case.X))
     dX = pool_layer.backward_prop(test_case.dZ)
     assert np.allclose(dX, test_case.expected)  # type: ignore[arg-type]

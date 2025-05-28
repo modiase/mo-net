@@ -5,17 +5,21 @@ import pytest
 
 from mnist_numpy.functions import ReLU
 from mnist_numpy.model.layer import Activation
-from mnist_numpy.model.layer.convolution import Convolution2D
-from mnist_numpy.protos import Activations, D, Dimensions, GradLayer
+from mnist_numpy.model.layer.convolution import (
+    Convolution2D,
+    KernelInitFn,
+    ParametersType,
+)
+from mnist_numpy.protos import Activations, Dimensions, GradLayer
 
 
 @dataclass(frozen=True)
 class OutputShapeTestCase:
     name: str
     input_dimensions: Dimensions
-    kernel_size: int
+    kernel_size: int | tuple[int, int]
     n_kernels: int
-    input_activations: Activations
+    input_activations: np.ndarray
     expected_output_shape: tuple[int, ...]
 
 
@@ -80,7 +84,7 @@ def test_convolution_2d_output_shape(test_case: OutputShapeTestCase):
         kernel_size=test_case.kernel_size,
         n_kernels=test_case.n_kernels,
     )
-    output = layer.forward_prop(input_activations=test_case.input_activations)
+    output = layer.forward_prop(input_activations=test_case.input_activations)  # type: ignore[arg-type]
     assert output.shape == test_case.expected_output_shape
 
 
@@ -88,15 +92,15 @@ def test_convolution_2d_output_shape(test_case: OutputShapeTestCase):
 class ForwardPropTestCase:
     name: str
     input_dimensions: Dimensions
-    kernel_size: int
+    kernel_size: int | tuple[int, int]
     n_kernels: int
-    kernel_init_fn: callable
-    input_activations: Activations
-    expected_output: Activations
+    kernel_init_fn: KernelInitFn
+    input_activations: np.ndarray
+    expected_output: np.ndarray
     use_activation: bool = False
 
 
-def _custom_kernel_init_fn(*args: object) -> Convolution2D.Parameters:
+def _custom_kernel_init_fn(*args: object) -> ParametersType:
     """Custom kernel initialization for testing."""
     del args  # unused
     return Convolution2D.Parameters(
@@ -200,11 +204,13 @@ def test_convolution_2d_forward_prop(test_case: ForwardPropTestCase):
         )
         output = activation_layer.forward_prop(
             input_activations=conv_layer.forward_prop(
-                input_activations=test_case.input_activations
+                input_activations=Activations(test_case.input_activations)
             )
         )
     else:
-        output = conv_layer.forward_prop(input_activations=test_case.input_activations)
+        output = conv_layer.forward_prop(
+            input_activations=Activations(test_case.input_activations)
+        )
 
     assert np.allclose(output, test_case.expected_output)
 
@@ -213,11 +219,11 @@ def test_convolution_2d_forward_prop(test_case: ForwardPropTestCase):
 class BackwardPropTestCase:
     name: str
     input_dimensions: Dimensions
-    kernel_size: int
+    kernel_size: int | tuple[int, int]
     n_kernels: int
-    kernel_init_fn: callable
-    input_activations: Activations
-    expected_dX: D[Activations]
+    kernel_init_fn: KernelInitFn
+    input_activations: np.ndarray
+    expected_dX: np.ndarray
 
 
 @pytest.mark.parametrize(
@@ -338,10 +344,12 @@ def test_convolution_2d_backward_prop(test_case: BackwardPropTestCase):
         n_kernels=test_case.n_kernels,
         kernel_init_fn=test_case.kernel_init_fn,
     )
-    output = layer.forward_prop(input_activations=test_case.input_activations)
+    output = layer.forward_prop(
+        input_activations=Activations(test_case.input_activations)
+    )
     dZ = np.ones_like(output)
     dX = layer.backward_prop(dZ=dZ)
-    assert np.allclose(dX, test_case.expected_dX)
+    assert np.allclose(dX, test_case.expected_dX)  # type: ignore[arg-type]
 
 
 def test_convolution_2d_gradient_operation():

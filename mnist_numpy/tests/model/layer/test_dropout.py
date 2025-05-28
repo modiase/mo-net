@@ -5,8 +5,9 @@ import numpy as np
 import pytest
 
 from mnist_numpy.model.layer.dropout import Dropout
+from mnist_numpy.protos import Activations
 
-TEST_INPUT: Final[np.ndarray] = np.array([1, 2, 3])
+TEST_INPUT: Final[np.ndarray] = Activations(np.array([1, 2, 3]))
 
 
 @pytest.mark.parametrize(
@@ -22,7 +23,7 @@ def test_dropout_forward_prop(keep_prob: float, expected: np.ndarray):
         keep_prob=keep_prob,
         training=True,
     )
-    assert np.allclose(dropout.forward_prop(TEST_INPUT), expected)
+    assert np.allclose(dropout.forward_prop(TEST_INPUT), expected)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -38,5 +39,5 @@ def test_dropout_backward_prop(keep_prob: float, expected: np.ndarray):
         keep_prob=keep_prob,
         training=True,
     )
-    dropout.forward_prop(TEST_INPUT)
-    assert np.allclose(dropout.backward_prop(dZ=np.ones(TEST_INPUT.shape)), expected)
+    dropout.forward_prop(TEST_INPUT)  # type: ignore[arg-type]
+    assert np.allclose(dropout.backward_prop(dZ=np.ones(TEST_INPUT.shape)), expected)  # type: ignore[arg-type]

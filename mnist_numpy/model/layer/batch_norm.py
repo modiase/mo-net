@@ -115,7 +115,7 @@ class Parameters(SupportsGradientOperations):
             case _:
                 return NotImplemented
 
-    def __rmul__(self, other: float) -> Self:
+    def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
     @classmethod
@@ -323,7 +323,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     def serialize(self) -> SupportsDeserialize[BatchNorm]:
         return self.Serialized(
-            input_dimensions=self._input_dimensions,
+            input_dimensions=tuple(self._input_dimensions),
             momentum=self._momentum,
             parameters=self._parameters,
             running_mean=self._running_mean,
