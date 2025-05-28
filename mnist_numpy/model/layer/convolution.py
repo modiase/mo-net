@@ -117,8 +117,6 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
-        out_height: int,
-        out_width: int,
     ) -> Parameters:
         return cls(
             weights=np.random.uniform(
@@ -136,8 +134,6 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
-        out_height: int,
-        out_width: int,
     ) -> Parameters:
         return cls(
             weights=np.ones((n_kernels, in_channels, in_height, in_width)),
@@ -151,8 +147,6 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
-        out_height: int,
-        out_width: int,
     ) -> Parameters:
         fan_in = in_channels * in_height * in_width
         limit = np.sqrt(6.0 / fan_in)
@@ -170,8 +164,6 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
-        out_height: int,
-        out_width: int,
     ) -> Parameters:
         return cls(
             weights=np.random.normal(
@@ -184,7 +176,7 @@ class Parameters(SupportsGradientOperations):
 
 
 type ParametersType = Parameters
-type KernelInitFn = Callable[[int, int, int, int, int, int], ParametersType]
+type KernelInitFn = Callable[[int, int, int, int], ParametersType]
 
 
 class Convolution2D(Hidden):
@@ -271,8 +263,6 @@ class Convolution2D(Hidden):
             self._in_channels,
             self._kernel_height,
             self._kernel_width,
-            self._out_height,
-            self._out_width,
         )
         self._cache = self.Cache(
             input_activations=None, output_activations=None, dP=None
