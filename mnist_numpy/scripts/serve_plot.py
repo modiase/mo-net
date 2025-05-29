@@ -20,7 +20,8 @@ class State:
     @dataclass(frozen=True, kw_only=True)
     class S:
         current_data: Optional[pd.DataFrame] = None
-        latest_log_path: Optional[Path] = None
+        current_log_path: Optional[Path] = None
+        current_seed: Optional[str] = None
         last_modified: float = 0.0
         background_task: Optional[asyncio.Task] = None
 
@@ -41,58 +42,47 @@ state: Final[State] = State()
 
 
 def get_latest_training_log() -> Optional[Path]:
-    """Find the most recent training log file."""
     run_dir = DATA_DIR / "run"
     if not run_dir.exists():
         return None
-
     training_log_files = list(run_dir.glob("*_training_log.csv"))
-    if not training_log_files:
-        return None
-
-    return max(training_log_files, key=lambda p: p.stat().st_mtime)
+    return (
+        max(training_log_files, key=lambda p: p.stat().st_mtime)
+        if training_log_files
+        else None
+    )
 
 
 def get_training_log_by_seed(seed: str) -> Optional[Path]:
-    """Find a training log file by its seed number."""
     run_dir = DATA_DIR / "run"
     if not run_dir.exists():
         return None
-
     matching_files = list(run_dir.glob(f"{seed}_*_training_log.csv"))
     return matching_files[0] if matching_files else None
 
 
 def get_all_available_seeds() -> List[str]:
-    """Get all available training log seeds."""
     run_dir = DATA_DIR / "run"
     if not run_dir.exists():
         return []
-
     training_log_files = list(run_dir.glob("*_training_log.csv"))
-    seeds = []
-
-    for file_path in training_log_files:
-        filename = file_path.name
-        if "_" in filename:
-            seeds.append(filename.split("_")[0])
-
+    seeds = [
+        file_path.name.split("_")[0]
+        for file_path in training_log_files
+        if "_" in file_path.name
+    ]
     return sorted(seeds, reverse=True)
 
 
 def load_training_data(log_path: Path) -> pd.DataFrame:
-    """Load training data from CSV file."""
     try:
         df = pd.read_csv(log_path)
         if df.empty:
             return df
-
         if "monotonic_test_loss" not in df.columns:
             df["monotonic_test_loss"] = df["test_loss"].cummin()
-
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
-
         return df
     except Exception as e:
         logger.error(f"Error loading training data: {e}")
@@ -100,28 +90,53 @@ def load_training_data(log_path: Path) -> pd.DataFrame:
 
 
 async def update_data():
-    """Background task to update training data."""
     while True:
         try:
-            log_path = get_latest_training_log()
+            current_state = await state.get()
+
+            if current_state.current_seed is None:
+                log_path = get_latest_training_log()
+                if log_path and log_path != current_state.current_log_path:
+                    pass
+            else:
+                log_path = get_training_log_by_seed(current_state.current_seed)
+
             if log_path and log_path.exists():
                 current_modified = log_path.stat().st_mtime
-                current_state = await state.get()
 
                 if (
-                    current_modified > current_state.last_modified
-                    or log_path != current_state.latest_log_path
+                    log_path == current_state.current_log_path
+                    and current_modified > current_state.last_modified
                 ):
-                    new_data = load_training_data(log_path)
                     await state.mutate(
                         State.S(
-                            current_data=new_data,
-                            latest_log_path=log_path,
+                            current_data=load_training_data(log_path),
+                            current_log_path=log_path,
+                            current_seed=current_state.current_seed,
                             last_modified=current_modified,
                             background_task=current_state.background_task,
                         )
                     )
-                    logger.info(f"Updated data from {log_path}")
+                    seed_info = (
+                        f" (seed {current_state.current_seed})"
+                        if current_state.current_seed
+                        else " (latest)"
+                    )
+                    logger.info(f"Updated data from {log_path}{seed_info}")
+                elif (
+                    current_state.current_seed is None
+                    and log_path != current_state.current_log_path
+                ):
+                    await state.mutate(
+                        State.S(
+                            current_data=load_training_data(log_path),
+                            current_log_path=log_path,
+                            current_seed=None,
+                            last_modified=log_path.stat().st_mtime,
+                            background_task=current_state.background_task,
+                        )
+                    )
+                    logger.info(f"Switched to new latest file: {log_path}")
 
             await asyncio.sleep(2)
         except Exception as e:
@@ -131,14 +146,14 @@ async def update_data():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application lifespan events."""
     logger.info("Starting background data monitoring task")
     task = asyncio.create_task(update_data())
     current_state = await state.get()
     await state.mutate(
         State.S(
             current_data=current_state.current_data,
-            latest_log_path=current_state.latest_log_path,
+            current_log_path=current_state.current_log_path,
+            current_seed=current_state.current_seed,
             last_modified=current_state.last_modified,
             background_task=task,
         )
@@ -165,7 +180,6 @@ app = FastAPI(
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    """Serve the main dashboard page."""
     return HTMLResponse(
         content="""
     <!DOCTYPE html>
@@ -364,7 +378,6 @@ async def dashboard():
             
             function updateStats(data) {
                 if (!data || data.length === 0) return;
-                
                 const latest = data[data.length - 1];
                 document.getElementById('stats-grid').innerHTML = `
                     <div class="stat-card">
@@ -392,7 +405,6 @@ async def dashboard():
             
             function plotLossChart(data) {
                 if (!data || data.length === 0) return;
-                
                 Plotly.newPlot('loss-plot', [
                     {
                         x: data.map(d => d.epoch),
@@ -431,7 +443,6 @@ async def dashboard():
             
             function plotLearningRate(data) {
                 if (!data || data.length === 0) return;
-                
                 Plotly.newPlot('lr-plot', [{
                     x: data.map(d => d.epoch),
                     y: data.map(d => d.learning_rate),
@@ -450,7 +461,6 @@ async def dashboard():
             
             function plotTimeline(data) {
                 if (!data || data.length === 0 || !data[0].timestamp) return;
-                
                 Plotly.newPlot('timeline-plot', [{
                     x: data.map(d => d.timestamp),
                     y: data.map(d => d.test_loss),
@@ -504,7 +514,6 @@ async def dashboard():
                     if (response.ok) {
                         const data = await response.json();
                         const selector = document.getElementById('seed-selector');
-                        
                         selector.innerHTML = '<option value="">Select Seed...</option>';
                         data.seeds.forEach(seed => {
                             const option = document.createElement('option');
@@ -537,29 +546,33 @@ async def dashboard():
 
 @app.get("/api/data")
 async def get_training_data():
-    """API endpoint to get current training data."""
     current_state = await state.get()
+    data_to_use = current_state.current_data
 
-    if current_state.current_data is None or current_state.current_data.empty:
-        log_path = get_latest_training_log()
+    if data_to_use is None or data_to_use.empty:
+        if current_state.current_seed is None:
+            log_path = get_latest_training_log()
+        else:
+            log_path = get_training_log_by_seed(current_state.current_seed)
+
         if not log_path:
             raise HTTPException(status_code=404, detail="No training log files found")
-        new_data = load_training_data(log_path)
+
+        data_to_use = load_training_data(log_path)
         await state.mutate(
             State.S(
-                current_data=new_data,
-                latest_log_path=log_path,
-                last_modified=current_state.last_modified,
+                current_data=data_to_use,
+                current_log_path=log_path,
+                current_seed=current_state.current_seed,
+                last_modified=log_path.stat().st_mtime,
                 background_task=current_state.background_task,
             )
         )
-        current_state = await state.get()
 
-    if current_state.current_data.empty:
+    if data_to_use.empty:
         raise HTTPException(status_code=404, detail="No training data available")
 
-    data = current_state.current_data.to_dict("records")
-
+    data = data_to_use.to_dict("records")
     for row in data:
         if "timestamp" in row and pd.notna(row["timestamp"]):
             if isinstance(row["timestamp"], pd.Timestamp):
@@ -570,12 +583,10 @@ async def get_training_data():
 
 @app.get("/api/status")
 async def get_status():
-    """Get current monitoring status."""
     current_state = await state.get()
-
     status = {
-        "log_file": str(current_state.latest_log_path)
-        if current_state.latest_log_path
+        "log_file": str(current_state.current_log_path)
+        if current_state.current_log_path
         else None,
         "has_data": current_state.current_data is not None
         and not current_state.current_data.empty,
@@ -601,13 +612,11 @@ async def get_status():
 
 @app.get("/api/plots/loss")
 async def get_loss_plot():
-    """Get loss plot as JSON for Plotly."""
     current_state = await state.get()
     if current_state.current_data is None or current_state.current_data.empty:
         raise HTTPException(status_code=404, detail="No data available")
 
     fig = go.Figure()
-
     fig.add_trace(
         go.Scatter(
             x=current_state.current_data["epoch"],
@@ -617,7 +626,6 @@ async def get_loss_plot():
             line=dict(color="blue", width=2),
         )
     )
-
     fig.add_trace(
         go.Scatter(
             x=current_state.current_data["epoch"],
@@ -627,7 +635,6 @@ async def get_loss_plot():
             line=dict(color="red", width=2),
         )
     )
-
     fig.add_trace(
         go.Scatter(
             x=current_state.current_data["epoch"],
@@ -637,7 +644,6 @@ async def get_loss_plot():
             line=dict(color="green", width=3, dash="dash"),
         )
     )
-
     fig.update_layout(
         title="Training Progress - Loss Over Epochs",
         xaxis_title="Epoch",
@@ -645,39 +651,36 @@ async def get_loss_plot():
         yaxis_type="log",
         hovermode="x unified",
     )
-
     return JSONResponse(content=fig.to_dict())
 
 
 @app.get("/latest")
 async def get_latest_dashboard():
-    """Redirect to the dashboard showing the latest training log."""
     log_path = get_latest_training_log()
     if not log_path:
         raise HTTPException(status_code=404, detail="No training log files found")
 
-    filename = log_path.name
-    if "_" not in filename:
+    if "_" not in log_path.name:
         raise HTTPException(
             status_code=500, detail="Invalid training log filename format"
         )
 
+    data = load_training_data(log_path)
     current_state = await state.get()
     await state.mutate(
         State.S(
-            current_data=load_training_data(log_path),
-            latest_log_path=log_path,
+            current_data=data,
+            current_log_path=log_path,
+            current_seed=None,
             last_modified=log_path.stat().st_mtime,
             background_task=current_state.background_task,
         )
     )
-
     return await dashboard()
 
 
 @app.get("/api/latest/data")
 async def get_latest_training_data():
-    """API endpoint to get data from the latest training log."""
     log_path = get_latest_training_log()
     if not log_path:
         raise HTTPException(status_code=404, detail="No training log files found")
@@ -687,7 +690,6 @@ async def get_latest_training_data():
         raise HTTPException(status_code=404, detail="No training data available")
 
     result = data.to_dict("records")
-
     for row in result:
         if "timestamp" in row and pd.notna(row["timestamp"]):
             if isinstance(row["timestamp"], pd.Timestamp):
@@ -698,7 +700,6 @@ async def get_latest_training_data():
 
 @app.get("/{seed}")
 async def get_seed_dashboard(seed: str):
-    """Get dashboard for a specific training log by seed."""
     if not seed.isdigit():
         raise HTTPException(status_code=404, detail=f"Invalid seed format: {seed}")
 
@@ -710,22 +711,22 @@ async def get_seed_dashboard(seed: str):
             detail=f"Training log with seed {seed} not found. Available seeds: {available_seeds}",
         )
 
+    data = load_training_data(log_path)
     current_state = await state.get()
     await state.mutate(
         State.S(
-            current_data=load_training_data(log_path),
-            latest_log_path=log_path,
+            current_data=data,
+            current_log_path=log_path,
+            current_seed=seed,
             last_modified=log_path.stat().st_mtime,
             background_task=current_state.background_task,
         )
     )
-
     return await dashboard()
 
 
 @app.get("/api/{seed}/data")
 async def get_seed_training_data(seed: str):
-    """API endpoint to get data from a specific training log by seed."""
     if not seed.isdigit():
         raise HTTPException(status_code=404, detail=f"Invalid seed format: {seed}")
 
@@ -742,7 +743,6 @@ async def get_seed_training_data(seed: str):
         raise HTTPException(status_code=404, detail="No training data available")
 
     result = data.to_dict("records")
-
     for row in result:
         if "timestamp" in row and pd.notna(row["timestamp"]):
             if isinstance(row["timestamp"], pd.Timestamp):
@@ -753,7 +753,6 @@ async def get_seed_training_data(seed: str):
 
 @app.get("/api/seeds")
 async def get_available_seeds():
-    """Get list of all available training log seeds."""
     return JSONResponse(content={"seeds": get_all_available_seeds()})
 
 
@@ -762,10 +761,8 @@ async def get_available_seeds():
 @click.option("--port", default=8000, help="Port to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload")
 def main(host: str, port: int, reload: bool):
-    """Start the MNIST training monitor web server."""
     logger.info(f"Starting MNIST Training Monitor on http://{host}:{port}")
     logger.info(f"Monitoring directory: {DATA_DIR / 'run'}")
-
     uvicorn.run(
         "mnist_numpy.scripts.serve_plot:app",
         host=host,
