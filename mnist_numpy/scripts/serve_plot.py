@@ -173,7 +173,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="MNIST Training Monitor",
-    description="Real-time visualization of MNIST training progress",
+    description="Real-time visualisation of MNIST training progress",
     lifespan=lifespan,
 )
 
@@ -314,7 +314,7 @@ async def dashboard():
         <div class="container">
             <div class="header">
                 <h1>MNIST Training Monitor</h1>
-                <p>Real-time visualization of neural network training progress</p>
+                <p>Real-time visualisation of neural network training progress</p>
             </div>
             
             <button class="refresh-btn" onclick="refreshData()">Refresh Data</button>
