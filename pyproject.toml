@@ -24,6 +24,7 @@ dependencies = [
   "flameprof>=0.4",
   "fastapi>=0.115.12",
   "sqlalchemy>=2.0.41",
+  "uvicorn>=0.34.2",
 ]
 
 [dependency-groups]
@@ -72,3 +73,4 @@ resume = "mnist_numpy.cli:resume"
 sample_data = "mnist_numpy.cli:sample_data"
 trace_statistics = "mnist_numpy.scripts.trace_statistics:main"
 train = "mnist_numpy.cli:train"
+serve_plot = "mnist_numpy.scripts.serve_plot:main"
