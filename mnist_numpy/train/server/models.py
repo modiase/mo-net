@@ -47,7 +47,7 @@ class DbRun(Base):
     current_batch_loss = Column(Float, nullable=False)
     current_epoch = Column(Integer, nullable=False)
     current_learning_rate = Column(Float, nullable=False)
-    current_test_loss = Column(Float, nullable=False)
+    current_val_loss = Column(Float, nullable=False)
     current_timestamp = Column(DateTime, nullable=False)
     name = Column(String, nullable=False)
     seed = Column(Integer, nullable=False)
@@ -85,7 +85,7 @@ class DbRun(Base):
             current_batch_loss=0.0,
             current_epoch=0,
             current_learning_rate=0.0,
-            current_test_loss=0.0,
+            current_val_loss=0.0,
             current_timestamp=datetime.now(),
             total_batches=total_batches,
             total_epochs=total_epochs,

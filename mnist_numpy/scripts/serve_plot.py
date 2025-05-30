@@ -79,8 +79,8 @@ def load_training_data(log_path: Path) -> pd.DataFrame:
         df = pd.read_csv(log_path)
         if df.empty:
             return df
-        if "monotonic_test_loss" not in df.columns:
-            df["monotonic_test_loss"] = df["test_loss"].cummin()
+        if "monotonic_val_loss" not in df.columns:
+            df["monotonic_val_loss"] = df["val_loss"].cummin()
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
         return df
@@ -389,8 +389,8 @@ async def dashboard():
                         <div class="stat-label">Batch Loss</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-value">${latest.test_loss.toFixed(6)}</div>
-                        <div class="stat-label">Test Loss</div>
+                        <div class="stat-value">${latest.val_loss.toFixed(6)}</div>
+                        <div class="stat-label">Validation Loss</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">${latest.learning_rate.toFixed(8)}</div>
@@ -417,19 +417,19 @@ async def dashboard():
                     },
                     {
                         x: data.map(d => d.epoch),
-                        y: data.map(d => d.test_loss),
+                        y: data.map(d => d.val_loss),
                         type: 'scatter',
                         mode: 'lines+markers',
-                        name: 'Test Loss',
+                        name: 'Validation Loss',
                         line: { color: '#ff7f0e', width: 2 },
                         marker: { size: 4 }
                     },
                     {
                         x: data.map(d => d.epoch),
-                        y: data.map(d => d.monotonic_test_loss),
+                        y: data.map(d => d.monotonic_val_loss),
                         type: 'scatter',
                         mode: 'lines',
-                        name: 'Monotonic Test Loss',
+                        name: 'Monotonic Validation Loss',
                         line: { color: '#2ca02c', width: 3, dash: 'dash' }
                     }
                 ], {
@@ -463,15 +463,15 @@ async def dashboard():
                 if (!data || data.length === 0 || !data[0].timestamp) return;
                 Plotly.newPlot('timeline-plot', [{
                     x: data.map(d => d.timestamp),
-                    y: data.map(d => d.test_loss),
+                    y: data.map(d => d.val_loss),
                     type: 'scatter',
                     mode: 'lines+markers',
-                    name: 'Test Loss over Time',
+                    name: 'Validation Loss over Time',
                     line: { color: '#9467bd', width: 2 },
                     marker: { size: 4 }
                 }], {
                     xaxis: { title: 'Time' },
-                    yaxis: { title: 'Test Loss', type: 'log' },
+                    yaxis: { title: 'Validation Loss', type: 'log' },
                     hovermode: 'x unified',
                     margin: { l: 60, r: 20, t: 20, b: 60 }
                 }, {responsive: true});
@@ -602,7 +602,7 @@ async def get_status():
             {
                 "current_epoch": int(latest["epoch"]),
                 "current_batch_loss": float(latest["batch_loss"]),
-                "current_test_loss": float(latest["test_loss"]),
+                "current_val_loss": float(latest["val_loss"]),
                 "current_learning_rate": float(latest["learning_rate"]),
             }
         )
@@ -629,18 +629,18 @@ async def get_loss_plot():
     fig.add_trace(
         go.Scatter(
             x=current_state.current_data["epoch"],
-            y=current_state.current_data["test_loss"],
+            y=current_state.current_data["val_loss"],
             mode="lines+markers",
-            name="Test Loss",
+            name="Validation Loss",
             line=dict(color="red", width=2),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=current_state.current_data["epoch"],
-            y=current_state.current_data["monotonic_test_loss"],
+            y=current_state.current_data["monotonic_val_loss"],
             mode="lines",
-            name="Monotonic Test Loss",
+            name="Monotonic Validation Loss",
             line=dict(color="green", width=3, dash="dash"),
         )
     )
