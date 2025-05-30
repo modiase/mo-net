@@ -28,6 +28,7 @@ class Backend(Protocol):
         self,
         *,
         batch_loss: float,
+        val_loss: float,
         batch: int,
         epoch: int,
         learning_rate: float,
@@ -40,7 +41,7 @@ class CsvBackend(Backend):
         self._path = path
         self._columns = [
             "batch_loss",
-            "test_loss",
+            "val_loss",
             "batch",
             "epoch",
             "learning_rate",
@@ -70,7 +71,7 @@ class CsvBackend(Backend):
         self,
         *,
         batch_loss: float,
-        test_loss: float,
+        val_loss: float,
         batch: int,
         epoch: int,
         learning_rate: float,
@@ -79,7 +80,7 @@ class CsvBackend(Backend):
         pd.DataFrame(
             {
                 "batch_loss": batch_loss,
-                "test_loss": test_loss,
+                "val_loss": val_loss,
                 "batch": batch,
                 "epoch": epoch,
                 "learning_rate": learning_rate,

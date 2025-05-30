@@ -334,9 +334,8 @@ def train(
 
     model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
     run = Run(
-        model_path=model_path,
-        training_log_path=RUN_PATH / (f"{model_path.stem}_training_log.csv"),
-        backend=CsvBackend(),
+        seed=seed,
+        backend=CsvBackend(path=RUN_PATH / (f"{model_path.stem}_training_log.csv")),
     )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
     if regulariser_lambda > 0:
