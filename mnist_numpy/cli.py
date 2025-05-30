@@ -247,7 +247,7 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> None:
-    X_train, Y_train, X_test, Y_test = load_data(data_path, split=0.9)
+    X_train, Y_train, X_val, Y_val = load_data(data_path, split=0.9)
 
     seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)
@@ -355,9 +355,9 @@ def train(
     start_epoch: int = 0
     model_checkpoint_path: Path | None = None
     trainer = (ParallelTrainer if training_parameters.workers > 0 else BasicTrainer)(
-        X_test=X_test,
+        X_val=X_val,
         X_train=X_train,
-        Y_test=Y_test,
+        Y_val=Y_val,
         Y_train=Y_train,
         log_path=training_log_path,
         model=model,
@@ -407,7 +407,7 @@ def train(
     default=DEFAULT_DATA_PATH,
 )
 def infer(*, model_path: Path | None, data_path: Path):
-    X_train, Y_train, X_test, Y_test = load_data(data_path, split=0.8)
+    X_train, Y_train, X_val, Y_val = load_data(data_path, split=0.8)
 
     if model_path is None:
         output_dir = DATA_DIR / "output"
@@ -431,13 +431,15 @@ def infer(*, model_path: Path | None, data_path: Path):
         f"Training Set Accuracy: {np.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
     )
 
+    Y_test_pred = model.predict(X_val)
+    Y_test_true = np.argmax(Y_val, axis=1)
+
+    X_test, Y_test = load_data(DATA_DIR / "mnist_test.csv")
     Y_test_pred = model.predict(X_test)
     Y_test_true = np.argmax(Y_test, axis=1)
-
-    Y_cv, X_cv = load_data(DATA_DIR / "mnist_test.csv")
-    Y_cv_pred = model.predict(X_cv)
-    Y_cv_true = np.argmax(Y_cv, axis=1)
-    logger.info(f"CV Set Accuracy: {np.sum(Y_cv_pred == Y_cv_true) / len(Y_cv_pred)}")
+    logger.info(
+        f"Test Set Accuracy: {np.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)}"
+    )
 
     precision = np.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)
     recall = np.sum(Y_test_true == Y_test_pred) / len(Y_test_true)
@@ -450,7 +452,7 @@ def infer(*, model_path: Path | None, data_path: Path):
     sample_indices = sample(np.where(Y_test_true != Y_test_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(8, 5, idx + 1)
-        plt.imshow(X_test[i].reshape(28, 28), cmap="gray")
+        plt.imshow(X_val[i].reshape(28, 28), cmap="gray")
         plt.title(f"Pred: {Y_test_pred[i]}, True: {Y_test_true[i]}")
         plt.axis("off")
     plt.subplot(8, 1, (6, 8))

@@ -94,8 +94,8 @@ class BasicTrainer:
         start_epoch: int | None = None,
         X_train: np.ndarray,
         Y_train: np.ndarray,
-        X_test: np.ndarray,
-        Y_test: np.ndarray,
+        X_val: np.ndarray,
+        Y_val: np.ndarray,
     ) -> None:
         self._disable_shutdown = disable_shutdown
         self._log_path = log_path
@@ -118,11 +118,11 @@ class BasicTrainer:
                 y_size=x_size,
             ),
         )
-        self._X_test = X_test
-        self._Y_test = Y_test
+        self._X_val = X_val
+        self._Y_val = Y_val
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
-        self._L_test_min_epoch: int | None = None
+        self._L_val_min_epoch: int | None = None
 
     def subscribe_to_after_training_step(
         self,
@@ -176,8 +176,8 @@ class BasicTrainer:
                 columns=[
                     "epoch",
                     "batch_loss",
-                    "test_loss",
-                    "monotonic_test_loss",
+                    "val_loss",
+                    "monotonic_val_loss",
                     "learning_rate",
                     "timestamp",
                 ]
@@ -215,7 +215,7 @@ class BasicTrainer:
         logger.info(f"Training log path: {self._log_path}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
-        self._L_test_min = self._model.compute_loss(X=self._X_test, Y_true=self._Y_test)
+        self._L_val_min = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
 
         if self._training_parameters.trace_logging:
             tracer = Tracer(
@@ -275,7 +275,7 @@ class BasicTrainer:
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
-                            model_checkpoint_save_epoch=self._L_test_min_epoch,
+                            model_checkpoint_save_epoch=self._L_val_min_epoch,
                         )
                     case None:
                         pass
@@ -286,21 +286,21 @@ class BasicTrainer:
                 L_train = self._model.compute_loss(
                     X=X_train_batch, Y_true=Y_train_batch
                 )
-                L_test = self._model.compute_loss(X=self._X_test, Y_true=self._Y_test)
+                L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
 
-                if L_test < self._L_test_min:
+                if L_val < self._L_val_min:
                     self._model.dump(open(self._model_checkpoint_path, "wb"))
                     if self._monitor is not None:
                         self._monitor.clear_history()
                     self._optimizer.snapshot()
-                    self._L_test_min = L_test
-                    self._L_test_min_epoch = self._training_parameters.current_epoch(i)
-                match self._post_epoch(L_test):
+                    self._L_val_min = L_val
+                    self._L_val_min_epoch = self._training_parameters.current_epoch(i)
+                match self._post_epoch(L_val):
                     case CheckFailed() as check:
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
-                            model_checkpoint_save_epoch=self._L_test_min_epoch,
+                            model_checkpoint_save_epoch=self._L_val_min_epoch,
                         )
                     case None:
                         pass
@@ -312,8 +312,8 @@ class BasicTrainer:
                         [
                             self._training_parameters.current_epoch(i),
                             L_train,
-                            L_test,
-                            self._L_test_min,
+                            L_val,
+                            self._L_val_min,
                             self._optimizer.learning_rate,
                             datetime.now(),
                         ]
@@ -328,7 +328,7 @@ class BasicTrainer:
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 tqdm.write(
-                    f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_train}, Test Loss = {L_test}"
+                    f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_train}, Validation Loss = {L_val}"
                     + (
                         f", {report}"
                         if (report := self._optimizer.report()) != ""
@@ -358,9 +358,9 @@ class BasicTrainer:
             self._last_update = update
         return gradient, update
 
-    def _post_epoch(self, L_test: float) -> CheckFailed | None:
+    def _post_epoch(self, L_val: float) -> CheckFailed | None:
         if not self._training_parameters.no_monitoring and self._monitor is not None:
-            return self._monitor.post_epoch(L_test)
+            return self._monitor.post_epoch(L_val)
         return None
 
     def shutdown(self) -> None:

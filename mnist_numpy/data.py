@@ -20,8 +20,8 @@ if not RUN_PATH.exists():
 def _load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray]:
     df = pd.read_csv(data_path)
     return (
-        np.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()],
         np.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
+        np.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()],
     )
 
 
@@ -36,11 +36,11 @@ def _load_data_split(
     test_set = df.iloc[split_index:, :]
 
     Y_train = np.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
-    Y_test = np.eye(N_DIGITS)[test_set.iloc[:, 0].to_numpy()]
+    Y_val = np.eye(N_DIGITS)[test_set.iloc[:, 0].to_numpy()]
 
     X_train = np.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
-    X_test = np.array(test_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
-    return X_train, Y_train, X_test, Y_test
+    X_val = np.array(test_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
+    return X_train, Y_train, X_val, Y_val
 
 
 @overload
