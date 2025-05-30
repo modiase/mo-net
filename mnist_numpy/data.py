@@ -28,8 +28,8 @@ def _load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray]:
 def _load_data_split(
     data_path: Path, split: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    if split < 0 or split > 1:
-        raise ValueError("Split must be between 0 and 1")
+    if split <= 0 or split >= 1:
+        raise ValueError("Split must be in the interval (0,1)")
     df = pd.read_csv(data_path)
     split_index: int = ceil(len(df) * split)
     training_set = df.iloc[:split_index, :]
