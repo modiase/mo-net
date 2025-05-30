@@ -356,3 +356,93 @@ def test_convolution_2d_gradient_operation():
     """Test that Convolution2D layer implements GradLayer interface."""
     layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
     assert isinstance(layer, GradLayer)
+
+
+@dataclass(frozen=True)
+class ParameterUpdateTestCase:
+    name: str
+    input_dimensions: Dimensions
+    kernel_size: int | tuple[int, int]
+    n_kernels: int
+    kernel_init_fn: KernelInitFn
+    input_activations: np.ndarray
+    dZ: np.ndarray
+    expected_output: np.ndarray
+    expected_weight_gradients: np.ndarray
+    expected_bias_gradients: np.ndarray
+
+
+@pytest.mark.parametrize(
+    "test_case",
+    [
+        ParameterUpdateTestCase(
+            name="2x2_kernel_simple_case",
+            input_dimensions=(1, 2, 2),
+            kernel_size=2,
+            n_kernels=1,
+            kernel_init_fn=lambda *_: Convolution2D.Parameters(
+                weights=np.array([[[[0.1, 0.2], [0.3, 0.4]]]]), biases=np.array([0.5])
+            ),
+            input_activations=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
+            dZ=np.array([[[[1.0]]]]),
+            expected_output=np.array([[[[3.5]]]]),
+            expected_weight_gradients=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
+            expected_bias_gradients=np.array([1.0]),
+        ),
+        ParameterUpdateTestCase(
+            name="3x3_input_2x2_kernel",
+            input_dimensions=(1, 3, 3),
+            kernel_size=2,
+            n_kernels=1,
+            kernel_init_fn=lambda *_: Convolution2D.Parameters(
+                weights=np.array([[[[1.0, 0.0], [0.0, 1.0]]]]), biases=np.array([0.0])
+            ),
+            input_activations=np.array(
+                [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]]
+            ),
+            dZ=np.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
+            expected_output=np.array([[[[6.0, 8.0], [12.0, 14.0]]]]),
+            expected_weight_gradients=np.array([[[[12.0, 16.0], [24.0, 28.0]]]]),
+            expected_bias_gradients=np.array([4.0]),
+        ),
+        ParameterUpdateTestCase(
+            name="3x2_input_2x1_kernel",
+            input_dimensions=(1, 3, 2),
+            kernel_size=(2, 1),
+            n_kernels=1,
+            kernel_init_fn=lambda *_: Convolution2D.Parameters(
+                weights=np.array([[[[1.0], [0.5]]]]), biases=np.array([0.0])
+            ),
+            input_activations=np.array([[[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]]]),
+            dZ=np.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
+            expected_output=np.array([[[[2.5, 4.0], [5.5, 7.0]]]]),
+            expected_weight_gradients=np.array([[[[10.0], [18.0]]]]),
+            expected_bias_gradients=np.array([4.0]),
+        ),
+    ],
+    ids=lambda test_case: test_case.name,
+)
+def test_parameter_update_value(test_case: ParameterUpdateTestCase):
+    """Test that parameter gradients are correctly computed and stored in cache."""
+    layer = Convolution2D(
+        input_dimensions=test_case.input_dimensions,
+        kernel_size=test_case.kernel_size,
+        n_kernels=test_case.n_kernels,
+        kernel_init_fn=test_case.kernel_init_fn,
+    )
+
+    output = layer.forward_prop(input_activations=test_case.input_activations)
+    assert np.allclose(output, test_case.expected_output), (
+        f"Forward prop failed: got {output}, expected {test_case.expected_output}"
+    )
+
+    layer.backward_prop(dZ=test_case.dZ)
+
+    cached_dP = layer.cache["dP"]
+    assert cached_dP is not None, "Parameter gradients not stored in cache"
+    assert np.allclose(cached_dP.weights, test_case.expected_weight_gradients), (
+        f"Weight gradients incorrect: got {cached_dP.weights}"
+    )
+    assert np.allclose(cached_dP.biases, test_case.expected_bias_gradients), (
+        f"Bias gradients incorrect: got {cached_dP.biases}"
+    )
