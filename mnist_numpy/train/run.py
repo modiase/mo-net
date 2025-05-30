@@ -37,14 +37,14 @@ class Run:
         batch: int,
         epoch: int,
         learning_rate: float,
-        test_loss: float,
+        val_loss: float,
     ) -> None:
         self._backend.log_iteration(
             batch_loss=batch_loss,
             batch=batch,
             epoch=epoch,
             learning_rate=learning_rate,
-            test_loss=test_loss,
+            val_loss=val_loss,
             timestamp=datetime.now(),
         )
 
