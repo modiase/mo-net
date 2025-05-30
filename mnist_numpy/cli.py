@@ -178,7 +178,7 @@ def cli(): ...
     "--max-restarts",
     type=int,
     help="Set the maximum number of restarts",
-    default=None,
+    default=0,
 )
 @click.option(
     "-w",
@@ -232,7 +232,7 @@ def train(
     history_max_len: int,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
-    max_restarts: int | None,
+    max_restarts: int,
     monotonic: bool,
     no_monitoring: bool,
     no_transform: bool,
@@ -367,7 +367,7 @@ def train(
         disable_shutdown=training_parameters.workers != 0,
     )
     try:
-        while max_restarts is None or restarts <= max_restarts:
+        while restarts <= max_restarts:
             if restarts > 0:
                 if model_checkpoint_path is None:
                     raise ValueError(
