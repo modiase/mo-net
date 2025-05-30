@@ -28,7 +28,6 @@ from mnist_numpy.functions import (
     parse_activation_fn,
 )
 from mnist_numpy.model import Model
-from mnist_numpy.model.layer.dropout import Dropout
 from mnist_numpy.protos import ActivationFn, NormalisationType
 from mnist_numpy.quickstart import mnist_cnn, mnist_mlp
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
@@ -297,6 +296,7 @@ def train(
                     batch_size=batch_size,
                     normalisation_type=normalisation_type,
                     tracing_enabled=tracing_enabled,
+                    dropout_keep_probs=dropout_keep_probs,
                 )
             case "mlp":
                 model = mnist_mlp(training_parameters)
@@ -310,13 +310,6 @@ def train(
                 "Dims must not be provided when loading a model from a file."
             )
         model = Model.load(open(model_path, "rb"), training=True)
-
-    if dropout_keep_probs:
-        Dropout.attach_dropout_layers(
-            model=model,
-            keep_probs=dropout_keep_probs,
-            training=True,
-        )
 
     if training_log_path is None:
         model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"

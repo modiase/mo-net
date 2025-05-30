@@ -25,6 +25,7 @@ from mnist_numpy.model import ModelBase
 from mnist_numpy.model.block.base import Base, Hidden, Output
 from mnist_numpy.model.block.norm import BatchNormOptions, LayerNormOptions, Norm
 from mnist_numpy.model.layer.base import Hidden as HiddenLayer
+from mnist_numpy.model.layer.dropout import Dropout
 from mnist_numpy.model.layer.output import RawOutputLayer
 from mnist_numpy.model.layer.input import Input
 from mnist_numpy.model.layer.linear import Linear
@@ -109,6 +110,7 @@ class Model(ModelBase):
         normalisation_type: NormalisationType = NormalisationType.NONE,
         batch_size: int | None = None,
         tracing_enabled: bool = False,
+        dropout_keep_probs: Sequence[float] | None = None,
     ) -> Self:
         if len(module_dimensions) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
@@ -186,6 +188,12 @@ class Model(ModelBase):
         )
         for regulariser in regularisers:
             regulariser(model)
+        if dropout_keep_probs:
+            Dropout.attach_dropout_layers(  # noqa: F821
+                model=model,
+                keep_probs=dropout_keep_probs,
+                training=True,
+            )
         return model
 
     def __init__(
