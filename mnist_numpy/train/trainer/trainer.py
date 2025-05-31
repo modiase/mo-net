@@ -1,7 +1,7 @@
 from functools import partial
 import time
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -146,9 +146,15 @@ class BasicTrainer:
                 yield
             finally:
                 for handler in self._on_shutdown_handlers:
-                    handler()
+                    try:
+                        handler()
+                    except Exception:
+                        logger.exception("Error in shutdown handler.")
                 if not self._disable_shutdown:
-                    self.shutdown()
+                    try:
+                        self.shutdown()
+                    except Exception:
+                        logger.exception("Error in shutdown handler.")
 
         return _training_loop_context()
 
