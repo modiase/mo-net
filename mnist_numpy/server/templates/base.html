@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>{% block title %}MNIST Training Monitor{% endblock %}</title>
+    <title>{% block title %}Training Monitor{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
     {% if plotly %}
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -11,7 +11,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>{% block header_title %}MNIST Training Monitor{% endblock %}</h1>
+            <h1>{% block header_title %}Training Monitor{% endblock %}</h1>
             <p>{% block header_subtitle %}Real-time visualisation of neural network training progress{% endblock %}</p>
         </div>
         

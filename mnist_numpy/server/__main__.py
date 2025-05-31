@@ -13,7 +13,7 @@ from mnist_numpy.server.app import DB_PATH
 def main(host: str, port: int, reload: bool):
     setup_logging(LogLevel.INFO)
     logger.info(
-        f"Starting MNIST Training Monitor on http://{host}:{port} using database: {DB_PATH}"
+        f"Starting Training Monitor on http://{host}:{port} using database: {DB_PATH}"
     )
     uvicorn.run(
         "mnist_numpy.server.app:app",
