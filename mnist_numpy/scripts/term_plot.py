@@ -109,7 +109,7 @@ def main(
                 fig.plot(epochs, df["val_loss"].tolist(), label="Validation Loss")
                 fig.plot(
                     epochs,
-                    df["monotonic_val_loss"].tolist(),
+                    monotonic_val_loss,
                     label="Monotonic Validation Loss",
                 )
 

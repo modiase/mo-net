@@ -27,6 +27,7 @@ def main(training_log_path: Path | None = None):
         sys.exit(1)
     # Read the CSV file
     df = pd.read_csv(training_log_path)
+    monotonic_val_loss = df["val_loss"].cummin().tolist()
 
     # Create the plot
     plt.figure(figsize=(12, 6))
@@ -34,7 +35,7 @@ def main(training_log_path: Path | None = None):
     plt.plot(df["epoch"], df["val_loss"], label="Validation Loss", color="red")
     plt.plot(
         df["epoch"],
-        df["monotonic_val_loss"],
+        monotonic_val_loss,
         label="Monotonic Validation Loss",
         color="green",
     )
