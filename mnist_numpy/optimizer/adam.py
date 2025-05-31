@@ -51,20 +51,31 @@ class AdaM(Base[Config]):
     def gradient_operation(self, layer: GradLayer) -> None:
         cache = layer.cache
 
-        cache["first_moment"] *= self._config.beta_1
-        cache["first_moment"] += (1 - self._config.beta_1) * cache["dP"]
-
-        cache["second_moment"] *= self._config.beta_2
-        cache["second_moment"] += (1 - self._config.beta_2) * cache["dP"] * cache["dP"]
-
-        cache["dP"] = cache["first_moment"] / (
-            1 - self._config.beta_1**self._iterations + self._config.epsilon
+        cache["first_moment"] = (
+            self._config.beta_1 * cache["first_moment"]
+            + (1 - self._config.beta_1) * cache["dP"]
         )
-        cache["dP"] /= (
-            cache["second_moment"]
-            / (1 - self._config.beta_2**self._iterations + self._config.epsilon)
-        ) ** 0.5 + self._config.epsilon
-        cache["dP"] *= -self._global_learning_rate
+
+        cache["second_moment"] = (
+            self._config.beta_2 * cache["second_moment"]
+            + (1 - self._config.beta_2) * cache["dP"] ** 2
+        )
+
+        cache["dP"] = (
+            -self._global_learning_rate
+            * (
+                cache["first_moment"]
+                / (1 - self._config.beta_1**self._iterations + self._config.epsilon)
+            )
+            / (
+                (
+                    cache["second_moment"]
+                    / (1 - self._config.beta_2**self._iterations + self._config.epsilon)
+                )
+                ** 0.5
+                + self._config.epsilon
+            )
+        )
 
     def compute_update(self) -> None:
         self._iterations += 1
