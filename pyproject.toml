@@ -21,6 +21,7 @@ dependencies = [
   "h5py>=3.13.0",
   "plotille>=5.0.0",
   "scipy>=1.15.3",
+  "flameprof>=0.4",
 ]
 
 [dependency-groups]

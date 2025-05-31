@@ -403,6 +403,12 @@ wheels = [
 ]
 
 [[package]]
+name = "flameprof"
+version = "0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/e7/114f6710d31854b694598f577f9eac49d7f38b7fb8a55e86e2d3f848fd1c/flameprof-0.4.tar.gz", hash = "sha256:dbc86d4190cbbba624f1e0a40f44d9db96138e27534d83c8ef42d420857875a3", size = 7865 }
+
+[[package]]
 name = "fonttools"
 version = "4.56.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1133,6 +1139,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "click" },
+    { name = "flameprof" },
     { name = "h5py" },
     { name = "loguru" },
     { name = "matplotlib" },
@@ -1163,6 +1170,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.8,<9.0.0" },
+    { name = "flameprof", specifier = ">=0.4" },
     { name = "h5py", specifier = ">=3.13.0" },
     { name = "loguru", specifier = ">=0.7.3,<1.0.0" },
     { name = "matplotlib", specifier = ">=3.10.1,<4.0.0" },
