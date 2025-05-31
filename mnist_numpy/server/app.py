@@ -126,8 +126,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="MNIST Training Monitor",
-    description="Real-time visualisation of MNIST training progress",
+    title="Training Monitor",
+    description="Real-time visualisation of training progress",
     lifespan=lifespan,
 )
 
