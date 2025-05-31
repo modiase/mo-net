@@ -4,6 +4,7 @@ import re
 import sys
 import time
 from collections.abc import Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never
 
@@ -46,9 +47,23 @@ from mnist_numpy.train.trainer.trainer import (
 P = ParamSpec("P")
 R = TypeVar("R")
 
+
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "1e-4, 1e-2"
 DEFAULT_NUM_EPOCHS: Final[int] = 100
 N_DIGITS: Final[int] = 10
+
+
+class LogLevel(StrEnum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+def setup_logging(log_level: LogLevel) -> None:
+    logger.remove()
+    logger.add(sys.stderr, level=log_level.value)
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
@@ -222,6 +237,12 @@ def cli(): ...
     help="Only use misclassified examples for training",
     default=False,
 )
+@click.option(
+    "--log-level",
+    type=click.Choice(tuple(LogLevel)),
+    help="Set the log level",
+    default="INFO",
+)
 def train(
     *,
     activation_fn: ActivationFn,
@@ -230,6 +251,7 @@ def train(
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
     history_max_len: int,
+    log_level: LogLevel,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
     max_restarts: int,
@@ -251,6 +273,7 @@ def train(
 
     seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)
+    setup_logging(log_level)
     logger.info(f"Training model with {seed=}.")
 
     model: Model
