@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Self, TypedDict, cast
+from typing import Callable, Final, Self, TypedDict, cast
 
 from more_itertools import one
 import numpy as np
@@ -21,7 +21,7 @@ from mnist_numpy.protos import (
     d_op,
 )
 
-EPSILON = 1e-8
+EPSILON: Final[float] = 1e-8
 
 
 @dataclass(kw_only=True, frozen=True)
