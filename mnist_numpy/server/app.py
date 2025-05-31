@@ -107,7 +107,7 @@ async def update_data():
                     current_run=run,
                     last_row_count=len(data),
                 )
-            logger.info(f"Updated data from database (run {run_id})")
+            logger.debug(f"Updated data from database (run {run_id})")
 
             await asyncio.sleep(2)
         except Exception as e:

@@ -3,7 +3,6 @@ import os
 import sys
 import time
 from collections.abc import Sequence
-from enum import StrEnum
 from pathlib import Path
 from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never
 
@@ -26,6 +25,7 @@ from mnist_numpy.functions import (
     Tanh,
     parse_activation_fn,
 )
+from mnist_numpy.logging import LogLevel, setup_logging
 from mnist_numpy.model import Model
 from mnist_numpy.protos import ActivationFn, NormalisationType
 from mnist_numpy.quickstart import mnist_cnn, mnist_mlp
@@ -33,8 +33,8 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
-from mnist_numpy.train.backends.logging import SqliteBackend
 from mnist_numpy.train.run import TrainingRun
+from mnist_numpy.train.server.backends import SqliteBackend
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
@@ -53,19 +53,6 @@ DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "1e-4, 1e-2"
 DEFAULT_NUM_EPOCHS: Final[int] = 100
 MAX_BATCH_SIZE: Final[int] = 10000
 N_DIGITS: Final[int] = 10
-
-
-class LogLevel(StrEnum):
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
-
-
-def setup_logging(log_level: LogLevel) -> None:
-    logger.remove()
-    logger.add(sys.stderr, level=log_level.value)
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
