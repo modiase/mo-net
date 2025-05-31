@@ -431,7 +431,9 @@ def test_parameter_update_value(test_case: ParameterUpdateTestCase):
         kernel_init_fn=test_case.kernel_init_fn,
     )
 
-    output = layer.forward_prop(input_activations=test_case.input_activations)
+    output = layer.forward_prop(
+        input_activations=Activations(test_case.input_activations)
+    )
     assert np.allclose(output, test_case.expected_output), (
         f"Forward prop failed: got {output}, expected {test_case.expected_output}"
     )
@@ -440,9 +442,9 @@ def test_parameter_update_value(test_case: ParameterUpdateTestCase):
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"
-    assert np.allclose(cached_dP.weights, test_case.expected_weight_gradients), (
-        f"Weight gradients incorrect: got {cached_dP.weights}"
+    assert np.allclose(cached_dP.weights, test_case.expected_weight_gradients), (  # type: ignore[attr-defined]
+        f"Weight gradients incorrect: got {cached_dP.weights}"  # type: ignore[attr-defined]
     )
-    assert np.allclose(cached_dP.biases, test_case.expected_bias_gradients), (
-        f"Bias gradients incorrect: got {cached_dP.biases}"
+    assert np.allclose(cached_dP.biases, test_case.expected_bias_gradients), (  # type: ignore[attr-defined]
+        f"Bias gradients incorrect: got {cached_dP.biases}"  # type: ignore[attr-defined]
     )

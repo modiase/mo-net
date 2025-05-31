@@ -56,8 +56,8 @@ class Tracer:
     def __init__(
         self,
         *,
+        run_id: str,
         model: Model,
-        training_log_path: Path,
         tracer_config: TracerConfig,
     ):
         self.model = model
@@ -69,13 +69,11 @@ class Tracer:
                 if isinstance(layer, Linear)
             )
         )
-        self.trace_logging_path = training_log_path.with_name(
-            training_log_path.name.replace("training_log.csv", "trace_log.hdf5")
-        )
+        self._trace_logging_path = Path(f"trace_log_{run_id}.hdf5")
         self._tracer_config = tracer_config
         self._iterations = 0
 
-        with h5py.File(self.trace_logging_path, "w") as f:
+        with h5py.File(self._trace_logging_path, "w") as f:
             f.create_group("weights")
             f.create_group("biases")
             f.create_group("raw_gradients")
@@ -101,7 +99,7 @@ class Tracer:
             )
         )
 
-        with h5py.File(self.trace_logging_path, "a") as f:
+        with h5py.File(self._trace_logging_path, "a") as f:
             f.attrs["iterations"] = self._iterations
 
             iter_group = f.create_group(f"iteration_{self._iterations}")

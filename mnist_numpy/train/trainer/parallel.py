@@ -4,20 +4,19 @@ import operator
 import pickle
 import time
 import zlib
-from collections.abc import Collection, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Collection, Sequence
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 from queue import Empty
-from typing import ContextManager, Final
+from typing import Final
 
 import numpy as np
 from loguru import logger
 
-from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.model import Model
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
+from mnist_numpy.train.augment import affine_transform
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
     TrainingResult,
@@ -187,6 +186,7 @@ class ParallelTrainer(BasicTrainer):
 
     def resume(
         self,
+        *,
         start_epoch: int,
         model_checkpoint_path: Path,
     ) -> TrainingResult:
@@ -315,17 +315,6 @@ class ParallelTrainer(BasicTrainer):
         )
         self._ready_all_workers()
 
-    def _create_training_loop_context(self) -> ContextManager[None]:
-        @contextmanager
-        def _training_loop_context() -> Iterator[None]:
-            try:
-                yield
-            finally:
-                if not self._disable_shutdown:
-                    self.shutdown()
-
-        return _training_loop_context()
-
     def _ready_all_workers(self) -> None:
         for event in self._worker_ready_events:
             event.wait()
@@ -351,6 +340,7 @@ class ParallelTrainer(BasicTrainer):
             return gradient, update
 
     def shutdown(self) -> None:
+        super().shutdown()
         for p in self._processes:
             p.terminate()
         if self._X_shared_memory is not None:

@@ -10,7 +10,6 @@ data/
 *.csv
 *.png
 *.pdf
-*.html
 *.json
 *.yaml
 __pycache__/
@@ -23,3 +22,5 @@ build/
 *.lprof
 profile_output*.txt
 .DS_Store
+
+train.db

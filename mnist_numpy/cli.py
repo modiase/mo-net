@@ -1,10 +1,8 @@
 import functools
 import os
-import re
 import sys
 import time
 from collections.abc import Sequence
-from enum import StrEnum
 from pathlib import Path
 from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never
 
@@ -14,12 +12,10 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import peekable, sample
 
-from mnist_numpy.augment import affine_transform
 from mnist_numpy.data import (
     DATA_DIR,
     DEFAULT_DATA_PATH,
     OUTPUT_PATH,
-    RUN_PATH,
     load_data,
 )
 from mnist_numpy.functions import (
@@ -28,6 +24,7 @@ from mnist_numpy.functions import (
     Tanh,
     parse_activation_fn,
 )
+from mnist_numpy.logging import LogLevel, setup_logging
 from mnist_numpy.model import Model
 from mnist_numpy.protos import ActivationFn, NormalisationType
 from mnist_numpy.quickstart import mnist_cnn, mnist_mlp
@@ -35,11 +32,15 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
+from mnist_numpy.train.augment import affine_transform
+from mnist_numpy.train.backends.logging import SqliteBackend
+from mnist_numpy.train.run import TrainingRun
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
     OptimizerType,
     TrainingFailed,
+    TrainingResult,
     TrainingSuccessful,
     get_optimizer,
 )
@@ -50,30 +51,11 @@ R = TypeVar("R")
 
 DEFAULT_LEARNING_RATE_LIMITS: Final[str] = "1e-4, 1e-2"
 DEFAULT_NUM_EPOCHS: Final[int] = 100
+MAX_BATCH_SIZE: Final[int] = 10000
 N_DIGITS: Final[int] = 10
 
 
-class LogLevel(StrEnum):
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
-
-
-def setup_logging(log_level: LogLevel) -> None:
-    logger.remove()
-    logger.add(sys.stderr, level=log_level.value)
-
-
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
-    @click.option(
-        "-l",
-        "--training-log-path",
-        type=Path,
-        help="Set the path to the training log file",
-        default=None,
-    )
     @click.option(
         "-b",
         "--batch-size",
@@ -264,7 +246,6 @@ def train(
     only_misclassified_examples: bool,
     quickstart: Literal["mlp", "cnn"] | None,
     regulariser_lambda: float,
-    training_log_path: Path | None,
     tracing_enabled: bool,
     warmup_epochs: int,
     workers: int,
@@ -278,7 +259,10 @@ def train(
 
     model: Model
     train_set_size = X_train.shape[0]
-    batch_size = batch_size if batch_size is not None else min(train_set_size, 1e4)
+    if batch_size is None:
+        batch_size = min(train_set_size, MAX_BATCH_SIZE)
+    elif batch_size > MAX_BATCH_SIZE:
+        raise ValueError(f"Batch size must be less than {MAX_BATCH_SIZE}.")
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -335,17 +319,11 @@ def train(
             )
         model = Model.load(open(model_path, "rb"), training=True)
 
-    if training_log_path is None:
-        model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
-        training_log_path = RUN_PATH / (f"{model_path.stem}_training_log.csv")
-    else:
-        if (re.search(r"_training_log\.csv$", training_log_path.name)) is None:
-            training_log_path = training_log_path.with_name(
-                f"{training_log_path.stem}_training_log.csv"
-            )
-        model_path = OUTPUT_PATH / training_log_path.name.replace(
-            "training_log.csv", ".pkl"
-        )
+    model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
+    run = TrainingRun(
+        seed=seed,
+        backend=SqliteBackend(),
+    )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
     if regulariser_lambda > 0:
         attach_weight_decay_regulariser(
@@ -381,13 +359,14 @@ def train(
         X_train=X_train,
         Y_val=Y_val,
         Y_train=Y_train,
-        log_path=training_log_path,
+        run=run,
         model=model,
         optimizer=optimizer,
         start_epoch=start_epoch,
         training_parameters=training_parameters,
         disable_shutdown=training_parameters.workers != 0,
     )
+    training_result: TrainingResult | None = None
     try:
         while restarts <= training_parameters.max_restarts:
             if restarts > 0:
@@ -395,12 +374,14 @@ def train(
                     raise ValueError(
                         "Cannot resume training. Model checkpoint path is not set."
                     )
-                training_result = trainer.resume(start_epoch, model_checkpoint_path)
+                training_result = trainer.resume(
+                    start_epoch=start_epoch,
+                    model_checkpoint_path=model_checkpoint_path,
+                )
             else:
                 training_result = trainer.train()
             match training_result:
                 case TrainingSuccessful() as result:
-                    save_model(result.model_checkpoint_path)
                     break
                 case TrainingFailed() as result:
                     logger.error(result.message)
@@ -411,6 +392,8 @@ def train(
                 case never_training_result:
                     assert_never(never_training_result)
     finally:
+        if training_result is not None:
+            save_model(training_result.model_checkpoint_path)
         trainer.shutdown()
 
 

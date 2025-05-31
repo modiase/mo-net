@@ -22,6 +22,9 @@ dependencies = [
   "plotille>=5.0.0",
   "scipy>=1.15.3",
   "flameprof>=0.4",
+  "fastapi>=0.115.12",
+  "uvicorn>=0.34.2",
+  "sqlalchemy>=2.0.41",
 ]
 
 [dependency-groups]
@@ -38,6 +41,9 @@ dev = [
 
 [uv.tool]
 default-groups = []
+
+[tool.mypy]
+plugins = ["sqlalchemy.ext.mypy.plugin"]
 
 [[tool.mypy.overrides]]
 module = "h5py"
@@ -70,3 +76,4 @@ resume = "mnist_numpy.cli:resume"
 sample_data = "mnist_numpy.cli:sample_data"
 trace_statistics = "mnist_numpy.scripts.trace_statistics:main"
 train = "mnist_numpy.cli:train"
+serve = "mnist_numpy.server.__main__:main"

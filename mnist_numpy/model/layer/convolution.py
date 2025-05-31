@@ -333,13 +333,14 @@ class Convolution2D(Hidden):
         db = np.sum(cast(np.ndarray, dZ), axis=(0, 2, 3))
 
         if self._clip_gradients:
-            weight_norm = np.linalg.norm(dK)
-            if weight_norm > self._weight_max_norm:
-                dK = dK * (self._weight_max_norm / weight_norm)
-
-            bias_norm = np.linalg.norm(db)
-            if bias_norm > self._bias_max_norm:
-                db = db * (self._bias_max_norm / bias_norm)
+            dK *= min(
+                1.0,
+                self._weight_max_norm * np.sqrt(dK.size) / np.linalg.norm(dK),
+            )
+            db *= min(
+                1.0,
+                self._bias_max_norm * np.sqrt(db.size) / np.linalg.norm(db),
+            )
 
         pad_h = self._kernel_height - 1
         pad_w = self._kernel_width - 1
