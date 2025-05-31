@@ -34,7 +34,7 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
-from mnist_numpy.train.run import Run
+from mnist_numpy.train.run import TrainingRun
 from mnist_numpy.train.server.backends import CsvBackend
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
@@ -334,7 +334,7 @@ def train(
         model = Model.load(open(model_path, "rb"), training=True)
 
     model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
-    run = Run(
+    run = TrainingRun(
         seed=seed,
         backend=CsvBackend(path=RUN_PATH / (f"{model_path.stem}_training_log.csv")),
     )

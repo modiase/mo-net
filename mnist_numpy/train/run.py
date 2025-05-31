@@ -3,7 +3,7 @@ from datetime import datetime
 from mnist_numpy.train.server.backends import Backend
 
 
-class Run:
+class TrainingRun:
     def __init__(
         self,
         *,
@@ -33,19 +33,19 @@ class Run:
     def log_iteration(
         self,
         *,
-        batch_loss: float,
         batch: int,
+        batch_loss: float,
         epoch: int,
         learning_rate: float,
         val_loss: float,
     ) -> None:
         self._backend.log_iteration(
-            batch_loss=batch_loss,
             batch=batch,
+            batch_loss=batch_loss,
             epoch=epoch,
             learning_rate=learning_rate,
-            val_loss=val_loss,
             timestamp=datetime.now(),
+            val_loss=val_loss,
         )
 
     def log_training_parameters(self, *, training_parameters: str) -> None:
