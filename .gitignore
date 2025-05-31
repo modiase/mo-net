@@ -10,7 +10,6 @@ data/
 *.csv
 *.png
 *.pdf
-*.html
 *.json
 *.yaml
 __pycache__/

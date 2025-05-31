@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - MNIST Training Monitor{% endblock %}
+
+{% set plotly = true %}
+
+{% block extra_nav %}
+<select id="run-selector" class="run-dropdown" onchange="navigateToRun()">
+    <option value="">Select Run...</option>
+</select>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<button class="refresh-btn" onclick="refreshData()">Refresh Data</button>
+<div id="status" class="status"></div>
+<div class="stats-grid" id="stats-grid"></div>
+
+<div class="plot-container">
+    <h3>Training Progress - Loss Over Epochs</h3>
+    <div id="loss-plot" style="width:100%;height:500px;"></div>
+</div>
+
+<div class="plot-container">
+    <h3>Learning Rate Schedule</h3>
+    <div id="lr-plot" style="width:100%;height:400px;"></div>
+</div>
+
+<div class="plot-container">
+    <h3>Training Timeline</h3>
+    <div id="timeline-plot" style="width:100%;height:400px;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function fetchData() {
+    try {
+        const response = await fetch('/api/data');
+        return response.ok ? await response.json() : null;
+    } catch (error) {
+        console.error('Error fetching data:', error);
+        return null;
+    }
+}
+
+function updateStatus(message, type = 'connected') {
+    const statusDiv = document.getElementById('status');
+    statusDiv.textContent = message;
+    statusDiv.className = `status ${type}`;
+}
+
+function updateStats(data) {
+    if (!data || data.length === 0) return;
+    const latest = data[data.length - 1];
+    fetch('/api/status').then(res => res.json()).then(status => {
+        const progress = status.progress || 0;
+        const totalEpochs = status.total_epochs || 'N/A';
+        const isCompleted = status.is_completed || false;
+        const statusBadge = isCompleted ? '<span class="status-badge status-completed">Completed</span>' : '<span class="status-badge status-running">Running</span>';
+        const statusClass = isCompleted ? 'completed' : 'running';
+        
+        document.getElementById('stats-grid').innerHTML = `
+            <div class="stat-card">
+                <div class="stat-value">${latest.epoch}</div>
+                <div class="stat-label">Current Epoch</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${latest.batch_loss.toFixed(6)}</div>
+                <div class="stat-label">Batch Loss</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${latest.val_loss.toFixed(6)}</div>
+                <div class="stat-label">Validation Loss</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${latest.learning_rate.toFixed(8)}</div>
+                <div class="stat-label">Learning Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${totalEpochs}</div>
+                <div class="stat-label">Total Epochs</div>
+            </div>
+            <div class="stat-card ${statusClass}">
+                <div class="stat-value">${statusBadge}</div>
+                <div class="stat-label">Run Status</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${(progress*100).toFixed(1)}%</div>
+                <div class="stat-label">Progress</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width:${progress*100}%"></div>
+                </div>
+            </div>
+        `;
+    });
+}
+
+function plotLossChart(data) {
+    if (!data || data.length === 0) return;
+    Plotly.newPlot('loss-plot', [
+        {
+            x: data.map(d => d.epoch),
+            y: data.map(d => d.batch_loss),
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: 'Batch Loss',
+            line: { color: '#1f77b4', width: 2 },
+            marker: { size: 4 }
+        },
+        {
+            x: data.map(d => d.epoch),
+            y: data.map(d => d.val_loss),
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: 'Validation Loss',
+            line: { color: '#ff7f0e', width: 2 },
+            marker: { size: 4 }
+        },
+        {
+            x: data.map(d => d.epoch),
+            y: data.map(d => d.monotonic_val_loss),
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Monotonic Validation Loss',
+            line: { color: '#2ca02c', width: 3, dash: 'dash' }
+        }
+    ], {
+        xaxis: { title: 'Epoch' },
+        yaxis: { title: 'Loss', type: 'log' },
+        hovermode: 'x unified',
+        legend: { x: 0, y: 1 },
+        margin: { l: 60, r: 20, t: 20, b: 60 }
+    }, { responsive: true });
+}
+
+function plotLearningRate(data) {
+    if (!data || data.length === 0) return;
+    Plotly.newPlot('lr-plot', [{
+        x: data.map(d => d.epoch),
+        y: data.map(d => d.learning_rate),
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Learning Rate',
+        line: { color: '#d62728', width: 2 },
+        marker: { size: 4 }
+    }], {
+        xaxis: { title: 'Epoch' },
+        yaxis: { title: 'Learning Rate' },
+        hovermode: 'x unified',
+        margin: { l: 60, r: 20, t: 20, b: 60 }
+    }, { responsive: true });
+}
+
+function plotTimeline(data) {
+    if (!data || data.length === 0 || !data[0].timestamp) return;
+    Plotly.newPlot('timeline-plot', [{
+        x: data.map(d => d.timestamp),
+        y: data.map(d => d.val_loss),
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Validation Loss over Time',
+        line: { color: '#9467bd', width: 2 },
+        marker: { size: 4 }
+    }], {
+        xaxis: { title: 'Time' },
+        yaxis: { title: 'Validation Loss', type: 'log' },
+        hovermode: 'x unified',
+        margin: { l: 60, r: 20, t: 20, b: 60 }
+    }, { responsive: true });
+}
+
+async function refreshData() {
+    const data = await fetchData();
+    if (data) {
+        updateStatus(`Data updated at ${new Date().toLocaleTimeString()}`, 'connected');
+        updateStats(data);
+        plotLossChart(data);
+        plotLearningRate(data);
+        plotTimeline(data);
+        await updateCurrentInfo();
+    } else {
+        updateStatus('Error loading data', 'error');
+    }
+}
+
+async function updateCurrentInfo() {
+    try {
+        const response = await fetch('/api/status');
+        if (response.ok) {
+            const status = await response.json();
+            document.getElementById('current-run').textContent = status.current_run_id || 'None';
+        }
+    } catch (error) {
+        console.error('Error fetching status:', error);
+    }
+}
+
+async function loadAvailableRuns() {
+    try {
+        const response = await fetch('/api/runs');
+        if (response.ok) {
+            const data = await response.json();
+            const selector = document.getElementById('run-selector');
+            selector.innerHTML = '<option value="">Select Run...</option>';
+            data.runs.forEach(run => {
+                const option = document.createElement('option');
+                option.value = run.id;
+                option.textContent = `Run ${run.id} (Seed ${run.seed})`;
+                selector.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading runs:', error);
+    }
+}
+
+function navigateToRun() {
+    const runId = document.getElementById('run-selector').value;
+    if (runId) window.location.href = `/${runId}`;
+}
+
+refreshData();
+loadAvailableRuns();
+setInterval(refreshData, 5000);
+</script>
+{% endblock %} 

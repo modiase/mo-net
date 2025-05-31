@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from mnist_numpy.train.server.backends import Backend
+from mnist_numpy.train.backends.logging import LoggingBackend
 
 
 class TrainingRun:
@@ -10,7 +10,7 @@ class TrainingRun:
         seed: int,
         name: str | None = None,
         started_at: datetime | None = None,
-        backend: Backend,
+        backend: LoggingBackend,
     ) -> None:
         if name is None:
             name = str(seed)
