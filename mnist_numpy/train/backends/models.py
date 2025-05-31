@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
-from typing import Final, Self
+from typing import Self
 
 from loguru import logger
 from sqlalchemy import (
@@ -16,9 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-from mnist_numpy import ROOT_DIR
-
-DB_PATH: Final[Path] = ROOT_DIR / "train.db"
+from mnist_numpy.db import DB_PATH
 
 
 class Base(DeclarativeBase):
