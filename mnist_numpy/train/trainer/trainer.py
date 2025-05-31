@@ -23,7 +23,7 @@ from mnist_numpy.optimizer.base import Null
 from mnist_numpy.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mnist_numpy.train.batcher import Batcher
 from mnist_numpy.train.monitor import Monitor
-from mnist_numpy.train.run import Run
+from mnist_numpy.train.run import TrainingRun
 from mnist_numpy.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 from mnist_numpy.protos import SupportsGradientOperations, UpdateGradientType
 
@@ -91,7 +91,7 @@ class BasicTrainer:
         disable_shutdown: bool = False,
         model: Model,
         optimizer: Base[OptimizerConfigT],
-        run: Run,
+        run: TrainingRun,
         training_parameters: TrainingParameters,
         start_epoch: int | None = None,
         X_train: np.ndarray,
