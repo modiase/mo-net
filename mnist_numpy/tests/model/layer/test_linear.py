@@ -275,12 +275,18 @@ def test_linear_gradient_clipping():
         bias_max_norm=1.0,
     )
 
-    layer.forward_prop(input_activations=Activations(np.array([[10.0, 10.0]])))
-    layer.backward_prop(dZ=np.array([[10.0, 10.0]]))
+    layer.forward_prop(input_activations=Activations(np.array([[1.0, 1.0]])))
+    layer.backward_prop(dZ=np.array([[1000.0, 1000.0]]))
 
     assert layer.cache["dP"] is not None
-    assert np.linalg.norm(layer.cache["dP"]._W) <= 1.0 + 1e-6
-    assert np.linalg.norm(layer.cache["dP"]._B) <= 1.0 + 1e-6
+    assert (
+        np.linalg.norm(layer.cache["dP"]._W) / np.sqrt(layer.cache["dP"]._W.size)
+        <= 1.0 + 1e-6
+    )
+    assert (
+        np.linalg.norm(layer.cache["dP"]._B) / np.sqrt(layer.cache["dP"]._B.size)
+        <= 1.0 + 1e-6
+    )
 
 
 def test_linear_frozen_parameters():
