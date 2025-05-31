@@ -13,10 +13,10 @@ from typing import Final
 import numpy as np
 from loguru import logger
 
-from mnist_numpy.augment import affine_transform
 from mnist_numpy.model.model import Model
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
+from mnist_numpy.train.augment import affine_transform
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
     TrainingResult,

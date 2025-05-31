@@ -12,7 +12,6 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import peekable, sample
 
-from mnist_numpy.augment import affine_transform
 from mnist_numpy.data import (
     DATA_DIR,
     DEFAULT_DATA_PATH,
@@ -33,6 +32,7 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
+from mnist_numpy.train.augment import affine_transform
 from mnist_numpy.train.run import TrainingRun
 from mnist_numpy.train.server.backends import SqliteBackend
 from mnist_numpy.train.trainer.parallel import ParallelTrainer

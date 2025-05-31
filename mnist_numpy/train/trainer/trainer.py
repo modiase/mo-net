@@ -14,7 +14,7 @@ import pandas as pd
 from loguru import logger
 from tqdm import tqdm
 
-from mnist_numpy.augment import affine_transform
+from mnist_numpy.train.augment import affine_transform
 from mnist_numpy.config import TrainingParameters
 from mnist_numpy.model.model import Model
 from mnist_numpy.optimizer import Base, OptimizerConfigT
