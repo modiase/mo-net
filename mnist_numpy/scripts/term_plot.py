@@ -1,16 +1,15 @@
 import sys
 import time
-from pathlib import Path
 from typing import Final
 
 import click
 import pandas as pd
 import plotille
+from InquirerPy import inquirer
 from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from mnist_numpy.data import DATA_DIR
 from mnist_numpy.train.backends.models import DB_PATH, DbRun, Iteration
 
 DEFAULT_REFRESH_SECONDS: Final[int] = 1
@@ -18,14 +17,10 @@ DEFAULT_WIDTH: Final[int] = 150
 DEFAULT_HEIGHT: Final[int] = 40
 
 
-def get_latest_run_data(session) -> pd.DataFrame | None:
-    latest_run = session.query(DbRun).order_by(DbRun.updated_at.desc()).first()
-    if not latest_run:
-        return None
-
+def get_run_data(session, run_id: int) -> pd.DataFrame | None:
     iterations = (
         session.query(Iteration)
-        .filter(Iteration.run_id == latest_run.id)
+        .filter(Iteration.run_id == run_id)
         .order_by(Iteration.timestamp)
         .all()
     )
@@ -47,10 +42,35 @@ def get_latest_run_data(session) -> pd.DataFrame | None:
     )
 
 
+def get_available_runs(session) -> list[DbRun]:
+    return session.query(DbRun).order_by(DbRun.updated_at.desc()).all()
+
+
+def prompt_for_run_selection(session) -> int:
+    runs = get_available_runs(session)
+    if not runs:
+        logger.error("No runs found in database")
+        sys.exit(1)
+
+    choices = []
+    for run in runs:
+        display_name = (
+            f"Run {run.id} (Started: {run.started_at}, Updated: {run.updated_at})"
+        )
+        choices.append({"name": display_name, "value": run.id})
+
+    run_id = inquirer.select(
+        message="Select a training run to monitor:",
+        choices=choices,
+    ).execute()
+
+    if run_id is None:
+        sys.exit(1)
+
+    return run_id
+
+
 @click.command()
-@click.option(
-    "--training_log_path", "-t", type=Path, help="Path to the training log file"
-)
 @click.option(
     "--refresh",
     "-r",
@@ -64,55 +84,32 @@ def get_latest_run_data(session) -> pd.DataFrame | None:
 @click.option(
     "--height", "-h", type=int, default=DEFAULT_HEIGHT, help="Plot height in characters"
 )
-def main(
-    *, training_log_path: Path | None = None, refresh: int, width: int, height: int
-):
-    use_database = training_log_path is None
+def main(*, refresh: int, width: int, height: int):
+    if not DB_PATH.exists():
+        logger.error(f"Database not found: {DB_PATH}")
+        sys.exit(1)
 
-    if use_database:
-        if not DB_PATH.exists():
-            logger.error(f"Database not found: {DB_PATH}")
-            sys.exit(1)
-        engine = create_engine(f"sqlite:///{DB_PATH}")
-        Session = sessionmaker(bind=engine)
-        session = Session()
-        logger.info(f"Using database: {DB_PATH}")
-    else:
-        if training_log_path is None:
-            run_dir = DATA_DIR / "run"
-            training_log_files = tuple(run_dir.glob("*_training_log.csv"))
-            if not training_log_files:
-                logger.error(f"No training log files found in {run_dir}")
-                sys.exit(1)
-            training_log_path = max(training_log_files, key=lambda p: p.stat().st_mtime)
+    engine = create_engine(f"sqlite:///{DB_PATH}")
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    logger.info(f"Using database: {DB_PATH}")
 
-        if not training_log_path.exists():
-            logger.error(f"File not found: {training_log_path}")
-            sys.exit(1)
-        logger.info(f"Using CSV file: {training_log_path}")
+    run_id = prompt_for_run_selection(session)
+    logger.info(f"Monitoring run {run_id} (refresh: {refresh}s)")
 
-    logger.info(f"Monitoring (refresh: {refresh}s)")
-
-    last_modified = 0.0
     last_epoch = -1
     last_row_count = 0
 
     try:
         while True:
-            if use_database:
-                df = get_latest_run_data(session)
-                if df is None or df.empty:
-                    time.sleep(refresh)
-                    continue
-                current_row_count = len(df)
-                data_updated = current_row_count > last_row_count
-                last_row_count = current_row_count
-            else:
-                current_modified = training_log_path.stat().st_mtime
-                data_updated = current_modified > last_modified
-                if data_updated:
-                    last_modified = current_modified
-                    df = pd.read_csv(training_log_path)
+            df = get_run_data(session, run_id)
+            if df is None or df.empty:
+                time.sleep(refresh)
+                continue
+
+            current_row_count = len(df)
+            data_updated = current_row_count > last_row_count
+            last_row_count = current_row_count
 
             if (
                 not data_updated
@@ -160,8 +157,7 @@ def main(
     except KeyboardInterrupt:
         pass
     finally:
-        if use_database:
-            session.close()
+        session.close()
 
 
 if __name__ == "__main__":
