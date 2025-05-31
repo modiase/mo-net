@@ -2,6 +2,7 @@ import click
 import uvicorn
 from loguru import logger
 
+from mnist_numpy.logging import LogLevel, setup_logging
 from mnist_numpy.server.app import DB_PATH
 
 
@@ -10,6 +11,7 @@ from mnist_numpy.server.app import DB_PATH
 @click.option("--port", default=8000, help="Port to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload")
 def main(host: str, port: int, reload: bool):
+    setup_logging(LogLevel.INFO)
     logger.info(
         f"Starting MNIST Training Monitor on http://{host}:{port} using database: {DB_PATH}"
     )
