@@ -197,7 +197,10 @@ class BasicTrainer:
             f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.block_dimensions)} and parameter count: {self._model.parameter_count}."
         )
 
-        self._run.start_run()
+        self._run.start_run(
+            total_batches=self._training_parameters.total_batches,
+            total_epochs=self._training_parameters.num_epochs,
+        )
         self._model_checkpoint_path = Path(
             str((RUN_PATH / self._run.id).with_suffix(".pkl")).replace(
                 "_model_training_log", ""
@@ -241,6 +244,9 @@ class BasicTrainer:
             return self._training_loop()
 
     def _before_training_loop(self) -> None:
+        self.subscribe_to_shutdown(
+            lambda: self._run.end_run(),
+        )
         if self._training_parameters.max_restarts > 0:
             self._optimizer.snapshot()
 

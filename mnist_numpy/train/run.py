@@ -51,9 +51,13 @@ class TrainingRun:
     def log_training_parameters(self, *, training_parameters: str) -> None:
         self._backend.log_training_parameters(training_parameters=training_parameters)
 
-    def start_run(self) -> None:
+    def start_run(self, total_batches: int, total_epochs: int) -> None:
         self._backend.create()
-        self._run_id = self._backend.start_run()
+        self._run_id = self._backend.start_run(
+            seed=self._seed,
+            total_batches=total_batches,
+            total_epochs=total_epochs,
+        )
 
     def end_run(self) -> None:
         self._backend.end_run(run_id=self._run_id)

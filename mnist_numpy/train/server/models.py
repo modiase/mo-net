@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Final, Self
 
+from loguru import logger
 from sqlalchemy import (
     Column,
     DateTime,
@@ -34,6 +35,7 @@ class Iteration(Base):
     epoch = Column(Integer, nullable=False)
     learning_rate = Column(Float, nullable=False)
     timestamp = Column(DateTime, nullable=False)
+    val_loss = Column(Float, nullable=False)
 
 
 class DbRun(Base):
@@ -41,7 +43,6 @@ class DbRun(Base):
 
     id = Column(Integer, primary_key=True)
 
-    batches_per_epoch = Column(Integer, nullable=False)
     completed_at = Column(DateTime, nullable=True)
     current_batch = Column(Integer, nullable=False)
     current_batch_loss = Column(Float, nullable=False)
@@ -52,6 +53,7 @@ class DbRun(Base):
     name = Column(String, nullable=False)
     seed = Column(Integer, nullable=False)
     started_at = Column(DateTime, nullable=False)
+    total_batches = Column(Integer, nullable=False)
     total_epochs = Column(Integer, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
@@ -62,6 +64,15 @@ class DbRun(Base):
     @property
     def progress(self) -> float:
         return self.current_batch / self.total_batches
+
+    @classmethod
+    def unfinished_runs(cls, session) -> list[Self]:
+        return (
+            session.query(cls)
+            .filter(cls.completed_at.is_(None))
+            .order_by(cls.updated_at.desc())
+            .all()
+        )
 
     @classmethod
     def create(
@@ -94,4 +105,5 @@ class DbRun(Base):
 
 if __name__ == "__main__":
     engine = create_engine(f"sqlite:///{DB_PATH}")
+    logger.info(f"Creating database at {DB_PATH}.")
     Base.metadata.create_all(engine)

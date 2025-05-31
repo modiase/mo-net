@@ -18,7 +18,6 @@ from mnist_numpy.data import (
     DATA_DIR,
     DEFAULT_DATA_PATH,
     OUTPUT_PATH,
-    RUN_PATH,
     load_data,
 )
 from mnist_numpy.functions import (
@@ -35,7 +34,7 @@ from mnist_numpy.train import (
     TrainingParameters,
 )
 from mnist_numpy.train.run import TrainingRun
-from mnist_numpy.train.server.backends import CsvBackend
+from mnist_numpy.train.server.backends import SqliteBackend
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
@@ -336,7 +335,8 @@ def train(
     model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
     run = TrainingRun(
         seed=seed,
-        backend=CsvBackend(path=RUN_PATH / (f"{model_path.stem}_training_log.csv")),
+        # backend=CsvBackend(path=RUN_PATH / (f"{model_path.stem}_training_log.csv")),
+        backend=SqliteBackend(),
     )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
     if regulariser_lambda > 0:
