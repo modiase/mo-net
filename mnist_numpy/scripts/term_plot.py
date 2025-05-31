@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from mnist_numpy.data import DATA_DIR
-from mnist_numpy.train.server.models import DB_PATH, DbRun, Iteration
+from mnist_numpy.train.backends.models import DB_PATH, DbRun, Iteration
 
 DEFAULT_REFRESH_SECONDS: Final[int] = 1
 DEFAULT_WIDTH: Final[int] = 150

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Run Management - MNIST Training Monitor{% endblock %}
+
+{% block header_title %}Run Management{% endblock %}
+{% block header_subtitle %}Manage training runs and their completion status{% endblock %}
+
+{% block nav %}
+<div class="nav-bar">
+    <a href="/" class="nav-link">← Back to Dashboard</a>
+    <a href="/latest" class="nav-link">Latest</a>
+    <button class="nav-link" onclick="refreshRuns()" style="border:none;background:#667eea;color:white;cursor:pointer">Refresh</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="status" class="status" style="display:none"></div>
+<div class="table-container">
+    <h3>All Training Runs</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Run ID</th>
+                <th>Seed</th>
+                <th>Started</th>
+                <th>Last Updated</th>
+                <th>Current Epoch</th>
+                <th>Total Epochs</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="runs-table-body"></tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showStatus(message, type = 'success') {
+    const statusDiv = document.getElementById('status');
+    statusDiv.textContent = message;
+    statusDiv.className = `status ${type}`;
+    statusDiv.style.display = 'block';
+    setTimeout(() => statusDiv.style.display = 'none', 3000);
+}
+
+async function fetchRuns() {
+    try {
+        const response = await fetch('/api/runs/all');
+        return response.ok ? await response.json() : null;
+    } catch (error) {
+        console.error('Error fetching runs:', error);
+        return null;
+    }
+}
+
+async function completeRun(runId) {
+    if (!confirm(`Are you sure you want to mark run ${runId} as completed?`)) return;
+    
+    try {
+        const response = await fetch(`/api/runs/${runId}/complete`, { method: 'POST' });
+        if (response.ok) {
+            showStatus(`Run ${runId} marked as completed`, 'success');
+            refreshRuns();
+        } else {
+            showStatus('Failed to update run status', 'error');
+        }
+    } catch (error) {
+        console.error('Error completing run:', error);
+        showStatus('Error updating run status', 'error');
+    }
+}
+
+function formatDate(dateString) {
+    return new Date(dateString).toLocaleString();
+}
+
+function updateRunsTable(runs) {
+    const tbody = document.getElementById('runs-table-body');
+    tbody.innerHTML = runs.runs.map(run => {
+        const isCompleted = run.completed_at !== null;
+        const statusBadge = isCompleted ? 
+            '<span class="status-badge status-completed">Completed</span>' : 
+            '<span class="status-badge status-running">Running</span>';
+        const completeButton = isCompleted ? 
+            '<button class="btn btn-complete" disabled>Already Completed</button>' : 
+            `<button class="btn btn-complete" onclick="completeRun(${run.id})">Mark Complete</button>`;
+        
+        return `
+            <tr>
+                <td>${run.id}</td>
+                <td>${run.seed}</td>
+                <td>${formatDate(run.started_at)}</td>
+                <td>${formatDate(run.updated_at)}</td>
+                <td>${run.current_epoch}</td>
+                <td>${run.total_epochs}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    <a href="/${run.id}" class="btn btn-view">View</a>
+                    ${completeButton}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function refreshRuns() {
+    const runs = await fetchRuns();
+    if (runs) {
+        updateRunsTable(runs);
+        showStatus('Runs refreshed successfully', 'success');
+    } else {
+        showStatus('Failed to load runs', 'error');
+    }
+}
+
+refreshRuns();
+</script>
+{% endblock %} 

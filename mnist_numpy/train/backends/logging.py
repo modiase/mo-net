@@ -6,10 +6,10 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mnist_numpy.train.server.models import DB_PATH, DbRun, Iteration
+from mnist_numpy.train.backends.models import DB_PATH, DbRun, Iteration
 
 
-class Backend(Protocol):
+class LoggingBackend(Protocol):
     @property
     def connection_string(self) -> str: ...
 
@@ -40,7 +40,7 @@ class Backend(Protocol):
     ) -> None: ...
 
 
-class CsvBackend(Backend):
+class CsvBackend(LoggingBackend):
     def __init__(self, *, path: Path) -> None:
         self._path = path.resolve()
         self._columns = [
@@ -99,7 +99,7 @@ class CsvBackend(Backend):
         self._path.with_suffix(".json").write_text(training_parameters)
 
 
-class SqliteBackend(Backend):
+class SqliteBackend(LoggingBackend):
     def __init__(self, *, path: Path | None = None) -> None:
         self._path = path if path is not None else DB_PATH
         self._session: Session | None = None

@@ -33,8 +33,8 @@ from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
 from mnist_numpy.train import (
     TrainingParameters,
 )
+from mnist_numpy.train.backends.logging import SqliteBackend
 from mnist_numpy.train.run import TrainingRun
-from mnist_numpy.train.server.backends import SqliteBackend
 from mnist_numpy.train.trainer.parallel import ParallelTrainer
 from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
