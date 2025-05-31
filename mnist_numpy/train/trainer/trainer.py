@@ -225,8 +225,8 @@ class BasicTrainer:
 
         if self._training_parameters.trace_logging:
             tracer = Tracer(
+                run_id=self._run.id,
                 model=self._model,
-                training_log_path=self._log_path,
                 tracer_config=TracerConfig(
                     trace_strategy=PerEpochTracerStrategy(
                         training_set_size=self._training_parameters.train_set_size,

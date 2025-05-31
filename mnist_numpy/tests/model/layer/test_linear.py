@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from mnist_numpy.model.layer.linear import Linear
+from mnist_numpy.model.layer.linear import Linear, ParametersType
 from mnist_numpy.protos import Activations, Dimensions
 
 
@@ -12,7 +12,7 @@ class ForwardPropTestCase:
     name: str
     input_dimensions: Dimensions
     output_dimensions: Dimensions
-    parameters: Linear.Parameters
+    parameters: ParametersType
     input_activations: np.ndarray
     expected_output: np.ndarray
 
@@ -88,7 +88,7 @@ class BackwardPropTestCase:
     name: str
     input_dimensions: Dimensions
     output_dimensions: Dimensions
-    parameters: Linear.Parameters
+    parameters: ParametersType
     input_activations: np.ndarray
     dZ: np.ndarray
     expected_dX: np.ndarray
@@ -160,10 +160,10 @@ def test_linear_backward_prop(test_case: BackwardPropTestCase):
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    assert np.allclose(layer.backward_prop(dZ=test_case.dZ), test_case.expected_dX)
+    assert np.allclose(layer.backward_prop(dZ=test_case.dZ), test_case.expected_dX)  # type: ignore[arg-type]
     assert layer.cache["dP"] is not None
-    assert np.allclose(layer.cache["dP"]._W, test_case.expected_dW)
-    assert np.allclose(layer.cache["dP"]._B, test_case.expected_dB)
+    assert np.allclose(layer.cache["dP"]._W, test_case.expected_dW)  # type: ignore[attr-defined]
+    assert np.allclose(layer.cache["dP"]._B, test_case.expected_dB)  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True)
@@ -171,7 +171,7 @@ class ParameterUpdateTestCase:
     name: str
     input_dimensions: Dimensions
     output_dimensions: Dimensions
-    initial_parameters: Linear.Parameters
+    initial_parameters: ParametersType
     input_activations: np.ndarray
     dZ: np.ndarray
     expected_updated_W: np.ndarray
@@ -310,8 +310,8 @@ def test_linear_frozen_parameters():
 
 def test_linear_empty_gradient(simple_layer: Linear):
     empty_grad = simple_layer.empty_gradient()
-    assert np.allclose(empty_grad._W, np.zeros_like(simple_layer.parameters._W))
-    assert np.allclose(empty_grad._B, np.zeros_like(simple_layer.parameters._B))
+    assert np.allclose(empty_grad._W, np.zeros_like(simple_layer.parameters._W))  # type: ignore[attr-defined]
+    assert np.allclose(empty_grad._B, np.zeros_like(simple_layer.parameters._B))  # type: ignore[attr-defined]
 
 
 def test_linear_parameter_count(simple_layer: Linear):

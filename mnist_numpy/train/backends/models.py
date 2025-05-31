@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
+from decimal import Decimal
 from typing import Self
 
 from loguru import logger
 from sqlalchemy import (
-    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -13,7 +14,7 @@ from sqlalchemy import (
     String,
     create_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from mnist_numpy.db import DB_PATH
 
@@ -25,45 +26,45 @@ class Base(DeclarativeBase):
 class Iteration(Base):
     __tablename__ = "iterations"
 
-    id = Column(Integer, primary_key=True)
-    run_id = Column(Integer, ForeignKey("runs.id"), nullable=False)
-    batch_loss = Column(Float, nullable=False)
-    batch = Column(Integer, nullable=False)
-    epoch = Column(Integer, nullable=False)
-    learning_rate = Column(Float, nullable=False)
-    timestamp = Column(DateTime, nullable=False)
-    val_loss = Column(Float, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("runs.id"))
+    batch_loss: Mapped[float] = mapped_column(Float)
+    batch: Mapped[int] = mapped_column(Integer)
+    epoch: Mapped[int] = mapped_column(Integer)
+    learning_rate: Mapped[float] = mapped_column(Float)
+    timestamp: Mapped[datetime] = mapped_column(DateTime)
+    val_loss: Mapped[float] = mapped_column(Float)
 
 
 class DbRun(Base):
     __tablename__ = "runs"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    completed_at = Column(DateTime, nullable=True)
-    current_batch = Column(Integer, nullable=False)
-    current_batch_loss = Column(Float, nullable=False)
-    current_epoch = Column(Integer, nullable=False)
-    current_learning_rate = Column(Float, nullable=False)
-    current_val_loss = Column(Float, nullable=False)
-    current_timestamp = Column(DateTime, nullable=False)
-    name = Column(String, nullable=False)
-    seed = Column(Integer, nullable=False)
-    started_at = Column(DateTime, nullable=False)
-    total_batches = Column(Integer, nullable=False)
-    total_epochs = Column(Integer, nullable=False)
-    updated_at = Column(DateTime, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    current_batch: Mapped[int] = mapped_column(Integer)
+    current_batch_loss: Mapped[float] = mapped_column(Float)
+    current_epoch: Mapped[int] = mapped_column(Integer)
+    current_learning_rate: Mapped[float] = mapped_column(Float)
+    current_val_loss: Mapped[float] = mapped_column(Float)
+    current_timestamp: Mapped[datetime] = mapped_column(DateTime)
+    name: Mapped[str] = mapped_column(String)
+    seed: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    total_batches: Mapped[int] = mapped_column(Integer)
+    total_epochs: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
 
     @property
     def is_completed(self) -> bool:
         return self.current_epoch >= self.total_epochs
 
     @property
-    def progress(self) -> float:
+    def progress(self) -> float | Decimal:
         return self.current_batch / self.total_batches
 
     @classmethod
-    def unfinished_runs(cls, session) -> list[Self]:
+    def unfinished_runs(cls, session: Session) -> Collection[Self]:
         return (
             session.query(cls)
             .filter(cls.completed_at.is_(None))
@@ -78,7 +79,7 @@ class DbRun(Base):
         seed: int,
         total_batches: int,
         total_epochs: int,
-        started_at: datetime.datetime | None = None,
+        started_at: datetime | None = None,
     ) -> Self:
         return cls(
             name=str(seed),

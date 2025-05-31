@@ -60,4 +60,6 @@ class TrainingRun:
         )
 
     def end_run(self) -> None:
+        if self._run_id is None:
+            raise ValueError("Run not started")
         self._backend.end_run(run_id=self._run_id)

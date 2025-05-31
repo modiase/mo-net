@@ -63,14 +63,16 @@ class CsvBackend(LoggingBackend):
     def start_run(self, seed: int, total_batches: int, total_epochs: int) -> str:
         del seed, total_batches, total_epochs  # unused
         pd.DataFrame(columns=self._columns).to_csv(self._file, index=False)
-        self._file.flush()
+        if self._file is not None:
+            self._file.flush()
         return str(self._path)
 
     def end_run(self, run_id: str) -> None:
         del run_id  # unused
 
     def teardown(self) -> None:
-        self._file.close()
+        if self._file is not None:
+            self._file.close()
 
     def log_iteration(
         self,
@@ -93,7 +95,8 @@ class CsvBackend(LoggingBackend):
             },
             index=[0],
         ).to_csv(self._file, index=False, header=False)
-        self._file.flush()
+        if self._file is not None:
+            self._file.flush()
 
     def log_training_parameters(self, *, training_parameters: str) -> None:
         self._path.with_suffix(".json").write_text(training_parameters)
