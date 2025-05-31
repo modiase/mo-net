@@ -322,7 +322,6 @@ def train(
     model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
     run = TrainingRun(
         seed=seed,
-        # backend=CsvBackend(path=RUN_PATH / (f"{model_path.stem}_training_log.csv")),
         backend=SqliteBackend(),
     )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
