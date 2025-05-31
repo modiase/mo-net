@@ -11,11 +11,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from mnist_numpy import ROOT_DIR
-from mnist_numpy.train.backends.models import DB_PATH, DbRun, Iteration
+from mnist_numpy.db import with_session
+from mnist_numpy.train.backends.models import DbRun, Iteration
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -44,15 +43,8 @@ class StateManager:
 state = StateManager()
 
 
-def get_session():
-    if not DB_PATH.exists():
-        raise HTTPException(status_code=503, detail="Database not available")
-    return sessionmaker(bind=create_engine(f"sqlite:///{DB_PATH}"))()
-
-
 def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
-    session = get_session()
-    try:
+    with with_session() as session:
         run = (
             session.query(DbRun).filter(DbRun.id == run_id).first()
             if run_id
@@ -90,8 +82,6 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
         )
         data["monotonic_val_loss"] = data["val_loss"].cummin()
         return data, run.id, run
-    finally:
-        session.close()
 
 
 async def update_data():
@@ -237,8 +227,7 @@ async def get_run_dashboard(request: Request, run_id: int):
 
 @app.get("/api/runs")
 async def get_available_runs():
-    session = get_session()
-    try:
+    with with_session() as session:
         return JSONResponse(
             content={
                 "runs": [
@@ -253,14 +242,11 @@ async def get_available_runs():
                 ]
             }
         )
-    finally:
-        session.close()
 
 
 @app.get("/api/runs/all")
 async def get_all_runs():
-    session = get_session()
-    try:
+    with with_session() as session:
         return JSONResponse(
             content={
                 "runs": [
@@ -282,14 +268,11 @@ async def get_all_runs():
                 ]
             }
         )
-    finally:
-        session.close()
 
 
 @app.post("/api/runs/{run_id}/complete")
 async def complete_run(run_id: int):
-    session = get_session()
-    try:
+    with with_session() as session:
         run = session.query(DbRun).filter(DbRun.id == run_id).first()
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
@@ -306,5 +289,3 @@ async def complete_run(run_id: int):
                 "completed_at": run.completed_at.isoformat(),
             }
         )
-    finally:
-        session.close()

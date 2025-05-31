@@ -2,8 +2,8 @@ import click
 import uvicorn
 from loguru import logger
 
+from mnist_numpy.db import DB_PATH
 from mnist_numpy.logging import LogLevel, setup_logging
-from mnist_numpy.server.app import DB_PATH
 
 
 @click.command()
