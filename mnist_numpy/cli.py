@@ -332,7 +332,7 @@ def train(
             )
         model = Model.load(open(model_path, "rb"), training=True)
 
-    model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}_model.pkl"
+    model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
     run = Run(
         seed=seed,
         backend=CsvBackend(path=RUN_PATH / (f"{model_path.stem}_training_log.csv")),
