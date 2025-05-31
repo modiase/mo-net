@@ -35,6 +35,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find ripgrep
+          sudo ln -sf $(which fdfind) /usr/local/bin/fd
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
@@ -47,4 +53,6 @@ jobs:
         run: uv sync --dev
 
       - name: Run type checking
-        run: uv run task typecheck
+        run: |
+          set -o pipefail
+          uv run task typecheck-all
