@@ -252,10 +252,12 @@ class Linear(Hidden):
 
         if self._clip_gradients:
             dW *= min(
-                1.0, self._weight_max_norm / (np.linalg.norm(dW) / np.sqrt(dW.size))
+                1.0,
+                self._weight_max_norm * np.sqrt(dW.size) / np.linalg.norm(dW),
             )
             dB *= min(
-                1.0, self._bias_max_norm / (np.linalg.norm(dB) / np.sqrt(dB.size))
+                1.0,
+                self._bias_max_norm * np.sqrt(dB.size) / np.linalg.norm(dB),
             )
 
         self._cache["dP"] = cast(

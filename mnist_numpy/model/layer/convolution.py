@@ -334,10 +334,12 @@ class Convolution2D(Hidden):
 
         if self._clip_gradients:
             dK *= min(
-                1.0, self._weight_max_norm / (np.linalg.norm(dK) / np.sqrt(dK.size))
+                1.0,
+                self._weight_max_norm * np.sqrt(dK.size) / np.linalg.norm(dK),
             )
             db *= min(
-                1.0, self._bias_max_norm / (np.linalg.norm(db) / np.sqrt(db.size))
+                1.0,
+                self._bias_max_norm * np.sqrt(db.size) / np.linalg.norm(db),
             )
 
         pad_h = self._kernel_height - 1
