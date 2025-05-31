@@ -8,7 +8,7 @@ import numpy as np
 
 from mnist_numpy.model.layer.linear import Parameters
 from mnist_numpy.protos import RawGradientType, UpdateGradientType
-from mnist_numpy.train.exceptions import AbortTraining
+from mnist_numpy.train.exceptions import CheckFailed
 
 # This value has been found empirically to be a good threshold for exploding
 # gradients. Obviously, a Z score of 50 is an insanely high value, but it can be
@@ -58,14 +58,10 @@ class Monitor:
         batches_per_epoch: int,
         history_max_len: int,
         warmup_epochs: int,
-        X_train: np.ndarray,
-        Y_train: np.ndarray,
     ):
         self._L_history_max_len = history_max_len
         self._L_history: deque[float] = deque(maxlen=self._L_history_max_len)
         self._L_history_snapshot: Sequence[float] = ()
-        self._X_train = X_train
-        self._Y_train = Y_train
         self._running_update_count = 0
         self._running_weights: WeightGradientRunningAverages = (
             WeightGradientRunningAverages.none()
@@ -86,7 +82,7 @@ class Monitor:
         self,
         raw_gradient: RawGradientType,
         update: UpdateGradientType,
-    ) -> None:
+    ) -> None | CheckFailed:
         del update  # unused
         linear_layer_gradients = [
             gradient for gradient in raw_gradient if isinstance(gradient, Parameters)
@@ -111,6 +107,9 @@ class Monitor:
                 )
             ]
         )
+        if self._running_update_count == 0:
+            return None
+
         if self._running_update_count > self._warmup_batches:
             if (
                 weight_gradients_max_Z_score := np.max(weight_gradients_max_Z_scores)
@@ -118,16 +117,18 @@ class Monitor:
                 MAX_Z_SCORE_UPPER_BOUND / np.log(np.log(self._running_update_count)),
                 MAX_Z_SCORE_LOWER_BOUND,
             ):
-                raise AbortTraining(
-                    f"Exploding gradients detected. {weight_gradients_max_Z_score=}"
+                return CheckFailed(
+                    message=f"Exploding gradients detected. {weight_gradients_max_Z_score=}"
                 )
+        return None
 
-    def post_epoch(self, L: float) -> None:
+    def post_epoch(self, L: float) -> None | CheckFailed:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
-            return
+            return None
         if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
-            raise AbortTraining("Model is not learning.")
+            return CheckFailed(message="Model is not learning.")
+        return None
 
     def clear_history(self) -> None:
         self._L_history.clear()

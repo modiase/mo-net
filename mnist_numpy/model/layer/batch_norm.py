@@ -13,6 +13,7 @@ from mnist_numpy.model.layer.base import (
 from mnist_numpy.protos import (
     Activations,
     D,
+    Dimensions,
     GradLayer,
     GradCache,
     SupportsDeserialize,
@@ -99,24 +100,29 @@ class Parameters(SupportsGradientOperations):
             case _:
                 return NotImplemented
 
-    def __mul__(self, other: float) -> Self:
+    def __mul__(self, other: float | Self) -> Self:
         match other:
             case float() | int():
                 return self.__class__(
                     _gamma=self._gamma * other,
                     _beta=self._beta * other,
                 )
+            case self.__class__():
+                return self.__class__(
+                    _gamma=self._gamma * other._gamma,
+                    _beta=self._beta * other._beta,
+                )
             case _:
                 return NotImplemented
 
-    def __rmul__(self, other: float) -> Self:
+    def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
     @classmethod
-    def empty(cls, *, neurons: int) -> Self:
+    def empty(cls, *, input_dimensions: Dimensions) -> Self:
         return cls(
-            _gamma=np.ones(neurons),
-            _beta=np.zeros(neurons),
+            _gamma=np.ones(input_dimensions),
+            _beta=np.zeros(input_dimensions),
         )
 
 
@@ -128,6 +134,7 @@ class Cache(GradCache):
     mean: np.ndarray | None
     output_activations: Activations | None
     var: np.ndarray | None
+    batch_size: int | None
 
 
 type CacheType = Cache
@@ -142,9 +149,8 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
-        neurons: int
+        input_dimensions: tuple[int, ...]
         momentum: float
-        batch_size: int
         parameters: Parameters
         running_mean: np.ndarray
         running_variance: np.ndarray
@@ -155,9 +161,8 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             training: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
-                neurons=self.neurons,
+                input_dimensions=self.input_dimensions,
                 momentum=self.momentum,
-                batch_size=self.batch_size,
                 parameters=self.parameters,
                 running_mean=self.running_mean,
                 running_variance=self.running_variance,
@@ -167,8 +172,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     def __init__(
         self,
         *,
-        batch_size: int,
-        neurons: int,
+        input_dimensions: Dimensions,
         momentum: float = 0.9,
         parameters: ParametersType | None = None,
         running_mean: np.ndarray | None = None,
@@ -177,15 +181,17 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         training: bool = True,
     ):
         super().__init__(
-            input_dimensions=(neurons,),
-            output_dimensions=(neurons,),
+            input_dimensions=input_dimensions,
+            output_dimensions=input_dimensions,
         )
         self._momentum = momentum
         self._running_mean = (
-            running_mean if running_mean is not None else np.zeros(neurons)
+            running_mean if running_mean is not None else np.zeros(input_dimensions)
         )
         self._running_variance = (
-            running_variance if running_variance is not None else np.ones(neurons)
+            running_variance
+            if running_variance is not None
+            else np.ones(input_dimensions)
         )
         self._training = training
         self._cache: CacheType = {
@@ -193,10 +199,10 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             "input_activations": None,
             "mean": None,
             "output_activations": None,
+            "batch_size": None,
             "var": None,
         }
         self._store_output_activations = store_output_activations
-        self._batch_size = batch_size
         self._parameters = (
             parameters if parameters is not None else self.empty_parameters()
         )
@@ -222,6 +228,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
                     "input_activations": input_activations,
                     "mean": batch_mean,
                     "var": batch_variance,
+                    "batch_size": input_activations.shape[0],
                 }
             )
         else:
@@ -262,6 +269,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
                     _beta=d_beta,
                 )
             )
+        batch_size = self._cache["batch_size"]
 
         d_batch_variance = -0.5 * np.sum(
             dX_norm * (input_activations - mean) * np.power(var + self._EPSILON, -1.5),
@@ -271,13 +279,13 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
             + d_batch_variance
             * np.sum(-2 * (input_activations - mean), axis=0)
-            / self._batch_size
+            / batch_size
         )
 
         dX = (
             dX_norm / np.sqrt(var + self._EPSILON)
-            + d_batch_variance * 2 * (input_activations - mean) / self._batch_size
-            + d_batch_mean / self._batch_size
+            + d_batch_variance * 2 * (input_activations - mean) / batch_size
+            + d_batch_mean / batch_size
         )
 
         return dX
@@ -291,7 +299,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         )
 
     def empty_parameters(self) -> ParametersType:
-        return self.Parameters.empty(neurons=one(self._input_dimensions))
+        return self.Parameters.empty(input_dimensions=self._input_dimensions)
 
     def update_parameters(self) -> None:
         if (dP := self._cache["dP"]) is None:
@@ -315,9 +323,8 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     def serialize(self) -> SupportsDeserialize[BatchNorm]:
         return self.Serialized(
-            neurons=one(self._input_dimensions),
+            input_dimensions=tuple(self._input_dimensions),
             momentum=self._momentum,
-            batch_size=self._batch_size,
             parameters=self._parameters,
             running_mean=self._running_mean,
             running_variance=self._running_variance,

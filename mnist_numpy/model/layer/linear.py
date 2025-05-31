@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Self, TypedDict, cast
+from typing import Callable, Final, Self, TypedDict, cast
 
-from more_itertools import last, one
+from more_itertools import one
 import numpy as np
 
 from mnist_numpy.functions import Identity, LeakyReLU, ReLU, Tanh
@@ -20,6 +20,8 @@ from mnist_numpy.protos import (
     d,
     d_op,
 )
+
+EPSILON: Final[float] = 1e-8
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -53,22 +55,24 @@ class Parameters(SupportsGradientOperations):
     def __rsub__(self, other: Self | float | int) -> Self:
         return self.__sub__(other)
 
-    def __mul__(self, other: float | int) -> Self:
+    def __mul__(self, other: float | int | Self) -> Self:
         match other:
             case float() | int():
                 return self.__class__(_W=other * self._W, _B=other * self._B)
+            case self.__class__():
+                return self.__class__(_W=self._W * other._W, _B=self._B * other._B)
             case _:
                 return NotImplemented
 
-    def __rmul__(self, other: float | int) -> Self:
+    def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
     def __truediv__(self, other: Self | float | int) -> Self:
         match other:
             case Parameters():
                 return self.__class__(
-                    _W=self._W / other._W,
-                    _B=self._B / other._B,
+                    _W=self._W / (other._W + EPSILON),
+                    _B=self._B / (other._B + EPSILON),
                 )
             case float() | int():
                 return self.__mul__(1 / other)
@@ -133,6 +137,25 @@ class Linear(Hidden):
     _parameters: ParametersType
     _cache: Linear.Cache
 
+    @classmethod
+    def of_bias(cls, dim: Dimensions, bias: float | np.ndarray) -> Self:
+        return cls(
+            input_dimensions=dim,
+            output_dimensions=dim,
+            parameters=cls.Parameters.of(
+                W=np.zeros((one(dim), one(dim))),
+                B=(np.ones(one(dim)) * bias if isinstance(bias, float) else bias),
+            ),
+        )
+
+    @classmethod
+    def of_eye(cls, dim: Dimensions) -> Self:
+        return cls(
+            input_dimensions=dim,
+            output_dimensions=dim,
+            parameters=cls.Parameters.eye(dim),
+        )
+
     class Cache(TypedDict):
         input_activations: Activations | None
         output_activations: Activations | None
@@ -160,27 +183,36 @@ class Linear(Hidden):
         self,
         *,
         input_dimensions: Dimensions,
-        output_dimensions: Dimensions,
+        output_dimensions: Dimensions | None = None,
         parameters: ParametersType | None = None,
         parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType] = (
             Parameters.xavier
         ),
         store_output_activations: bool = False,  # Only used for tracing
+        freeze_parameters: bool = False,
+        clip_gradients: bool = True,
+        weight_max_norm: float = 1.0,
+        bias_max_norm: float = 1.0,
     ):
+        if output_dimensions is None:
+            output_dimensions = input_dimensions
         super().__init__(
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
         )
         self._parameters_init_fn = parameters_init_fn
+        self._freeze_parameters = freeze_parameters
+        self._clip_gradients = clip_gradients
+        self._weight_max_norm = weight_max_norm
+        self._bias_max_norm = bias_max_norm
         if parameters is not None:
-            # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
-            if parameters._W.shape != (last(input_dimensions), last(output_dimensions)):
+            if parameters._W.shape != (one(input_dimensions), one(output_dimensions)):
                 raise ValueError(
                     f"Weight matrix shape ({parameters._W.shape}) "
                     f"does not match input dimensions ({input_dimensions}) "
                     f"and output dimensions ({output_dimensions})."
                 )
-            if parameters._B.shape != (last(output_dimensions),):
+            if parameters._B.shape != (one(output_dimensions),):
                 raise ValueError(
                     f"Bias vector shape ({parameters._B.shape}) "
                     f"does not match output dimensions ({output_dimensions})."
@@ -214,12 +246,22 @@ class Linear(Hidden):
     ) -> D[Activations]:
         if (input_activations := self._cache["input_activations"]) is None:
             raise ValueError("Input activations not set during forward pass.")
+
+        dW = input_activations.T @ dZ
+        dB = d_op(dZ, np.sum)
+
+        if self._clip_gradients:
+            W_norm = np.linalg.norm(dW)
+            if W_norm > self._weight_max_norm:
+                dW = dW * (self._weight_max_norm / W_norm)
+
+            B_norm = np.linalg.norm(dB)
+            if B_norm > self._bias_max_norm:
+                dB = dB * (self._bias_max_norm / B_norm)
+
         self._cache["dP"] = cast(
             D[Parameters],
-            self.Parameters.of(
-                W=input_activations.T @ dZ,
-                B=d_op(dZ, np.sum),
-            ),
+            self.Parameters.of(W=dW, B=dB),
         )
         return dZ @ self._parameters._W.T
 
@@ -246,7 +288,8 @@ class Linear(Hidden):
     def update_parameters(self) -> None:
         if self._cache["dP"] is None:
             raise ValueError("Gradient not set during backward pass.")
-        self._parameters = self._parameters + self._cache["dP"]
+        if not self._freeze_parameters:
+            self._parameters = self._parameters + self._cache["dP"]
         self._cache["dP"] = None
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:

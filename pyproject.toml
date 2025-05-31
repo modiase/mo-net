@@ -20,11 +20,15 @@ dependencies = [
   "pydantic>=2.11.1",
   "h5py>=3.13.0",
   "plotille>=5.0.0",
+  "scipy>=1.15.3",
+  "flameprof>=0.4",
 ]
 
 [dependency-groups]
 dev = [
   "inquirerpy>=0.3.4",
+  "jupyter>=1.1.1",
+  "line-profiler>=4.2.0",
   "pandas-stubs>=2.2.3.250308",
   "pytest>=8.3.5",
   "ruff<1.0.0,>=0.9.7",
@@ -40,7 +44,11 @@ module = "h5py"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module="plotille"
+module = "plotille"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "scipy"
 ignore_missing_imports = true
 
 [tool.setuptools]
@@ -48,7 +56,7 @@ packages = ["mnist_numpy"]
 
 [tool.taskipy.tasks]
 format = "uv run taplo format pyproject.toml; fd -e py -x uv run ruff format"
-test = "pytest mnist_numpy/tests.py"
+test = "pytest mnist_numpy/tests"
 typecheck-all = "fd -e py -x uv run mypy"
 typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
 

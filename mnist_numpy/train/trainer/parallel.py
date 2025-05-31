@@ -15,10 +15,14 @@ import numpy as np
 from loguru import logger
 
 from mnist_numpy.augment import affine_transform
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.model import Model
 from mnist_numpy.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mnist_numpy.regulariser.weight_decay import attach_weight_decay_regulariser
-from mnist_numpy.train.trainer.trainer import BasicTrainer, TrainingResult
+from mnist_numpy.train.trainer.trainer import (
+    BasicTrainer,
+    TrainingResult,
+    TrainingSuccessful,
+)
 
 _64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
 _PADDING_FACTOR: Final[float] = 1.2
@@ -111,8 +115,9 @@ def worker_process(
 ) -> None:
     """Worker process that trains on batches and submits updates"""
 
+    del regulariser_lambda  # unused
     with open(model_checkpoint_path, "rb") as f:
-        model = MultiLayerPerceptron.load(f, training=True)
+        model = Model.load(f, training=True)
 
     worker_ready_event.set()
     X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
@@ -129,18 +134,11 @@ def worker_process(
         buffer=Y_shared_memory.buf,
     )
 
-    if regulariser_lambda > 0:
-        attach_weight_decay_regulariser(
-            lambda_=regulariser_lambda,
-            batch_size=X_train.shape[0],
-            model=model,
-        )
-
     while not stop_event.is_set():
         try:
             if reload_event.is_set():
                 with open(model_checkpoint_path, "rb") as f:
-                    model = MultiLayerPerceptron.load(f, training=True)
+                    model = Model.load(f, training=True)
                 reload_event.clear()
                 worker_ready_event.set()
 
@@ -180,6 +178,13 @@ def worker_process(
 class ParallelTrainer(BasicTrainer):
     """Implements parallel training using multiple processes."""
 
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._X_shared_memory: SharedMemory | None = None
+        self._Y_shared_memory: SharedMemory | None = None
+        self._update_shared_memory: SharedMemory | None = None
+        self._processes: tuple[mp.Process, ...] = ()
+
     def resume(
         self,
         start_epoch: int,
@@ -188,9 +193,7 @@ class ParallelTrainer(BasicTrainer):
         logger.info(f"Resuming training from epoch {start_epoch}.")
 
         self._start_epoch = start_epoch
-        self._model = MultiLayerPerceptron.load(
-            open(model_checkpoint_path, "rb"), training=True
-        )
+        self._model = Model.load(open(model_checkpoint_path, "rb"), training=True)
         self._optimizer.set_model(self._model)
         self._optimizer.restore()
         if self._monitor is not None:
@@ -205,7 +208,7 @@ class ParallelTrainer(BasicTrainer):
         with self._create_training_loop_context():
             self._training_loop()
 
-        return TrainingResult(
+        return TrainingSuccessful(
             model_checkpoint_path=model_checkpoint_path,
         )
 
@@ -247,6 +250,13 @@ class ParallelTrainer(BasicTrainer):
         return p
 
     def _before_training_loop(self) -> None:
+        if self._training_parameters.regulariser_lambda > 0:
+            attach_weight_decay_regulariser(
+                lambda_=self._training_parameters.regulariser_lambda,
+                batch_size=self._X_train.shape[0],
+                model=self._model,
+                optimizer=self._optimizer,
+            )
         self._X_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._X_train.nbytes
         )
@@ -322,10 +332,13 @@ class ParallelTrainer(BasicTrainer):
 
     def _training_step(
         self,
+        X_train_batch: np.ndarray,
+        Y_train_batch: np.ndarray,
     ) -> tuple[
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],
     ]:
+        del X_train_batch, Y_train_batch  # unused
         with self._create_training_step_context():
             self._ready_all_workers()
             gradient = self._manager.leader_get_aggregated_results()
@@ -340,9 +353,12 @@ class ParallelTrainer(BasicTrainer):
     def shutdown(self) -> None:
         for p in self._processes:
             p.terminate()
-        self._X_shared_memory.close()
-        self._X_shared_memory.unlink()
-        self._Y_shared_memory.close()
-        self._Y_shared_memory.unlink()
-        self._update_shared_memory.close()
-        self._update_shared_memory.unlink()
+        if self._X_shared_memory is not None:
+            self._X_shared_memory.close()
+            self._X_shared_memory.unlink()
+        if self._Y_shared_memory is not None:
+            self._Y_shared_memory.close()
+            self._Y_shared_memory.unlink()
+        if self._update_shared_memory is not None:
+            self._update_shared_memory.close()
+            self._update_shared_memory.unlink()

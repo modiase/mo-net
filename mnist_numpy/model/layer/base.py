@@ -6,7 +6,6 @@ from functools import reduce
 from itertools import chain
 
 import numpy as np
-from more_itertools import last
 
 from mnist_numpy.protos import (
     Activations,
@@ -32,11 +31,13 @@ class _Base(ABC):
             chain(self._training_step_handlers, (handler,))
         )
 
-    def forward_prop(self, *, input_activations: Activations) -> Activations:
-        # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
-        if last(np.atleast_2d(input_activations).shape) != last(self.input_dimensions):
+    def forward_prop(self, input_activations: Activations) -> Activations:
+        # We wish to ensure that all inputs are at least 2D arrays such that the
+        # leading dimension is always the 'batch' dimension.
+        input_activations = Activations(np.atleast_2d(input_activations))
+        if input_activations.shape[1:] != self.input_dimensions:
             raise ValueError(
-                f"Input activations shape {input_activations.shape} does not match "
+                f"Input activations shape {input_activations.shape[1:]} does not match "
                 f"input dimensions {self.input_dimensions}."
             )
         return reduce(
@@ -69,7 +70,7 @@ class _Base(ABC):
 
 
 class Hidden(_Base):
-    def backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
+    def backward_prop(self, dZ: D[Activations]) -> D[Activations]:
         return reduce(
             lambda acc, handler: handler(acc),
             reversed(

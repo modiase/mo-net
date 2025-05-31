@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypedDict
@@ -7,11 +8,13 @@ from typing import TypedDict
 import numpy as np
 
 from mnist_numpy.model.layer.base import Hidden
-from mnist_numpy.model.mlp import MultiLayerPerceptron
 from mnist_numpy.protos import Activations, D, Dimensions
 
+if typing.TYPE_CHECKING:
+    from mnist_numpy.model.model import Model
 
-class DropoutLayer(Hidden):
+
+class Dropout(Hidden):
     """
     https://arxiv.org/abs/1207.0580
     """
@@ -21,8 +24,8 @@ class DropoutLayer(Hidden):
         input_dimensions: tuple[int, ...]
         keep_prob: float
 
-        def deserialize(self, *, training: bool) -> DropoutLayer:
-            return DropoutLayer(
+        def deserialize(self, *, training: bool) -> Dropout:
+            return Dropout(
                 input_dimensions=self.input_dimensions,
                 keep_prob=self.keep_prob,
                 training=training,
@@ -49,7 +52,7 @@ class DropoutLayer(Hidden):
             raise ValueError(f"keep_prob must be in (0, 1], got {keep_prob}")
 
         self._keep_prob = keep_prob
-        self._cache: DropoutLayer.Cache = {
+        self._cache: Dropout.Cache = {
             "mask": None,
             "input_activations": None,
         }
@@ -73,28 +76,28 @@ class DropoutLayer(Hidden):
 
         return dZ * self._cache["mask"] / self._keep_prob
 
-    def serialize(self) -> DropoutLayer.Serialized:
-        return DropoutLayer.Serialized(
+    def serialize(self) -> Dropout.Serialized:
+        return Dropout.Serialized(
             input_dimensions=tuple(self.input_dimensions),
             keep_prob=self._keep_prob,
         )
 
-
-def attach_dropout_layers(
-    *,
-    model: MultiLayerPerceptron,
-    keep_probs: Sequence[float],
-    training: bool,
-) -> None:
-    if len(keep_probs) != len(model.hidden_blocks):
-        raise ValueError(
-            f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden blocks ({len(model.hidden_blocks)})"
-        )
-    for block, keep_prob in zip(model.hidden_blocks, keep_probs, strict=True):
-        block.append_layer(
-            DropoutLayer(
-                input_dimensions=block.output_dimensions,
-                keep_prob=keep_prob,
-                training=training,
+    @staticmethod
+    def attach_dropout_layers(
+        *,
+        model: Model,
+        keep_probs: Sequence[float],
+        training: bool,
+    ) -> None:
+        if len(keep_probs) != len(model.hidden_blocks):
+            raise ValueError(
+                f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden blocks ({len(model.hidden_blocks)})"
             )
-        )
+        for block, keep_prob in zip(model.hidden_blocks, keep_probs, strict=True):
+            block.append_layer(
+                Dropout(
+                    input_dimensions=block.output_dimensions,
+                    keep_prob=keep_prob,
+                    training=training,
+                )
+            )

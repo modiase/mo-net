@@ -85,20 +85,18 @@ def main(
 
                 min_y = float(
                     min(
-                        df["training_loss"].min(),
-                        df["test_loss"].min(),
-                        df["monotonic_training_loss"].min(),
-                        df["monotonic_test_loss"].min(),
+                        df["batch_loss"].min(),
+                        df["val_loss"].min(),
+                        df["monotonic_val_loss"].min(),
                     )
                     * 0.95
                 )
 
                 max_y = float(
                     max(
-                        df["training_loss"].max(),
-                        df["test_loss"].max(),
-                        df["monotonic_training_loss"].max(),
-                        df["monotonic_test_loss"].max(),
+                        df["batch_loss"].max(),
+                        df["val_loss"].max(),
+                        df["monotonic_val_loss"].max(),
                     )
                     * 1.05
                 )
@@ -107,11 +105,11 @@ def main(
 
                 epochs = df["epoch"].tolist()
 
-                fig.plot(epochs, df["test_loss"].tolist(), label="Test Loss")
+                fig.plot(epochs, df["val_loss"].tolist(), label="Validation Loss")
                 fig.plot(
                     epochs,
-                    df["monotonic_test_loss"].tolist(),
-                    label="Monotonic Test Loss",
+                    df["monotonic_val_loss"].tolist(),
+                    label="Monotonic Validation Loss",
                 )
 
                 fig.x_label = "Epoch"
@@ -122,8 +120,8 @@ def main(
 
                 latest = df.iloc[-1]
                 print(f"Epoch: {int(latest['epoch'])}")
-                print(f"Training Loss: {float(latest['training_loss']):.6f}")
-                print(f"Test Loss: {float(latest['test_loss']):.6f}")
+                print(f"Batch Loss: {float(latest['batch_loss']):.6f}")
+                print(f"Validation Loss: {float(latest['val_loss']):.6f}")
                 print(f"Learning Rate: {float(latest['learning_rate']):.8f}")
                 print(f"Last Update: {latest['timestamp']}")
 

@@ -51,6 +51,22 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 layer_num = int(layer_key.split("_")[1])
                 layer_count = max(layer_count, layer_num + 1)
 
+    if "updates" in iteration_group:
+        if "weights" in iteration_group["updates"]:
+            for layer_key in iteration_group["updates"]["weights"]:
+                if isinstance(
+                    iteration_group["updates"]["weights"][layer_key], h5py.Group
+                ):
+                    layer_num = int(layer_key.split("_")[1])
+                    layer_count = max(layer_count, layer_num + 1)
+        if "biases" in iteration_group["updates"]:
+            for layer_key in iteration_group["updates"]["biases"]:
+                if isinstance(
+                    iteration_group["updates"]["biases"][layer_key], h5py.Group
+                ):
+                    layer_num = int(layer_key.split("_")[1])
+                    layer_count = max(layer_count, layer_num + 1)
+
     has_weights = "weights" in iteration_group
     has_biases = "biases" in iteration_group
     has_raw_gradients = "raw_gradients" in iteration_group
@@ -155,40 +171,50 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 ax.grid(alpha=0.3)
 
         # Plot weight updates (column 5)
-        if has_updates and layer_key in iteration_group["updates"]:
-            update_layer = iteration_group["updates"][layer_key]
-            if (
-                "weights" in update_layer
-                and "histogram_values" in update_layer["weights"]
-            ):
-                ax = fig.add_subplot(gs[layer_idx, 4])
-                values = update_layer["weights"]["histogram_values"][()]
-                bins = update_layer["weights"]["histogram_bins"][()]
-                ax.bar(bins[:-1], values, width=np.diff(bins), alpha=0.7, color="blue")
-                ax.set_title(f"Weight Updates L{layer_idx}", fontsize=8)
-                ax.set_yscale("log")
-                ax.set_xlabel("Value")
-                ax.set_ylabel("Count (log)")
-                ax.grid(alpha=0.3)
+        if has_updates and "weights" in iteration_group["updates"]:
+            weights_update_group = iteration_group["updates"]["weights"]
+            if layer_key in weights_update_group:
+                update_layer = weights_update_group[layer_key]
+                if (
+                    "histogram_values" in update_layer
+                    and "histogram_bins" in update_layer
+                ):
+                    ax = fig.add_subplot(gs[layer_idx, 4])
+                    values = update_layer["histogram_values"][()]
+                    bins = update_layer["histogram_bins"][()]
+                    ax.bar(
+                        bins[:-1], values, width=np.diff(bins), alpha=0.7, color="blue"
+                    )
+                    ax.set_title(f"Weight Updates L{layer_idx}", fontsize=8)
+                    ax.set_yscale("log")
+                    ax.set_xlabel("Value")
+                    ax.set_ylabel("Count (log)")
+                    ax.grid(alpha=0.3)
 
         # Plot bias updates (column 6)
-        if has_updates and layer_key in iteration_group["updates"]:
-            update_layer = iteration_group["updates"][layer_key]
-            if (
-                "biases" in update_layer
-                and "histogram_values" in update_layer["biases"]
-            ):
-                ax = fig.add_subplot(gs[layer_idx, 5])
-                values = update_layer["biases"]["histogram_values"][()]
-                bins = update_layer["biases"]["histogram_bins"][()]
-                ax.bar(
-                    bins[:-1], values, width=np.diff(bins), alpha=0.7, color="violet"
-                )
-                ax.set_title(f"Bias Updates L{layer_idx}", fontsize=8)
-                ax.set_yscale("log")
-                ax.set_xlabel("Value")
-                ax.set_ylabel("Count (log)")
-                ax.grid(alpha=0.3)
+        if has_updates and "biases" in iteration_group["updates"]:
+            biases_update_group = iteration_group["updates"]["biases"]
+            if layer_key in biases_update_group:
+                update_layer = biases_update_group[layer_key]
+                if (
+                    "histogram_values" in update_layer
+                    and "histogram_bins" in update_layer
+                ):
+                    ax = fig.add_subplot(gs[layer_idx, 5])
+                    values = update_layer["histogram_values"][()]
+                    bins = update_layer["histogram_bins"][()]
+                    ax.bar(
+                        bins[:-1],
+                        values,
+                        width=np.diff(bins),
+                        alpha=0.7,
+                        color="violet",
+                    )
+                    ax.set_title(f"Bias Updates L{layer_idx}", fontsize=8)
+                    ax.set_yscale("log")
+                    ax.set_xlabel("Value")
+                    ax.set_ylabel("Count (log)")
+                    ax.grid(alpha=0.3)
 
         # Plot activations (column 7)
         if has_activations and layer_key in iteration_group["activations"]:

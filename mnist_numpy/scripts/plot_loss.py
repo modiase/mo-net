@@ -30,23 +30,17 @@ def main(training_log_path: Path | None = None):
 
     # Create the plot
     plt.figure(figsize=(12, 6))
-    plt.plot(df["epoch"], df["training_loss"], label="Training Loss", color="blue")
-    plt.plot(df["epoch"], df["test_loss"], label="Test Loss", color="red")
+    plt.plot(df["epoch"], df["batch_loss"], label="Batch Loss", color="blue")
+    plt.plot(df["epoch"], df["val_loss"], label="Validation Loss", color="red")
     plt.plot(
         df["epoch"],
-        df["monotonic_training_loss"],
-        label="Monotonic Training Loss",
-        color="orange",
-    )
-    plt.plot(
-        df["epoch"],
-        df["monotonic_test_loss"],
-        label="Monotonic Test Loss",
+        df["monotonic_val_loss"],
+        label="Monotonic Validation Loss",
         color="green",
     )
 
     # Customize the plot
-    plt.title("Training and Test Loss vs. Epochs")
+    plt.title("Batch and Validation Loss vs. Epochs")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.grid(True, linestyle="--", alpha=0.7)

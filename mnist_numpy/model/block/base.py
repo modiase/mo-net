@@ -29,8 +29,8 @@ class Base(HasDimensions):
         for prev, curr in pairwise(layers):
             if prev.output_dimensions != curr.input_dimensions:
                 raise ValueError(
-                    f"Output dimensions of layer ({prev.output_dimensions}) "
-                    f"do not match input dimensions of layer to append ({curr.input_dimensions})."
+                    f"Output dimensions of layer {prev} ({prev.output_dimensions}) "
+                    f"do not match input dimensions of layer {curr} ({curr.input_dimensions})."
                 )
         self._layers: Sequence[HiddenLayer] = tuple(layers)
 
@@ -139,9 +139,11 @@ class Output(Base):
     def __init__(
         self,
         *,
-        layers: Sequence[HiddenLayer],
+        layers: Sequence[HiddenLayer] | None = None,
         output_layer: OutputLayer,
     ):
+        if layers is None:
+            layers = []
         super().__init__(layers=layers)
         self._output_layer = output_layer
 
@@ -166,6 +168,20 @@ class Output(Base):
             ),
             output_layer=self._output_layer.serialize(),
         )
+
+    @property
+    def input_dimensions(self) -> Dimensions:
+        if self._layers:
+            return first(self._layers).input_dimensions
+        else:
+            return self._output_layer.input_dimensions
+
+    @property
+    def output_dimensions(self) -> Dimensions:
+        if self._layers:
+            return last(self._layers).output_dimensions
+        else:
+            return self._output_layer.output_dimensions
 
     @property
     def output_layer(self) -> OutputLayer:

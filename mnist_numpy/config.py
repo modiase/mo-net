@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Self
 
 from pydantic import BaseModel, model_validator
@@ -11,7 +10,7 @@ class TrainingParameters(BaseModel):
     dropout_keep_probs: tuple[float, ...]
     history_max_len: int
     learning_rate_limits: tuple[float, float]
-    log_path: Path
+    max_restarts: int
     monotonic: bool
     no_monitoring: bool
     no_transform: bool

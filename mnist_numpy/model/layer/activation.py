@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict
 
-from more_itertools import last
-
 from mnist_numpy.functions import get_activation_fn
 from mnist_numpy.model.layer.base import Hidden
 from mnist_numpy.protos import (
@@ -52,12 +50,6 @@ class Activation(Hidden):
         }
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        # TODO: Check if this is correct - not sure I'm considering broadcasting correctly
-        if last(input_activations.shape) != last(self._input_dimensions):
-            raise ValueError(
-                f"Input activations of layer ({last(input_activations.shape)}) "
-                f"do not match input dimensions of layer ({self._input_dimensions})."
-            )
         self._cache["input_activations"] = input_activations
         return self._activation_fn(input_activations)
 

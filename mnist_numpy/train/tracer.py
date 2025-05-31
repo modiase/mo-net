@@ -8,7 +8,7 @@ import h5py
 import numpy as np
 
 from mnist_numpy.model.layer.linear import Linear, Parameters
-from mnist_numpy.model.mlp import MultiLayerPerceptron
+from mnist_numpy.model.model import Model
 from mnist_numpy.protos import RawGradientType, UpdateGradientType
 
 
@@ -56,7 +56,7 @@ class Tracer:
     def __init__(
         self,
         *,
-        model: MultiLayerPerceptron,
+        model: Model,
         training_log_path: Path,
         tracer_config: TracerConfig,
     ):
@@ -207,37 +207,47 @@ class Tracer:
                     gradient for gradient in update if isinstance(gradient, Parameters)
                 )
                 update_group = iter_group.create_group("updates")
+
+                # Create weights and biases groups at the top level
+                update_weights_group = update_group.create_group("weights")
+                update_biases_group = update_group.create_group("biases")
+
                 for i, update_gradient in enumerate(update_gradients):
-                    layer_group = update_group.create_group(f"layer_{i}")
-
-                    weights_group = layer_group.create_group("weights")
+                    # Create layer groups under weights and biases
+                    weights_layer_group = update_weights_group.create_group(
+                        f"layer_{i}"
+                    )
                     hist_values, hist_bins = np.histogram(update_gradient._W, bins=100)
-                    weights_group.create_dataset("histogram_values", data=hist_values)
-                    weights_group.create_dataset("histogram_bins", data=hist_bins)
+                    weights_layer_group.create_dataset(
+                        "histogram_values", data=hist_values
+                    )
+                    weights_layer_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    weights_group.attrs["mean"] = np.mean(update_gradient._W)
-                    weights_group.attrs["std"] = np.std(update_gradient._W)
-                    weights_group.attrs["min"] = np.min(update_gradient._W)
-                    weights_group.attrs["max"] = np.max(update_gradient._W)
+                    weights_layer_group.attrs["mean"] = np.mean(update_gradient._W)
+                    weights_layer_group.attrs["std"] = np.std(update_gradient._W)
+                    weights_layer_group.attrs["min"] = np.min(update_gradient._W)
+                    weights_layer_group.attrs["max"] = np.max(update_gradient._W)
 
-                    weights_group.create_dataset(
+                    weights_layer_group.create_dataset(
                         "deciles",
                         data=np.quantile(update_gradient._W, np.linspace(0, 1, 11)),
                     )
 
-                    biases_group = layer_group.create_group("biases")
+                    biases_layer_group = update_biases_group.create_group(f"layer_{i}")
                     hist_values, hist_bins = np.histogram(update_gradient._B, bins=100)
-                    biases_group.create_dataset("histogram_values", data=hist_values)
-                    biases_group.create_dataset("histogram_bins", data=hist_bins)
+                    biases_layer_group.create_dataset(
+                        "histogram_values", data=hist_values
+                    )
+                    biases_layer_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    biases_group.create_dataset(
+                    biases_layer_group.create_dataset(
                         "deciles",
                         data=np.quantile(update_gradient._B, np.linspace(0, 1, 11)),
                     )
 
-                    biases_group.attrs["mean"] = np.mean(update_gradient._B)
-                    biases_group.attrs["std"] = np.std(update_gradient._B)
-                    biases_group.attrs["min"] = np.min(update_gradient._B)
-                    biases_group.attrs["max"] = np.max(update_gradient._B)
+                    biases_layer_group.attrs["mean"] = np.mean(update_gradient._B)
+                    biases_layer_group.attrs["std"] = np.std(update_gradient._B)
+                    biases_layer_group.attrs["min"] = np.min(update_gradient._B)
+                    biases_layer_group.attrs["max"] = np.max(update_gradient._B)
 
         self._iterations += 1
