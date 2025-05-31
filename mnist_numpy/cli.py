@@ -41,6 +41,7 @@ from mnist_numpy.train.trainer.trainer import (
     BasicTrainer,
     OptimizerType,
     TrainingFailed,
+    TrainingResult,
     TrainingSuccessful,
     get_optimizer,
 )
@@ -379,6 +380,7 @@ def train(
         training_parameters=training_parameters,
         disable_shutdown=training_parameters.workers != 0,
     )
+    training_result: TrainingResult | None = None
     try:
         while restarts <= training_parameters.max_restarts:
             if restarts > 0:
@@ -394,7 +396,6 @@ def train(
                 training_result = trainer.train()
             match training_result:
                 case TrainingSuccessful() as result:
-                    save_model(result.model_checkpoint_path)
                     break
                 case TrainingFailed() as result:
                     logger.error(result.message)
@@ -405,6 +406,8 @@ def train(
                 case never_training_result:
                     assert_never(never_training_result)
     finally:
+        if training_result is not None:
+            save_model(training_result.model_checkpoint_path)
         trainer.shutdown()
 
 
