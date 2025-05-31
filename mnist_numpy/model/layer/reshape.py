@@ -15,16 +15,21 @@ class Reshape(Hidden):
         output_dimensions: tuple[int, ...]
 
         def deserialize(self, *, training: bool = False) -> Reshape:
+            del training  # unused
             return Reshape(
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
             )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        return Activations(input_activations.reshape(-1, *self.output_dimensions))
+        return Activations(
+            input_activations.reshape(
+                input_activations.shape[0], *self.output_dimensions
+            )
+        )
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        return dZ.reshape(-1, *self.input_dimensions)  # type: ignore[attr-defined]
+        return dZ.reshape(dZ.shape[0], *self.input_dimensions)  # type: ignore[attr-defined]
 
     def serialize(self) -> Reshape.Serialized:
         return Reshape.Serialized(
