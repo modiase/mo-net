@@ -285,6 +285,7 @@ def train(
         dropout_keep_probs=tuple(dropout_keep_probs),
         history_max_len=history_max_len,
         learning_rate_limits=learning_rate_limits,
+        max_restarts=max_restarts if not tracing_enabled else 0,
         monotonic=monotonic,
         no_monitoring=no_monitoring,
         no_transform=no_transform,
@@ -372,8 +373,6 @@ def train(
         logger.info(f"Saved output to {model_path}.")
 
     restarts = 0
-    if training_parameters.trace_logging:
-        max_restarts = 0
 
     start_epoch: int = 0
     model_checkpoint_path: Path | None = None
@@ -390,7 +389,7 @@ def train(
         disable_shutdown=training_parameters.workers != 0,
     )
     try:
-        while restarts <= max_restarts:
+        while restarts <= training_parameters.max_restarts:
             if restarts > 0:
                 if model_checkpoint_path is None:
                     raise ValueError(

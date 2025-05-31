@@ -244,7 +244,8 @@ class BasicTrainer:
             return self._training_loop()
 
     def _before_training_loop(self) -> None:
-        self._optimizer.snapshot()
+        if self._training_parameters.max_restarts > 0:
+            self._optimizer.snapshot()
 
     def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
@@ -292,7 +293,8 @@ class BasicTrainer:
                     self._model.dump(open(self._model_checkpoint_path, "wb"))
                     if self._monitor is not None:
                         self._monitor.clear_history()
-                    self._optimizer.snapshot()
+                    if self._training_parameters.max_restarts > 0:
+                        self._optimizer.snapshot()
                     self._L_val_min = L_val
                     self._L_val_min_epoch = self._training_parameters.current_epoch(i)
                 match self._post_epoch(L_val):
