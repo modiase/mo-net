@@ -63,6 +63,32 @@ function updateStats(data) {
         const statusBadge = isCompleted ? '<span class="status-badge status-completed">Completed</span>' : '<span class="status-badge status-running">Running</span>';
         const statusClass = isCompleted ? 'completed' : 'running';
         
+        let elapsedTimeStr = 'N/A';
+        if (status.started_at) {
+            const startTime = new Date(status.started_at);
+            const endTime = isCompleted && status.completed_at ? new Date(status.completed_at) : new Date();
+            const elapsedMs = endTime - startTime;
+            elapsedTimeStr = formatDuration(elapsedMs);
+        }
+        
+        let remainingTimeStr = 'N/A';
+        if (status.started_at && status.current_batch > 0 && status.total_batches > 0 && !isCompleted) {
+            const startTime = new Date(status.started_at);
+            const currentTime = new Date();
+            const elapsedMs = currentTime - startTime;
+            const currentBatch = status.current_batch || 0;
+            const totalBatches = status.total_batches || 1;
+            
+            if (currentBatch > 0 && elapsedMs > 0) {
+                const avgTimePerBatch = elapsedMs / currentBatch;
+                const remainingBatches = totalBatches - currentBatch;
+                const estimatedRemainingMs = avgTimePerBatch * remainingBatches;
+                remainingTimeStr = formatDuration(estimatedRemainingMs);
+            }
+        } else if (isCompleted) {
+            remainingTimeStr = '0s';
+        }
+        
         document.getElementById('stats-grid').innerHTML = `
             <div class="stat-card">
                 <div class="stat-value">${latest.epoch}</div>
@@ -95,8 +121,35 @@ function updateStats(data) {
                     <div class="progress-fill" style="width:${progress*100}%"></div>
                 </div>
             </div>
+            <div class="stat-card">
+                <div class="stat-value">${elapsedTimeStr}</div>
+                <div class="stat-label">Elapsed Time</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${remainingTimeStr}</div>
+                <div class="stat-label">Est. Remaining</div>
+            </div>
         `;
     });
+}
+
+function formatDuration(milliseconds) {
+    if (milliseconds < 0) return 'N/A';
+    
+    const seconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) {
+        return `${days}d ${hours % 24}h ${minutes % 60}m`;
+    } else if (hours > 0) {
+        return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${seconds % 60}s`;
+    } else {
+        return `${seconds}s`;
+    }
 }
 
 function plotLossChart(data) {

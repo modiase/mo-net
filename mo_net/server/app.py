@@ -185,6 +185,12 @@ async def get_status():
                 "progress": progress,
                 "total_epochs": current_state.current_run.total_epochs,
                 "is_completed": current_state.current_run.completed_at is not None,
+                "started_at": current_state.current_run.started_at.isoformat(),
+                "completed_at": current_state.current_run.completed_at.isoformat()
+                if current_state.current_run.completed_at
+                else None,
+                "current_batch": current_state.current_run.current_batch,
+                "total_batches": current_state.current_run.total_batches,
             }
         )
 
