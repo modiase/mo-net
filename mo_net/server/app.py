@@ -50,6 +50,7 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
             if run_id
             else session.query(DbRun).order_by(DbRun.updated_at.desc()).first()
         )
+
         if not run:
             raise HTTPException(status_code=404, detail="No runs found")
 
@@ -59,8 +60,21 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
             .order_by(Iteration.timestamp)
             .all()
         )
+
         if not iterations:
-            raise HTTPException(status_code=404, detail="No iterations found")
+            # Return empty DataFrame with correct structure when no iterations found
+            empty_data = pd.DataFrame(
+                columns=[
+                    "batch_loss",
+                    "val_loss",
+                    "batch",
+                    "epoch",
+                    "learning_rate",
+                    "timestamp",
+                ]
+            )
+            empty_data["monotonic_val_loss"] = pd.Series(dtype=float)
+            return empty_data, run.id, run
 
         data = pd.DataFrame(
             [
