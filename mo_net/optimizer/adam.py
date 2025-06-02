@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from loguru import logger
 import numpy as np
 
 from mo_net.model.model import Model
@@ -50,6 +51,7 @@ class AdaM(Base[Config]):
 
     def gradient_operation(self, layer: GradLayer) -> None:
         cache = layer.cache
+        logger.trace(f"Computing gradient operation for layer {layer}.")
 
         cache["first_moment"] = (
             self._config.beta_1 * cache["first_moment"]
