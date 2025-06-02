@@ -112,7 +112,7 @@ function updateStats(data) {
         }
         
         // Calculate time per epoch
-        const epochRateInfo = calculateEpochRate(data);
+        const epochRateInfo = calculateEpochRate(data, status);
         
         document.getElementById('stats-grid').innerHTML = `
             <div class="stat-card ${statusClass}">
@@ -363,67 +363,28 @@ function navigateToRun() {
     if (runId) window.location.href = `/${runId}`;
 }
 
-function calculateEpochRate(data) {
-    if (!data || data.length < 2) {
+function calculateEpochRate(data, status) {
+    // Use batch rate and batches per epoch for more accurate calculation
+    if (!status || !status.total_batches || !status.total_epochs) {
         return { display: 'N/A', label: 'Time/Epoch' };
     }
     
-    // Use data from the last 10 minutes or last 15 data points for epoch calculation
-    const now = new Date();
-    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    // Calculate batches per epoch from the known totals
+    const batchesPerEpoch = status.total_batches / status.total_epochs;
     
-    // Filter to recent data points and ensure we have timestamps and epochs
-    const recentData = data
-        .filter(d => d.timestamp && d.epoch !== undefined && new Date(d.timestamp) >= tenMinutesAgo)
-        .slice(-15); // Limit to last 15 points
+    // Get the current batches per second rate
+    const batchesPerSecond = calculateRunningAverageBatchesPerSecond(data);
     
-    if (recentData.length < 2) {
-        // If not enough recent data, use last few points regardless of time
-        const lastPoints = data
-            .filter(d => d.timestamp && d.epoch !== undefined)
-            .slice(-Math.min(10, data.length));
-        if (lastPoints.length < 2) {
-            return { display: 'N/A', label: 'Time/Epoch' };
-        }
-        return calculateEpochRateFromPoints(lastPoints);
-    }
-    
-    return calculateEpochRateFromPoints(recentData);
-}
-
-function calculateEpochRateFromPoints(dataPoints) {
-    if (dataPoints.length < 2) {
+    if (batchesPerSecond <= 0) {
         return { display: 'N/A', label: 'Time/Epoch' };
     }
     
-    // Sort by timestamp to ensure proper order
-    const sortedData = dataPoints
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    
-    const first = sortedData[0];
-    const last = sortedData[sortedData.length - 1];
-    
-    const startTime = new Date(first.timestamp);
-    const endTime = new Date(last.timestamp);
-    const timeDiffSeconds = (endTime - startTime) / 1000;
-    
-    // Avoid division by zero and ensure meaningful time difference
-    if (timeDiffSeconds <= 0) {
-        return { display: 'N/A', label: 'Time/Epoch' };
-    }
-    
-    const epochDiff = last.epoch - first.epoch;
-    
-    // Ensure we're making progress (epochs should increase)
-    if (epochDiff <= 0) {
-        return { display: 'N/A', label: 'Time/Epoch' };
-    }
-    
-    const epochsPerSecond = epochDiff / timeDiffSeconds;
+    // Calculate epochs per second
+    const epochsPerSecond = batchesPerSecond / batchesPerEpoch;
     
     // If more than 1 second per epoch, show seconds per epoch
     if (epochsPerSecond < 1) {
-        const secondsPerEpoch = timeDiffSeconds / epochDiff;
+        const secondsPerEpoch = 1 / epochsPerSecond;
         return {
             display: secondsPerEpoch.toFixed(1),
             label: 's/epoch'
