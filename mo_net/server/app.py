@@ -175,7 +175,7 @@ async def get_status():
 
     if current_state.current_run:
         progress = (
-            (current_state.current_run.current_epoch + 1)
+            (current_state.current_run.current_epoch)
             / current_state.current_run.total_epochs
             if current_state.current_run.total_epochs > 0
             else 0

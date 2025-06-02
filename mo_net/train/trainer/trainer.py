@@ -316,13 +316,13 @@ class BasicTrainer:
                     case never:
                         assert_never(never)
 
-                self._run.log_iteration(
-                    epoch=self._training_parameters.current_epoch(i),
-                    batch=i,
-                    batch_loss=L_batch,
-                    val_loss=L_val,
-                    learning_rate=self._optimizer.learning_rate,
-                )
+            self._run.log_iteration(
+                epoch=self._training_parameters.current_epoch(i),
+                batch=i,
+                batch_loss=L_batch,
+                val_loss=L_val,
+                learning_rate=self._optimizer.learning_rate,
+            )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 tqdm.write(
@@ -335,6 +335,13 @@ class BasicTrainer:
                 )
                 last_log_time = time.time()
 
+        self._run.log_iteration(
+            epoch=self._training_parameters.num_epochs,
+            batch=self._training_parameters.total_batches,
+            batch_loss=L_batch,
+            val_loss=L_val,
+            learning_rate=self._optimizer.learning_rate,
+        )
         return TrainingSuccessful(
             model_checkpoint_path=self._model_checkpoint_path,
         )
