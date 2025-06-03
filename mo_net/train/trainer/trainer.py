@@ -123,7 +123,9 @@ class BasicTrainer:
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
-        self._on_shutdown_handlers: Sequence[Callable[[], None]] = ()
+        self._on_shutdown_handlers: Sequence[Callable[[], None]] = (
+            lambda: self._run.end_run(),
+        )
 
     def subscribe_to_after_training_step(
         self,
@@ -248,9 +250,6 @@ class BasicTrainer:
             return self._training_loop()
 
     def _before_training_loop(self) -> None:
-        self.subscribe_to_shutdown(
-            lambda: self._run.end_run(),
-        )
         if self._training_parameters.max_restarts > 0:
             self._optimizer.snapshot()
 
