@@ -9,7 +9,6 @@ class Input(_Base):
         input_dimensions: Dimensions,
     ):
         self._input_dimensions = input_dimensions
-        self._training_step_handlers = ()
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         return input_activations
