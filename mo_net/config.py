@@ -10,6 +10,7 @@ class TrainingParameters(BaseModel):
     dropout_keep_probs: tuple[float, ...]
     history_max_len: int
     learning_rate_limits: tuple[float, float]
+    log_level: str
     max_restarts: int
     monotonic: bool
     no_monitoring: bool
