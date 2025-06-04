@@ -198,6 +198,7 @@ class BasicTrainer:
             f" for {self._training_parameters.num_epochs=} iterations"
             f" using optimizer {self._optimizer.__class__.__name__}."
         )
+        logger.info(f"{self._model.print()}")
         logger.info(
             f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.block_dimensions)} and parameter count: {self._model.parameter_count}."
         )

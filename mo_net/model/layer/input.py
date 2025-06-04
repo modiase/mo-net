@@ -8,6 +8,10 @@ class Input(_Base):
         *,
         input_dimensions: Dimensions,
     ):
+        super().__init__(
+            input_dimensions=input_dimensions,
+            output_dimensions=input_dimensions,
+        )
         self._input_dimensions = input_dimensions
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:

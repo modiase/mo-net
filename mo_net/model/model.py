@@ -4,6 +4,7 @@ import pickle
 from collections.abc import Callable, Mapping, MutableSequence
 from dataclasses import dataclass
 from functools import partial, reduce
+from itertools import chain
 from operator import itemgetter
 from typing import (
     IO,
@@ -358,6 +359,24 @@ class Model(ModelBase):
 
     def get_layer(self, layer_id: str) -> ParametrisedHidden:
         return self._layer_id_to_layer[layer_id]
+
+    @property
+    def layers(self) -> Sequence[Base]:
+        return tuple(
+            chain.from_iterable(
+                block.layers
+                if isinstance(block, Hidden)
+                else (block.layers, block.output_layer)
+                if isinstance(block, Output)
+                else (block,)
+                for block in chain(
+                    [self.input_layer], self.hidden_blocks, [self.output_block]
+                )
+            )
+        )
+
+    def print(self) -> str:
+        return ", ".join(f"{layer}" for layer in self.layers)
 
 
 type Regulariser = Callable[[Model], None]

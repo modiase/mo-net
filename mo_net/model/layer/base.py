@@ -90,7 +90,7 @@ class _Base(ABC):
 
     def __repr__(self) -> str:
         return (
-            f"<{self.__class__.__name__} id={self._layer_id} "
+            f"<{self.__class__.__name__} id={self.layer_id} "
             f"dimensions={(self.input_dimensions, self.output_dimensions)}>"
         )
 
