@@ -1,8 +1,10 @@
+import io
 from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
+from mo_net.model.layer.base import BadLayerId
 from mo_net.model.layer.linear import Linear, ParametersType
 from mo_net.protos import Activations, Dimensions
 
@@ -544,3 +546,25 @@ def test_linear_gradient_operation_interface():
 
     layer.gradient_operation(grad_callback)
     assert called
+
+
+def test_linear_serialize_deserialize_parameters():
+    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    original_W = layer.parameters._W.copy()
+    original_B = layer.parameters._B.copy()
+    buffer = io.BytesIO()
+    layer.serialize_parameters(buffer)
+    buffer.seek(0)
+    layer.deserialize_parameters(buffer)
+    assert np.allclose(layer.parameters._W, original_W)
+    assert np.allclose(layer.parameters._B, original_B)
+
+
+def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
+    layer_1 = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer_2 = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    buffer = io.BytesIO()
+    layer_1.serialize_parameters(buffer)
+    buffer.seek(0)
+    with pytest.raises(BadLayerId):
+        layer_2.deserialize_parameters(buffer)

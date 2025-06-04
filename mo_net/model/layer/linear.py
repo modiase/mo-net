@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
-from typing import Callable, Final, Self, TypedDict, cast
+from functools import partial
+from typing import IO, Callable, Final, Self, TypedDict, cast
 
 import numpy as np
 from more_itertools import one
 
 from mo_net.functions import Identity, LeakyReLU, ReLU, Tanh
 from mo_net.model.layer.base import (
-    Hidden,
+    BadLayerId,
+    ParametrisedHidden,
 )
 from mo_net.protos import (
     ActivationFn,
@@ -24,7 +27,7 @@ from mo_net.protos import (
 EPSILON: Final[float] = 1e-8
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(kw_only=True)
 class Parameters(SupportsGradientOperations):
     _W: np.ndarray
     _B: np.ndarray
@@ -128,14 +131,33 @@ class Parameters(SupportsGradientOperations):
     def of(cls, W: np.ndarray, B: np.ndarray) -> Self:
         return cls(_W=np.atleast_2d(W), _B=np.atleast_1d(B))
 
+    def from_bytes(self, data: IO[bytes]) -> Self:
+        W = np.frombuffer(data.read(self._W.nbytes), dtype=self._W.dtype).reshape(
+            self._W.shape
+        )
+        B = np.frombuffer(data.read(self._B.nbytes), dtype=self._B.dtype).reshape(
+            self._B.shape
+        )
+        return self.__class__(_W=W, _B=B)
+
 
 type ParametersType = Parameters
 
 
-class Linear(Hidden):
+class Cache(TypedDict):
+    input_activations: Activations | None
+    output_activations: Activations | None
+    dP: D[ParametersType] | None
+
+
+type CacheType = Cache
+
+
+class Linear(ParametrisedHidden[ParametersType, CacheType]):
     Parameters = Parameters
+    Cache = Cache
     _parameters: ParametersType
-    _cache: Linear.Cache
+    _cache: CacheType
 
     @classmethod
     def of_bias(cls, dim: Dimensions, bias: float | np.ndarray) -> Self:
@@ -156,13 +178,9 @@ class Linear(Hidden):
             parameters=cls.Parameters.eye(dim),
         )
 
-    class Cache(TypedDict):
-        input_activations: Activations | None
-        output_activations: Activations | None
-        dP: D[ParametersType] | None
-
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
+        layer_id: str
         input_dimensions: tuple[int, ...]
         output_dimensions: tuple[int, ...]
         parameters: Parameters
@@ -174,6 +192,7 @@ class Linear(Hidden):
         ) -> Linear:
             del training  # unused
             return Linear(
+                layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
                 parameters=self.parameters,
@@ -182,21 +201,23 @@ class Linear(Hidden):
     def __init__(
         self,
         *,
+        bias_max_norm: float = 1.0,
+        clip_gradients: bool = True,
+        freeze_parameters: bool = False,
         input_dimensions: Dimensions,
+        layer_id: str | None = None,
         output_dimensions: Dimensions | None = None,
         parameters: ParametersType | None = None,
         parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType] = (
             Parameters.xavier
         ),
         store_output_activations: bool = False,  # Only used for tracing
-        freeze_parameters: bool = False,
-        clip_gradients: bool = True,
         weight_max_norm: float = 1.0,
-        bias_max_norm: float = 1.0,
     ):
         if output_dimensions is None:
             output_dimensions = input_dimensions
         super().__init__(
+            layer_id=layer_id,
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
         )
@@ -248,7 +269,7 @@ class Linear(Hidden):
             raise ValueError("Input activations not set during forward pass.")
 
         dW = input_activations.T @ dZ
-        dB = d_op(dZ, np.sum)
+        dB = d_op(dZ, partial(np.sum, axis=0))
 
         if self._clip_gradients:
             dW *= min(
@@ -283,6 +304,7 @@ class Linear(Hidden):
 
     def serialize(self) -> Linear.Serialized:
         return self.Serialized(
+            layer_id=self._layer_id,
             input_dimensions=tuple(self._input_dimensions),
             output_dimensions=tuple(self._output_dimensions),
             parameters=self._parameters,
@@ -309,3 +331,23 @@ class Linear(Hidden):
     @property
     def parameter_count(self) -> int:
         return self._parameters._W.size + self._parameters._B.size
+
+    def serialize_parameters(self, buffer: IO[bytes]) -> None:
+        header = struct.pack(">I", len(self._layer_id)) + self._layer_id.encode()
+        buffer.write(header)
+        buffer.write(memoryview(self._cache["dP"]._W))
+        buffer.write(memoryview(self._cache["dP"]._B))
+
+    def deserialize_parameters(self, data: IO[bytes]) -> None:
+        layer_id = self.get_layer_id(data)
+        if layer_id != self._layer_id:
+            raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
+        update = self._parameters.from_bytes(data)
+        if self._cache["dP"] is None:
+            self._cache["dP"] = update
+        else:
+            self._cache["dP"] += update
+
+    @property
+    def parameter_nbytes(self) -> int:
+        return self._parameters._W.nbytes + self._parameters._B.nbytes

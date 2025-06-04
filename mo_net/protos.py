@@ -109,27 +109,27 @@ type RawGradientType = Sequence[SupportsGradientOperations]
 type UpdateGradientType = RawGradientType
 
 
-_ParamType = TypeVar("_ParamType", bound=SupportsGradientOperations)
+ParamType = TypeVar("ParamType", bound=SupportsGradientOperations)
 
 
-class GradCache(TypedDict, Generic[_ParamType]):  # noqa: F821
-    dP: D[_ParamType] | None
+class GradCache(TypedDict, Generic[ParamType]):  # noqa: F821
+    dP: D[ParamType] | None
 
 
-_CacheType_co = TypeVar("_CacheType_co", bound=GradCache, covariant=True)
+CacheType_co = TypeVar("CacheType_co", bound=GradCache, covariant=True)
 
 
 @runtime_checkable
-class GradLayer(Protocol, Generic[_ParamType, _CacheType_co]):
+class GradLayer(Protocol, Generic[ParamType, CacheType_co]):
     @property
-    def parameters(self) -> _ParamType: ...
+    def parameters(self) -> ParamType: ...
 
     @property
-    def cache(self) -> _CacheType_co: ...
+    def cache(self) -> CacheType_co: ...
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None: ...
 
-    def empty_gradient(self) -> D[_ParamType]: ...
+    def empty_gradient(self) -> D[ParamType]: ...
 
 
 @runtime_checkable

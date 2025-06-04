@@ -1,16 +1,19 @@
 import functools
 import multiprocessing as mp
 import pickle
+import struct
 import sys
 import time
 from collections.abc import Callable, Sequence
 from multiprocessing.shared_memory import SharedMemory
+from multiprocessing.synchronize import Barrier
 from pathlib import Path
 from typing import Final, ParamSpec, TypeVar
 
 import numpy as np
 from loguru import logger
 
+from mo_net.model.layer.base import ParametrisedHidden
 from mo_net.model.model import Model
 from mo_net.protos import EventLike, SupportsGradientOperations, UpdateGradientType
 from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
@@ -20,193 +23,101 @@ from mo_net.train.trainer.trainer import (
     TrainingSuccessful,
 )
 
-_64_BIT_FLOAT_BYTES_SIZE: Final[int] = 8
-_PADDING_FACTOR: Final[float] = 1.2
 _DATA_BYTES_LEN_OFFSET: Final[int] = 4
-
-
-class GradientSerializer:
-    """Handles serialization/deserialization of gradients to/from numpy arrays"""
-
-    @staticmethod
-    def serialize_gradients(
-        gradients: tuple[SupportsGradientOperations, ...],
-    ) -> np.ndarray:
-        """Convert gradient objects to a single flat numpy array"""
-        start_time = time.perf_counter()
-        logger.trace(
-            f"Starting gradient serialization for {len(gradients)} gradient objects"
-        )
-
-        arrays = []
-        total_params = 0
-
-        for i, grad in enumerate(gradients):
-            # Handle different layer types
-            if hasattr(grad, "_W") and hasattr(grad, "_B"):  # Linear layer
-                arrays.extend([grad._W.flatten(), grad._B.flatten()])
-                params = grad._W.size + grad._B.size
-                logger.trace(
-                    f"Serialized linear layer {i}: {grad._W.shape} + {grad._B.shape} = {params} params"
-                )
-                total_params += params
-            elif hasattr(grad, "weights") and hasattr(grad, "biases"):  # Conv layer
-                arrays.extend([grad.weights.flatten(), grad.biases.flatten()])
-                params = grad.weights.size + grad.biases.size
-                logger.trace(
-                    f"Serialized conv layer {i}: {grad.weights.shape} + {grad.biases.shape} = {params} params"
-                )
-                total_params += params
-            elif hasattr(grad, "_gamma") and hasattr(grad, "_beta"):  # BatchNorm layer
-                arrays.extend([grad._gamma.flatten(), grad._beta.flatten()])
-                params = grad._gamma.size + grad._beta.size
-                logger.trace(
-                    f"Serialized batch_norm layer {i}: {grad._gamma.shape} + {grad._beta.shape} = {params} params"
-                )
-                total_params += params
-            else:
-                raise ValueError(f"Unknown gradient type: {type(grad)}")
-
-        result = np.concatenate(arrays) if arrays else np.array([])
-        duration = time.perf_counter() - start_time
-        logger.trace(
-            f"Gradient serialization completed: {total_params} total params -> {result.size} array elements in {duration:.4f}s"
-        )
-        return result
-
-    @staticmethod
-    def deserialize_gradients(
-        flat_array: np.ndarray,
-        gradient_shapes: list[tuple[str, tuple[tuple[int, ...], tuple[int, ...]]]],
-    ) -> tuple[SupportsGradientOperations, ...]:
-        """Convert flat numpy array back to gradient objects"""
-        start_time = time.perf_counter()
-        logger.trace(
-            f"Starting gradient deserialization: {flat_array.size} elements -> {len(gradient_shapes)} gradient objects"
-        )
-
-        gradients = []
-        offset = 0
-
-        for i, (layer_type, (shape1, shape2)) in enumerate(gradient_shapes):
-            size1 = np.prod(shape1)
-            size2 = np.prod(shape2)
-
-            param1 = flat_array[offset : offset + size1].reshape(shape1)
-            param2 = flat_array[offset + size1 : offset + size1 + size2].reshape(shape2)
-
-            if layer_type == "linear":
-                from mnist_numpy.model.layer.linear import Linear
-
-                gradients.append(Linear.Parameters(_W=param1, _B=param2))
-            elif layer_type == "conv":
-                from mnist_numpy.model.layer.convolution import Convolution2D
-
-                gradients.append(
-                    Convolution2D.Parameters(weights=param1, biases=param2)
-                )
-            elif layer_type == "batch_norm":
-                from mnist_numpy.model.layer.batch_norm import BatchNorm
-
-                gradients.append(BatchNorm.Parameters(_gamma=param1, _beta=param2))
-
-            logger.trace(
-                f"Deserialized {layer_type} layer {i}: {shape1} + {shape2} = {size1 + size2} params"
-            )
-            offset += size1 + size2
-
-        duration = time.perf_counter() - start_time
-        logger.trace(
-            f"Gradient deserialization completed: {len(gradients)} objects in {duration:.4f}s"
-        )
-        return tuple(gradients)
-
-    @staticmethod
-    def get_gradient_shapes(
-        model: Model,
-    ) -> list[tuple[str, tuple[tuple[int, ...], tuple[int, ...]]]]:
-        """Extract shape information for gradient reconstruction"""
-        logger.trace("Extracting gradient shapes from model")
-        shapes = []
-        total_params = 0
-
-        for i, layer in enumerate(model.grad_layers):
-            if hasattr(layer.parameters, "_W"):  # Linear layer
-                shape_info = (
-                    "linear",
-                    (layer.parameters._W.shape, layer.parameters._B.shape),
-                )
-                shapes.append(shape_info)
-                params = layer.parameters._W.size + layer.parameters._B.size
-                logger.trace(
-                    f"Layer {i} (linear): {layer.parameters._W.shape} + {layer.parameters._B.shape} = {params} params"
-                )
-                total_params += params
-            elif hasattr(layer.parameters, "weights"):  # Conv layer
-                shape_info = (
-                    "conv",
-                    (layer.parameters.weights.shape, layer.parameters.biases.shape),
-                )
-                shapes.append(shape_info)
-                params = layer.parameters.weights.size + layer.parameters.biases.size
-                logger.trace(
-                    f"Layer {i} (conv): {layer.parameters.weights.shape} + {layer.parameters.biases.shape} = {params} params"
-                )
-                total_params += params
-            elif hasattr(layer.parameters, "_gamma"):  # BatchNorm layer
-                shape_info = (
-                    "batch_norm",
-                    (layer.parameters._gamma.shape, layer.parameters._beta.shape),
-                )
-                shapes.append(shape_info)
-                params = layer.parameters._gamma.size + layer.parameters._beta.size
-                logger.trace(
-                    f"Layer {i} (batch_norm): {layer.parameters._gamma.shape} + {layer.parameters._beta.shape} = {params} params"
-                )
-                total_params += params
-
-        logger.trace(
-            f"Gradient shape extraction completed: {len(shapes)} layers, {total_params} total parameters"
-        )
-        return shapes
 
 
 class SharedMemoryManager:
     """Manages shared memory for efficient gradient aggregation using barrier synchronization"""
 
+    class IO:
+        """Wrapper that makes shared memory buffer look like IO[bytes] for reading and writing"""
+
+        def __init__(self, shared_memory_buffer, max_size: int):
+            self._buffer = shared_memory_buffer
+            self._position = 0
+            self._max_size = max_size
+
+        def read(self, size: int = -1) -> bytes:
+            """Read data from shared memory buffer"""
+            if size == -1:
+                # Read to end
+                size = self._max_size - self._position
+
+            if self._position >= self._max_size:
+                return b""
+
+            end_pos = min(self._position + size, self._max_size)
+            data = bytes(self._buffer[self._position : end_pos])
+            self._position = end_pos
+            return data
+
+        def write(self, data: bytes) -> int:
+            """Write data directly to shared memory buffer"""
+            # Convert memoryview to bytes if needed
+            if isinstance(data, memoryview):
+                data = data.tobytes()
+
+            data_len = len(data)
+            if self._position + data_len > self._max_size:
+                # Truncate if necessary
+                available_space = self._max_size - self._position
+                if available_space <= 0:
+                    return 0
+                data = data[:available_space]
+                data_len = len(data)
+
+            self._buffer[self._position : self._position + data_len] = data
+            self._position += data_len
+            return data_len
+
+        def tell(self) -> int:
+            """Return current position"""
+            return self._position
+
+        def seek(self, pos: int) -> int:
+            """Seek to position"""
+            self._position = max(0, min(pos, self._max_size))
+            return self._position
+
+        def reset(self) -> None:
+            """Reset position to beginning"""
+            self._position = 0
+
+        def close(self) -> None:
+            """No-op for compatibility"""
+            pass
+
     def __init__(
         self,
         *,
         worker_count: int,
-        gradient_size: int,
+        gradient_n_bytes: int,
         update_shared_memory: SharedMemory,
-        gradient_barrier: mp.Barrier,
-        update_barrier: mp.Barrier,
+        gradient_barrier: Barrier,
+        update_barrier: Barrier,
     ):
         logger.trace(
-            f"Initializing SharedMemoryManager: {worker_count} workers, {gradient_size} gradient size"
+            f"Initializing SharedMemoryManager: {worker_count} workers, {gradient_n_bytes} gradient size"
         )
 
         self.worker_count = worker_count
-        self.gradient_size = gradient_size
+        self._gradient_size_bytes = int(gradient_n_bytes * 1.2)  # 20% padding
         self._update_shared_memory = update_shared_memory
         self._gradient_barrier = gradient_barrier
         self._update_barrier = update_barrier
 
-        # Create shared memory for each worker's gradients
         self._gradient_shared_memories = []
         total_gradient_memory = 0
 
         for i in range(worker_count):
-            # Shared memory for gradients
-            memory_size = gradient_size * _64_BIT_FLOAT_BYTES_SIZE
             gradient_memory = mp.shared_memory.SharedMemory(
-                create=True, size=memory_size
+                create=True, size=self._gradient_size_bytes
             )
             self._gradient_shared_memories.append(gradient_memory)
-            total_gradient_memory += memory_size
+
+            total_gradient_memory += self._gradient_size_bytes
             logger.trace(
-                f"Created gradient shared memory for worker {i}: {memory_size} bytes ({gradient_memory.name})"
+                f"Created gradient shared memory for worker {i}: {self._gradient_size_bytes} bytes ({gradient_memory.name})"
             )
 
         logger.trace(
@@ -223,38 +134,39 @@ class SharedMemoryManager:
         return memory_name
 
     def worker_put_result(
-        self, worker_id: int, gradients: tuple[SupportsGradientOperations, ...]
+        self, worker_id: int, grad_layers: Sequence[ParametrisedHidden]
     ) -> None:
-        """Worker writes gradients to shared memory and waits at barrier"""
+        """Worker writes layer parameters to shared memory using ParametrisedHidden interface"""
         start_time = time.perf_counter()
-        logger.trace(f"Worker {worker_id} starting gradient write to shared memory")
+        logger.trace(f"Worker {worker_id} starting parameter write to shared memory")
 
-        flat_gradients = GradientSerializer.serialize_gradients(gradients)
-        serialize_time = time.perf_counter()
-
-        # Write to shared memory
-        gradient_buffer = np.ndarray(
-            shape=(self.gradient_size,),
-            dtype=np.float64,
-            buffer=self._gradient_shared_memories[worker_id].buf,
+        writer = self.IO(
+            self._gradient_shared_memories[worker_id].buf, self._gradient_size_bytes
         )
 
-        # Pad or truncate if necessary
-        if len(flat_gradients) <= self.gradient_size:
-            gradient_buffer[: len(flat_gradients)] = flat_gradients
-            gradient_buffer[len(flat_gradients) :] = 0  # Zero-pad
+        for i, layer in enumerate(grad_layers):
+            layer_start = time.perf_counter()
+            layer.serialize_parameters(writer)
+            layer_time = time.perf_counter() - layer_start
             logger.trace(
-                f"Worker {worker_id} wrote {len(flat_gradients)} gradients, zero-padded to {self.gradient_size}"
+                f"Worker {worker_id} serialized layer {i} ({type(layer).__name__}) in {layer_time:.4f}s"
             )
-        else:
-            gradient_buffer[:] = flat_gradients[: self.gradient_size]
-            logger.warning(
-                f"Worker {worker_id}: Gradient size {len(flat_gradients)} exceeds buffer size {self.gradient_size}, truncating"
+
+        serialize_time = time.perf_counter()
+        bytes_written = writer.tell()
+
+        if bytes_written < self._gradient_size_bytes:
+            remaining_space = self._gradient_size_bytes - bytes_written
+            # Fill remaining space with zeros using proper memoryview assignment
+            for i in range(remaining_space):
+                self._gradient_shared_memories[worker_id].buf[bytes_written + i] = 0
+            logger.trace(
+                f"Worker {worker_id} wrote {bytes_written} bytes, zero-padded {remaining_space} bytes"
             )
 
         write_time = time.perf_counter()
         logger.trace(
-            f"Worker {worker_id} wrote gradients to shared memory in {write_time - serialize_time:.4f}s, "
+            f"Worker {worker_id} wrote parameters to shared memory in {write_time - serialize_time:.4f}s, "
             f"now waiting at gradient barrier"
         )
 
@@ -266,17 +178,14 @@ class SharedMemoryManager:
         total_time = time.perf_counter() - start_time
         logger.trace(
             f"Worker {worker_id} passed gradient barrier after {barrier_time:.4f}s wait "
-            f"(total gradient submission: {total_time:.4f}s)"
+            f"(total parameter submission: {total_time:.4f}s)"
         )
 
-    def leader_get_aggregated_results(
-        self, gradient_shapes
-    ) -> Sequence[SupportsGradientOperations]:
+    def leader_get_aggregated_results(self, model: Model) -> None:
         """Leader waits at barrier then aggregates gradients from all workers' shared memory"""
         start_time = time.perf_counter()
         logger.trace("Leader waiting at gradient barrier for all workers")
 
-        # Wait at barrier for all workers to finish writing gradients
         barrier_start = time.perf_counter()
         self._gradient_barrier.wait()
         barrier_time = time.perf_counter() - barrier_start
@@ -284,39 +193,65 @@ class SharedMemoryManager:
             f"Leader passed gradient barrier after {barrier_time:.4f}s, starting gradient aggregation"
         )
 
-        # Aggregate gradients
-        aggregated_gradients = np.zeros(self.gradient_size, dtype=np.float64)
         aggregation_start = time.perf_counter()
 
-        for i in range(self.worker_count):
-            worker_buffer = np.ndarray(
-                shape=(self.gradient_size,),
-                dtype=np.float64,
-                buffer=self._gradient_shared_memories[i].buf,
-            )
-            aggregated_gradients += worker_buffer
-            logger.trace(f"Leader aggregated gradients from worker {i}")
+        for worker_id in range(self.worker_count):
+            worker_start = time.perf_counter()
+            logger.trace(f"Leader processing worker {worker_id}")
 
-        aggregated_gradients /= self.worker_count
+            reader = self.IO(
+                self._gradient_shared_memories[worker_id].buf, self._gradient_size_bytes
+            )
+
+            layers_processed = 0
+            while reader.tell() < self._gradient_size_bytes:
+                try:
+                    # Use peek to check if there's a valid layer header
+                    layer_id = ParametrisedHidden.get_layer_id(reader, peek=True)
+
+                    # Check if we hit padding (empty layer_id indicates padding)
+                    if not layer_id:
+                        logger.trace(
+                            f"Leader hit padding for worker {worker_id} (empty layer_id) at position {reader.tell()}"
+                        )
+                        break
+
+                    logger.trace(
+                        f"Leader found layer {layer_id} from worker {worker_id}"
+                    )
+
+                    # Get the layer and deserialize its parameters directly
+                    # (deserialize_parameters will consume the header itself)
+                    layer = model.get_layer(layer_id)
+                    layer.deserialize_parameters(reader)
+
+                    layers_processed += 1
+                    logger.trace(
+                        f"Leader deserialized layer {layer_id} from worker {worker_id}"
+                    )
+
+                except (struct.error, UnicodeDecodeError, ValueError, IndexError):
+                    # Hit malformed data or end of buffer - done with this worker
+                    logger.trace(
+                        f"Leader hit malformed data/end for worker {worker_id} at position {reader.tell()}"
+                    )
+                    break
+
+            worker_time = time.perf_counter() - worker_start
+            logger.trace(
+                f"Leader processed {layers_processed} layers from worker {worker_id} in {worker_time:.4f}s"
+            )
+
+        for layer in model.grad_layers:
+            if layer.cache["dP"] is not None:
+                layer.cache["dP"] = layer.cache["dP"] / self.worker_count
 
         aggregation_time = time.perf_counter() - aggregation_start
-        logger.trace(
-            f"Leader completed gradient aggregation from {self.worker_count} workers in {aggregation_time:.4f}s"
-        )
-
-        # Convert back to gradient objects
-        deserialize_start = time.perf_counter()
-        result = GradientSerializer.deserialize_gradients(
-            aggregated_gradients, gradient_shapes
-        )
-        deserialize_time = time.perf_counter() - deserialize_start
-
         total_time = time.perf_counter() - start_time
         logger.trace(
             f"Leader gradient aggregation completed: barrier {barrier_time:.4f}s + "
-            f"aggregation {aggregation_time:.4f}s + deserialization {deserialize_time:.4f}s = {total_time:.4f}s total"
+            f"aggregation {aggregation_time:.4f}s = {total_time:.4f}s total"
         )
-        return result
 
     def leader_send_update(self, update: Sequence[SupportsGradientOperations]) -> None:
         """Send parameter updates to workers via shared memory and barrier synchronization"""
@@ -547,8 +482,7 @@ def worker_process(
 
             # Submit gradients via barrier synchronization
             gradient_start = time.perf_counter()
-            gradients = tuple(layer.cache["dP"] for layer in model.grad_layers)
-            shared_memory_manager.worker_put_result(worker_id, gradients)
+            shared_memory_manager.worker_put_result(worker_id, model.grad_layers)
             gradient_time = time.perf_counter() - gradient_start
             total_gradient_time += gradient_time
 
@@ -579,11 +513,6 @@ def worker_process(
                         f"gradient {avg_gradient:.4f}s, update {avg_update:.4f}s"
                     )
 
-        except mp.BrokenBarrierError:
-            logger.warning(
-                f"Worker {worker_id} detected broken barrier after {iteration_count} iterations, stopping gracefully"
-            )
-            break
         except Exception as e:
             logger.exception(
                 f"Worker {worker_id} error in iteration {iteration_count}: {e}"
@@ -719,33 +648,6 @@ class ParallelTrainer(BasicTrainer):
                 f"Attached weight decay regulariser (λ={self._training_parameters.regulariser_lambda}) in {regulariser_time:.4f}s"
             )
 
-        # Calculate gradient size
-        gradient_calc_start = time.perf_counter()
-        gradient_size = sum(
-            param.size
-            for layer in self._model.grad_layers
-            for param in [
-                layer.parameters._W
-                if hasattr(layer.parameters, "_W")
-                else layer.parameters.weights
-                if hasattr(layer.parameters, "weights")
-                else layer.parameters._gamma,
-                layer.parameters._B
-                if hasattr(layer.parameters, "_B")
-                else layer.parameters.biases
-                if hasattr(layer.parameters, "biases")
-                else layer.parameters._beta,
-            ]
-        )
-        gradient_calc_time = time.perf_counter() - gradient_calc_start
-
-        # Store gradient shapes for reconstruction
-        self._gradient_shapes = GradientSerializer.get_gradient_shapes(self._model)
-        logger.trace(
-            f"Calculated gradient size: {gradient_size} parameters across {len(self._gradient_shapes)} layers in {gradient_calc_time:.4f}s"
-        )
-
-        # Create shared memories
         memory_start = time.perf_counter()
         self._X_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._X_train.nbytes
@@ -753,18 +655,17 @@ class ParallelTrainer(BasicTrainer):
         self._Y_shared_memory = mp.shared_memory.SharedMemory(
             create=True, size=self._Y_train.nbytes
         )
-        update_memory_size = int(
-            self._model.parameter_count * _64_BIT_FLOAT_BYTES_SIZE * _PADDING_FACTOR
-        )
         self._update_shared_memory = mp.shared_memory.SharedMemory(
             create=True,
-            size=update_memory_size,
+            size=self._model.parameter_n_bytes,
         )
 
-        total_memory = self._X_train.nbytes + self._Y_train.nbytes + update_memory_size
+        total_memory_bytes = (
+            self._X_train.nbytes + self._Y_train.nbytes + self._model.parameter_n_bytes
+        )
         logger.trace(
             f"Created shared memories: X {self._X_train.nbytes} bytes, Y {self._Y_train.nbytes} bytes, "
-            f"updates {update_memory_size} bytes = {total_memory} bytes total"
+            f"updates {self._model.parameter_n_bytes} bytes = {total_memory_bytes} bytes total"
         )
 
         # Copy training data to shared memory
@@ -807,7 +708,7 @@ class ParallelTrainer(BasicTrainer):
         manager_start = time.perf_counter()
         self._shared_memory_manager = SharedMemoryManager(
             worker_count=self._training_parameters.workers,
-            gradient_size=gradient_size,
+            gradient_n_bytes=self._model.parameter_n_bytes,
             update_shared_memory=self._update_shared_memory,
             gradient_barrier=self._gradient_barrier,
             update_barrier=self._update_barrier,
@@ -848,8 +749,7 @@ class ParallelTrainer(BasicTrainer):
         total_setup_time = time.perf_counter() - setup_start
         logger.trace(
             f"Parallel training setup completed in {total_setup_time:.4f}s "
-            f"(memory: {copy_time + memory_start - gradient_calc_time:.4f}s, "
-            f"sync: {sync_time:.4f}s, manager: {manager_time:.4f}s, "
+            f"(memory: {copy_time + memory_start:.4f}s, sync: {sync_time:.4f}s, manager: {manager_time:.4f}s, "
             f"processes: {processes_time:.4f}s, ready: {ready_time:.4f}s)"
         )
 
@@ -884,25 +784,23 @@ class ParallelTrainer(BasicTrainer):
         with self._create_training_step_context():
             logger.trace("Leader starting training step, waiting for gradients")
 
+            # Aggregate gradients from workers (populates cache["dP"] directly)
             gradient_start = time.perf_counter()
-            gradient = self._shared_memory_manager.leader_get_aggregated_results(
-                self._gradient_shapes
-            )
+            self._shared_memory_manager.leader_get_aggregated_results(self._model)
             gradient_time = time.perf_counter() - gradient_start
 
-            cache_start = time.perf_counter()
-            self._model.populate_caches(gradient)
-            cache_time = time.perf_counter() - cache_start
-
+            # Compute optimizer updates (modifies cache["dP"] in place)
             compute_start = time.perf_counter()
             self._optimizer.compute_update()
             compute_time = time.perf_counter() - compute_start
 
+            # Send computed updates to workers
             update_start = time.perf_counter()
             update = self._model.get_gradient_caches()
             self._shared_memory_manager.leader_send_update(update)
             update_time = time.perf_counter() - update_start
 
+            # Apply parameter updates
             param_start = time.perf_counter()
             self._model.update_parameters()
             param_time = time.perf_counter() - param_start
@@ -910,11 +808,12 @@ class ParallelTrainer(BasicTrainer):
             total_step_time = time.perf_counter() - step_start
             logger.trace(
                 f"Leader training step completed in {total_step_time:.4f}s "
-                f"(gradients: {gradient_time:.4f}s, cache: {cache_time:.4f}s, "
-                f"compute: {compute_time:.4f}s, update: {update_time:.4f}s, params: {param_time:.4f}s)"
+                f"(gradients: {gradient_time:.4f}s, compute: {compute_time:.4f}s, "
+                f"update: {update_time:.4f}s, params: {param_time:.4f}s)"
             )
 
-            return gradient, update
+            # Return the same update for both gradient and update since they're now equivalent
+            return update, update
 
     def shutdown(self) -> None:
         logger.trace("Starting ParallelTrainer shutdown")

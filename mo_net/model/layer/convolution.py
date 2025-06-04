@@ -179,7 +179,7 @@ type ParametersType = Parameters
 type KernelInitFn = Callable[[int, int, int, int], ParametersType]
 
 
-class Convolution2D(Hidden):
+class Convolution2D(Hidden, GradLayer[ParametersType, CacheType]):
     Cache = Cache
     Parameters = Parameters
 
