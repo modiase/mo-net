@@ -136,7 +136,7 @@ class BackwardPropTestCase:
             dZ=np.array([[1.0, 1.0]]),
             expected_dX=np.array([[3.0]]),
             expected_dW=np.array([[3.0, 3.0]]),
-            expected_dB=np.array([2.0]),
+            expected_dB=np.array([1.0, 1.0]),
         ),
         BackwardPropTestCase(
             name="batch_processing_gradients",
@@ -149,7 +149,7 @@ class BackwardPropTestCase:
             dZ=np.array([[1.0, 1.0], [1.0, 1.0]]),
             expected_dX=np.array([[1.0, 1.0], [1.0, 1.0]]),
             expected_dW=np.array([[4.0, 4.0], [6.0, 6.0]]),
-            expected_dB=np.array([4.0]),
+            expected_dB=np.array([2.0, 2.0]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -205,7 +205,7 @@ class ParameterUpdateTestCase:
             input_activations=np.array([[1.0, 1.0]]),
             dZ=np.array([[1.0, 1.0]]),
             expected_updated_W=np.array([[2.0, 3.0], [4.0, 5.0]]),
-            expected_updated_B=np.array([2.5, 1.5]),
+            expected_updated_B=np.array([1.5, 0.5]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -324,21 +324,45 @@ def test_linear_parameter_count(simple_layer: Linear):
 
 
 def test_linear_serialization_deserialization():
-    original_layer = Linear(
-        input_dimensions=(2,),
-        output_dimensions=(3,),
-        parameters=Linear.Parameters(
-            _W=np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
-            _B=np.array([1.0, 2.0, 3.0]),
-        ),
-    )
+    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
 
-    deserialized_layer = original_layer.serialize().deserialize()
+    # First do a forward and backward pass to populate gradients
+    input_data = np.array([[1.0, 2.0]])
+    layer.forward_prop(input_activations=Activations(input_data))
+    layer.backward_prop(dZ=np.array([[1.0, 1.0]]))
 
-    assert deserialized_layer.input_dimensions == original_layer.input_dimensions
-    assert deserialized_layer.output_dimensions == original_layer.output_dimensions
-    assert np.allclose(deserialized_layer.parameters._W, original_layer.parameters._W)
-    assert np.allclose(deserialized_layer.parameters._B, original_layer.parameters._B)
+    original_dP = layer.cache["dP"]
+    assert original_dP is not None
+
+    buffer = io.BytesIO()
+    layer._layer_id = "test_layer_for_serialization"
+    layer.serialize_parameters(buffer)
+
+    # Clear gradients and test deserialization
+    layer.cache["dP"] = None
+
+    buffer.seek(0)
+    layer.deserialize_parameters(buffer)
+
+    assert layer.cache["dP"] is not None
+    assert np.allclose(layer.cache["dP"]._W, original_dP._W)
+    assert np.allclose(layer.cache["dP"]._B, original_dP._B)
+
+
+def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
+    layer_1 = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer_2 = Linear(input_dimensions=(2,), output_dimensions=(2,))
+
+    # First do a forward and backward pass to populate gradients
+    input_data = np.array([[1.0, 2.0]])
+    layer_1.forward_prop(input_activations=Activations(input_data))
+    layer_1.backward_prop(dZ=np.array([[1.0, 1.0]]))
+
+    buffer = io.BytesIO()
+    layer_1.serialize_parameters(buffer)
+    buffer.seek(0)
+    with pytest.raises(BadLayerId):
+        layer_2.deserialize_parameters(buffer)
 
 
 def test_linear_error_on_backward_prop_without_forward():
@@ -546,25 +570,3 @@ def test_linear_gradient_operation_interface():
 
     layer.gradient_operation(grad_callback)
     assert called
-
-
-def test_linear_serialize_deserialize_parameters():
-    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
-    original_W = layer.parameters._W.copy()
-    original_B = layer.parameters._B.copy()
-    buffer = io.BytesIO()
-    layer.serialize_parameters(buffer)
-    buffer.seek(0)
-    layer.deserialize_parameters(buffer)
-    assert np.allclose(layer.parameters._W, original_W)
-    assert np.allclose(layer.parameters._B, original_B)
-
-
-def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
-    layer_1 = Linear(input_dimensions=(2,), output_dimensions=(2,))
-    layer_2 = Linear(input_dimensions=(2,), output_dimensions=(2,))
-    buffer = io.BytesIO()
-    layer_1.serialize_parameters(buffer)
-    buffer.seek(0)
-    with pytest.raises(BadLayerId):
-        layer_2.deserialize_parameters(buffer)

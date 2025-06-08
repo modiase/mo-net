@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Self
+from typing import IO, ClassVar, Self
 
 import numpy as np
 
 from mo_net.model.layer.base import (
-    Hidden,
+    BadLayerId,
+    ParametrisedHidden,
 )
 from mo_net.protos import (
     Activations,
@@ -124,6 +125,16 @@ class Parameters(SupportsGradientOperations):
             _beta=np.zeros(input_dimensions),
         )
 
+    def from_bytes(self, data: IO[bytes]) -> Self:
+        return self.__class__(
+            _gamma=np.frombuffer(
+                data.read(self._gamma.nbytes), dtype=self._gamma.dtype
+            ).reshape(self._gamma.shape),
+            _beta=np.frombuffer(
+                data.read(self._beta.nbytes), dtype=self._beta.dtype
+            ).reshape(self._beta.shape),
+        )
+
 
 type ParametersType = Parameters
 
@@ -139,7 +150,7 @@ class Cache(GradCache):
 type CacheType = Cache
 
 
-class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
+class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
     """https://arxiv.org/abs/1502.03167"""
 
     _EPSILON: ClassVar[float] = 1e-8
@@ -148,6 +159,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
+        layer_id: str
         input_dimensions: tuple[int, ...]
         momentum: float
         parameters: Parameters
@@ -160,6 +172,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             training: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
+                layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 momentum=self.momentum,
                 parameters=self.parameters,
@@ -173,6 +186,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         *,
         input_dimensions: Dimensions,
         momentum: float = 0.9,
+        layer_id: str | None = None,
         parameters: ParametersType | None = None,
         running_mean: np.ndarray | None = None,
         running_variance: np.ndarray | None = None,
@@ -180,6 +194,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         training: bool = True,
     ):
         super().__init__(
+            layer_id=layer_id,
             input_dimensions=input_dimensions,
             output_dimensions=input_dimensions,
         )
@@ -322,6 +337,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     def serialize(self) -> SupportsDeserialize[BatchNorm]:
         return self.Serialized(
+            layer_id=self._layer_id,
             input_dimensions=tuple(self._input_dimensions),
             momentum=self._momentum,
             parameters=self._parameters,
@@ -332,3 +348,21 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     @property
     def parameter_count(self) -> int:
         return self._parameters._gamma.size + self._parameters._beta.size
+
+    @property
+    def parameter_nbytes(self) -> int:
+        return self._parameters._gamma.nbytes + self._parameters._beta.nbytes
+
+    def serialize_parameters(self, buffer: IO[bytes]) -> None:
+        self._write_header(buffer)
+        buffer.write(memoryview(self._cache["dP"]._gamma))
+        buffer.write(memoryview(self._cache["dP"]._beta))
+
+    def deserialize_parameters(self, data: IO[bytes]) -> None:
+        if (layer_id := self.get_layer_id(data)) != self._layer_id:
+            raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
+        update = self._parameters.from_bytes(data)
+        if self._cache["dP"] is None:
+            self._cache["dP"] = d(update)
+        else:
+            self._cache["dP"] += d(update)

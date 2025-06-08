@@ -2,6 +2,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, ContextManager, Final, Literal, assert_never
 

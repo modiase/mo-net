@@ -458,18 +458,15 @@ def worker_process(
                 worker_ready_event.set()
                 logger.trace(f"Worker {worker_id} reloaded model in {reload_time:.4f}s")
 
-            # Generate random batch
             indices = np.random.choice(X_train.shape[0], size=batch_size, replace=False)
             X_batch = X_train[indices]
             Y_batch = Y_train[indices]
 
-            # Forward pass
             forward_start = time.perf_counter()
             model.forward_prop(X=X_batch)
             forward_time = time.perf_counter() - forward_start
             total_forward_time += forward_time
 
-            # Backward pass
             backward_start = time.perf_counter()
             model.backward_prop(Y_true=Y_batch)
             backward_time = time.perf_counter() - backward_start

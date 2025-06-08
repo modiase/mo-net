@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
 from functools import partial
 from typing import IO, Callable, Final, Self, TypedDict, cast
@@ -333,20 +332,18 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         return self._parameters._W.size + self._parameters._B.size
 
     def serialize_parameters(self, buffer: IO[bytes]) -> None:
-        header = struct.pack(">I", len(self._layer_id)) + self._layer_id.encode()
-        buffer.write(header)
+        self._write_header(buffer)
         buffer.write(memoryview(self._cache["dP"]._W))
         buffer.write(memoryview(self._cache["dP"]._B))
 
     def deserialize_parameters(self, data: IO[bytes]) -> None:
-        layer_id = self.get_layer_id(data)
-        if layer_id != self._layer_id:
+        if (layer_id := self.get_layer_id(data)) != self._layer_id:
             raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
         update = self._parameters.from_bytes(data)
         if self._cache["dP"] is None:
-            self._cache["dP"] = update
+            self._cache["dP"] = d(update)
         else:
-            self._cache["dP"] += update
+            self._cache["dP"] += d(update)
 
     @property
     def parameter_nbytes(self) -> int:

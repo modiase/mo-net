@@ -366,7 +366,7 @@ class Model(ModelBase):
             chain.from_iterable(
                 block.layers
                 if isinstance(block, Hidden)
-                else (block.layers, block.output_layer)
+                else chain(block.layers, (block.output_layer,))
                 if isinstance(block, Output)
                 else (block,)
                 for block in chain(

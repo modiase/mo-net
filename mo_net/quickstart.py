@@ -25,7 +25,7 @@ def mnist_cnn(training_parameters: TrainingParameters) -> Model:
             (
                 c1 := Convolution(
                     input_dimensions=r.output_dimensions,
-                    n_kernels=32,
+                    n_kernels=8,
                     kernel_size=(3, 3),
                     pool_size=(2, 2),
                 )
@@ -33,7 +33,7 @@ def mnist_cnn(training_parameters: TrainingParameters) -> Model:
             (
                 c2 := Convolution(
                     input_dimensions=c1.output_dimensions,
-                    n_kernels=64,
+                    n_kernels=16,
                     kernel_size=(3, 3),
                     pool_size=(2, 2),
                 )
@@ -41,7 +41,7 @@ def mnist_cnn(training_parameters: TrainingParameters) -> Model:
             (
                 c3 := Convolution(
                     input_dimensions=c2.output_dimensions,
-                    n_kernels=128,
+                    n_kernels=32,
                     kernel_size=(3, 3),
                     pool_size=(2, 2),
                     flatten_output=True,

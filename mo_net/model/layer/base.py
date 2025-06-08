@@ -127,10 +127,14 @@ class ParametrisedHidden(Hidden, GradLayer[ParamType, CacheType_co]):
         )
 
     @staticmethod
-    def get_layer_id(data: IO[bytes], peek: bool = False) -> str:
-        start_pos = data.tell()
-        header = struct.unpack(">I", data.read(4))[0]
-        layer_id = data.read(header).decode()
+    def get_layer_id(buffer: IO[bytes], peek: bool = False) -> str:
+        start_pos = buffer.tell()
+        header = struct.unpack(">I", buffer.read(4))[0]
+        layer_id = buffer.read(header).decode()
         if peek:
-            data.seek(start_pos)
+            buffer.seek(start_pos)
         return layer_id
+
+    def _write_header(self, buffer: IO[bytes]) -> None:
+        header = struct.pack(">I", len(self._layer_id)) + self._layer_id.encode()
+        buffer.write(header)

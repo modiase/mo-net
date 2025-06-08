@@ -6,14 +6,16 @@ import numpy as np
 import pytest
 from loguru import logger
 
-from mnist_numpy.model.layer.base import ParametrisedHidden
-from mnist_numpy.model.layer.linear import Linear
-from mnist_numpy.model.model import Model
-from mnist_numpy.train.trainer.parallel import SharedMemoryManager
+from mo_net.model.layer.base import ParametrisedHidden
+from mo_net.model.layer.batch_norm import BatchNorm
+from mo_net.model.layer.convolution import Convolution2D
+from mo_net.model.layer.linear import Linear
+from mo_net.model.model import Model
+from mo_net.train.trainer.parallel import SharedMemoryManager
 
 
 class MockedSharedMemoryManager(SharedMemoryManager):
-    """Mocked version of SharedMemoryManager that uses BytesIO instead of shared memory"""
+    """Mocked version of SharedMemoryManager that uses BufferIOAdapter instead of shared memory"""
 
     def __init__(self, worker_count: int, gradient_n_bytes: int):
         # Don't call super().__init__ to avoid creating real shared memory
@@ -24,11 +26,11 @@ class MockedSharedMemoryManager(SharedMemoryManager):
         self._gradient_barrier = Mock()
         self._update_barrier = Mock()
 
-        # Create BytesIO buffers instead of shared memory
+        # Create BufferIOAdapter buffers instead of shared memory
         self._gradient_buffers = []
 
         for i in range(worker_count):
-            # Create BytesIO buffer filled with zeros
+            # Create BufferIOAdapter buffer filled with zeros
             buffer = BytesIO(b"\x00" * self._gradient_size_bytes)
             self._gradient_buffers.append(buffer)
 
@@ -85,8 +87,8 @@ class MockedSharedMemoryManager(SharedMemoryManager):
 
 
 @pytest.mark.parametrize("write_count", [1, 2])
-def test_gradient_transfer(write_count: int):
-    """Test gradient serialization and deserialization with mocked shared memory"""
+def test_linear_gradient_transfer(write_count: int):
+    """Test linear layer gradient serialization and deserialization with mocked shared memory"""
 
     # Create a simple model with one Linear layer
     model = Model(
@@ -157,8 +159,8 @@ def test_gradient_transfer(write_count: int):
     )
 
 
-def test_gradient_transfer_aggregation():
-    """Test that gradients are properly aggregated when multiple workers contribute different values"""
+def test_linear_gradient_transfer_aggregation():
+    """Test that linear layer gradients are properly aggregated when multiple workers contribute different values"""
 
     # Create a simple model
     model = Model(
@@ -204,3 +206,276 @@ def test_gradient_transfer_aggregation():
 
     np.testing.assert_allclose(final_gradient._W, expected_W, rtol=1e-10)
     np.testing.assert_allclose(final_gradient._B, expected_B, rtol=1e-10)
+
+
+@pytest.mark.parametrize("write_count", [1, 2])
+def test_convolution_gradient_transfer(write_count: int):
+    """Test convolution layer gradient serialization and deserialization with mocked shared memory"""
+
+    # Create a simple model with one Convolution2D layer
+    model = Model(
+        input_dimensions=(1, 4, 4),  # 1 channel, 4x4 image
+        hidden=[
+            Convolution2D(
+                input_dimensions=(1, 4, 4),
+                n_kernels=2,
+                kernel_size=3,
+                stride=1,
+                kernel_init_fn=Convolution2D.Parameters.xavier,
+            )
+        ],
+    )
+
+    # Create some test data (batch_size=2, channels=1, height=4, width=4)
+    X = np.random.rand(2, 1, 4, 4)
+    # Output will be (batch_size=2, kernels=2, height=2, width=2)
+    Y = np.random.rand(2, 2, 2, 2)
+
+    # Do forward and backward pass to populate gradients
+    model.forward_prop(X)
+    model.backward_prop(Y)
+    logger.debug(
+        f"Model gradients shape: weights={model.grad_layers[0].cache['dP'].weights.shape}, biases={model.grad_layers[0].cache['dP'].biases.shape}"
+    )
+
+    # Store the original gradient for comparison
+    original_gradient = model.grad_layers[0].cache["dP"]
+    assert original_gradient is not None, (
+        "Gradient should be populated after backward pass"
+    )
+
+    # Create mocked shared memory manager
+    gradient_n_bytes = model.parameter_n_bytes
+    manager = MockedSharedMemoryManager(
+        worker_count=write_count, gradient_n_bytes=gradient_n_bytes
+    )
+
+    # Clear the model's gradients to test deserialization
+    for layer in model.grad_layers:
+        layer.cache["dP"] = None
+
+    # Simulate workers writing gradients
+    for worker_id in range(write_count):
+        # Reset gradient to original value for each worker
+        model.grad_layers[0].cache["dP"] = original_gradient
+        manager.worker_put_result(worker_id, model.grad_layers)
+
+    # Clear gradients again before aggregation
+    for layer in model.grad_layers:
+        layer.cache["dP"] = None
+
+    # Simulate leader aggregating results
+    manager.leader_get_aggregated_results(model)
+
+    # Verify the gradient was correctly deserialized and aggregated
+    final_gradient = model.grad_layers[0].cache["dP"]
+    assert final_gradient is not None, "Gradient should be populated after aggregation"
+
+    # The final gradient should be the original gradient (since we average across workers)
+    # For write_count=1: final = original/1 = original
+    # For write_count=2: final = (original + original)/2 = original
+    np.testing.assert_allclose(
+        final_gradient.weights, original_gradient.weights, rtol=1e-10
+    )
+    np.testing.assert_allclose(
+        final_gradient.biases, original_gradient.biases, rtol=1e-10
+    )
+
+    # Verify the shapes are correct
+    assert final_gradient.weights.shape == (2, 1, 3, 3), (
+        f"Weight shape should be (2, 1, 3, 3), got {final_gradient.weights.shape}"
+    )
+    assert final_gradient.biases.shape == (2,), (
+        f"Bias shape should be (2,), got {final_gradient.biases.shape}"
+    )
+
+
+def test_convolution_gradient_transfer_aggregation():
+    """Test that convolution layer gradients are properly aggregated when multiple workers contribute different values"""
+
+    # Create a simple model
+    model = Model(
+        input_dimensions=(1, 3, 3),  # 1 channel, 3x3 image
+        hidden=[
+            Convolution2D(
+                input_dimensions=(1, 3, 3),
+                n_kernels=1,
+                kernel_size=2,
+                stride=1,
+                kernel_init_fn=Convolution2D.Parameters.xavier,
+            )
+        ],
+    )
+
+    # Create different gradients for different workers
+    gradient1 = Convolution2D.Parameters(
+        weights=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),  # (1, 1, 2, 2)
+        biases=np.array([5.0]),  # (1,)
+    )
+    gradient2 = Convolution2D.Parameters(
+        weights=np.array([[[[6.0, 7.0], [8.0, 9.0]]]]),  # (1, 1, 2, 2)
+        biases=np.array([10.0]),  # (1,)
+    )
+
+    # Create mocked shared memory manager for 2 workers
+    gradient_n_bytes = model.parameter_n_bytes
+    manager = MockedSharedMemoryManager(
+        worker_count=2, gradient_n_bytes=gradient_n_bytes
+    )
+
+    # Worker 0 writes gradient1
+    model.grad_layers[0].cache["dP"] = gradient1
+    manager.worker_put_result(0, model.grad_layers)
+
+    # Worker 1 writes gradient2
+    model.grad_layers[0].cache["dP"] = gradient2
+    manager.worker_put_result(1, model.grad_layers)
+
+    # Clear gradients before aggregation
+    for layer in model.grad_layers:
+        layer.cache["dP"] = None
+
+    # Aggregate results
+    manager.leader_get_aggregated_results(model)
+
+    # Verify aggregation: should be (gradient1 + gradient2) / 2
+    final_gradient = model.grad_layers[0].cache["dP"]
+    expected_weights = (
+        gradient1.weights + gradient2.weights
+    ) / 2  # [[[3.5, 4.5], [5.5, 6.5]]]
+    expected_biases = (gradient1.biases + gradient2.biases) / 2  # [7.5]
+
+    np.testing.assert_allclose(final_gradient.weights, expected_weights, rtol=1e-10)
+    np.testing.assert_allclose(final_gradient.biases, expected_biases, rtol=1e-10)
+
+
+@pytest.mark.parametrize("write_count", [1, 2])
+def test_batch_norm_gradient_transfer(write_count: int):
+    """Test batch norm layer gradient serialization and deserialization with mocked shared memory"""
+
+    # Create a simple model with one BatchNorm layer
+    model = Model(
+        input_dimensions=(4,),  # 4 features
+        hidden=[
+            BatchNorm(
+                input_dimensions=(4,),
+                training=True,
+            )
+        ],
+    )
+
+    # Create some test data (batch_size=3, features=4)
+    X = np.random.rand(3, 4)
+    Y = np.random.rand(3, 4)  # Same shape as input since BatchNorm preserves dimensions
+
+    # Do forward and backward pass to populate gradients
+    model.forward_prop(X)
+    model.backward_prop(Y)
+    logger.debug(
+        f"Model gradients shape: gamma={model.grad_layers[0].cache['dP']._gamma.shape}, beta={model.grad_layers[0].cache['dP']._beta.shape}"
+    )
+
+    # Store the original gradient for comparison
+    original_gradient = model.grad_layers[0].cache["dP"]
+    assert original_gradient is not None, (
+        "Gradient should be populated after backward pass"
+    )
+
+    # Create mocked shared memory manager
+    gradient_n_bytes = model.parameter_n_bytes
+    manager = MockedSharedMemoryManager(
+        worker_count=write_count, gradient_n_bytes=gradient_n_bytes
+    )
+
+    # Clear the model's gradients to test deserialization
+    for layer in model.grad_layers:
+        layer.cache["dP"] = None
+
+    # Simulate workers writing gradients
+    for worker_id in range(write_count):
+        # Reset gradient to original value for each worker
+        model.grad_layers[0].cache["dP"] = original_gradient
+        manager.worker_put_result(worker_id, model.grad_layers)
+
+    # Clear gradients again before aggregation
+    for layer in model.grad_layers:
+        layer.cache["dP"] = None
+
+    # Simulate leader aggregating results
+    manager.leader_get_aggregated_results(model)
+
+    # Verify the gradient was correctly deserialized and aggregated
+    final_gradient = model.grad_layers[0].cache["dP"]
+    assert final_gradient is not None, "Gradient should be populated after aggregation"
+
+    # The final gradient should be the original gradient (since we average across workers)
+    # For write_count=1: final = original/1 = original
+    # For write_count=2: final = (original + original)/2 = original
+    np.testing.assert_allclose(
+        final_gradient._gamma, original_gradient._gamma, rtol=1e-10
+    )
+    np.testing.assert_allclose(
+        final_gradient._beta, original_gradient._beta, rtol=1e-10
+    )
+
+    # Verify the shapes are correct
+    assert final_gradient._gamma.shape == (4,), (
+        f"Gamma shape should be (4,), got {final_gradient._gamma.shape}"
+    )
+    assert final_gradient._beta.shape == (4,), (
+        f"Beta shape should be (4,), got {final_gradient._beta.shape}"
+    )
+
+
+def test_batch_norm_gradient_transfer_aggregation():
+    """Test that batch norm layer gradients are properly aggregated when multiple workers contribute different values"""
+
+    # Create a simple model
+    model = Model(
+        input_dimensions=(3,),  # 3 features
+        hidden=[
+            BatchNorm(
+                input_dimensions=(3,),
+                training=True,
+            )
+        ],
+    )
+
+    # Create different gradients for different workers
+    gradient1 = BatchNorm.Parameters(
+        _gamma=np.array([1.0, 2.0, 3.0]),  # (3,)
+        _beta=np.array([4.0, 5.0, 6.0]),  # (3,)
+    )
+    gradient2 = BatchNorm.Parameters(
+        _gamma=np.array([7.0, 8.0, 9.0]),  # (3,)
+        _beta=np.array([10.0, 11.0, 12.0]),  # (3,)
+    )
+
+    # Create mocked shared memory manager for 2 workers
+    gradient_n_bytes = model.parameter_n_bytes
+    manager = MockedSharedMemoryManager(
+        worker_count=2, gradient_n_bytes=gradient_n_bytes
+    )
+
+    # Worker 0 writes gradient1
+    model.grad_layers[0].cache["dP"] = gradient1
+    manager.worker_put_result(0, model.grad_layers)
+
+    # Worker 1 writes gradient2
+    model.grad_layers[0].cache["dP"] = gradient2
+    manager.worker_put_result(1, model.grad_layers)
+
+    # Clear gradients before aggregation
+    for layer in model.grad_layers:
+        layer.cache["dP"] = None
+
+    # Aggregate results
+    manager.leader_get_aggregated_results(model)
+
+    # Verify aggregation: should be (gradient1 + gradient2) / 2
+    final_gradient = model.grad_layers[0].cache["dP"]
+    expected_gamma = (gradient1._gamma + gradient2._gamma) / 2  # [4.0, 5.0, 6.0]
+    expected_beta = (gradient1._beta + gradient2._beta) / 2  # [7.0, 8.0, 9.0]
+
+    np.testing.assert_allclose(final_gradient._gamma, expected_gamma, rtol=1e-10)
+    np.testing.assert_allclose(final_gradient._beta, expected_beta, rtol=1e-10)

@@ -101,6 +101,8 @@ def test_serialize_deserialize():
 
     X_prop_before = model.forward_prop(X)
     buffer = io.BytesIO()
+    for i, layer in enumerate(model.layers):
+        layer._layer_id = f"test_layer_for_serialization_{i}"
     buffer.write(pickle.dumps(model.serialize()))
     buffer.seek(0)
     deserialized = Model.load(buffer)
