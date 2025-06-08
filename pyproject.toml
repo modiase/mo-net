@@ -3,10 +3,8 @@ requires = ["flit_core >=3.12.0, <4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "mo-net"
 authors = [{ name = "Moye", email = "moyeodiase@outlook.com" }]
-
-name = "mo-net"
+name = "mo_net"
 version = "0.1.0"
 description = ""
 readme = "README.md"
@@ -63,20 +61,20 @@ module = "scipy"
 ignore_missing_imports = true
 
 [tool.setuptools]
-packages = ["mnist_numpy"]
+packages = ["mo_net"]
 
 [tool.taskipy.tasks]
 format = "uv run taplo format pyproject.toml; fd -e py -x uv run ruff format"
-test = "pytest mnist_numpy/tests"
+test = "pytest mo_net/tests"
 typecheck-all = "fd -e py -x uv run mypy"
 typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
 
 
 [project.scripts]
-infer = "mnist_numpy.cli:infer"
-term_plot = "mnist_numpy.scripts.term_plot:main"
-resume = "mnist_numpy.cli:resume"
-sample_data = "mnist_numpy.cli:sample_data"
-trace_statistics = "mnist_numpy.scripts.trace_statistics:main"
-train = "mnist_numpy.cli:train"
-serve = "mnist_numpy.server.__main__:main"
+infer = "mo_net.cli:infer"
+term_plot = "mo_net.scripts.term_plot:main"
+resume = "mo_net.cli:resume"
+sample_data = "mo_net.cli:sample_data"
+trace_statistics = "mo_net.scripts.trace_statistics:main"
+train = "mo_net.cli:train"
+serve = "mo_net.server.__main__:main"
