@@ -1,3 +1,7 @@
+[build-system]
+requires = ["flit_core >=3.12.0, <4"]
+build-backend = "flit_core.buildapi"
+
 [project]
 authors = [{ name = "Moye", email = "moyeodiase@outlook.com" }]
 
@@ -69,8 +73,6 @@ typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
 
 [project.scripts]
 infer = "mnist_numpy.cli:infer"
-inspect_params = "mnist_numpy.scripts.inspect_params:main"
-plot_loss = "mnist_numpy.scripts.plot_loss:main"
 term_plot = "mnist_numpy.scripts.term_plot:main"
 resume = "mnist_numpy.cli:resume"
 sample_data = "mnist_numpy.cli:sample_data"
