@@ -1,11 +1,15 @@
+# IDE and environment files
 .vscode/
+.venv/
 .env
 .envrc
 
+# Local and temporary directories
 **/*.local*
 tmp/
 data/
 
+# Data and output files
 *.pkl
 *.csv
 *.png
@@ -14,13 +18,24 @@ data/
 *.yaml
 __pycache__/
 
+# Exception for test data
 !data/mnist_test.csv	
+
+# Build artifacts
 build/
 *.egg
 *.egg-info
 
+# Profiling and system files
 *.lprof
 profile_output*.txt
 .DS_Store
 
+# Cache directories
+.resource_cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Database files
 train.db

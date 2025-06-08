@@ -5,8 +5,9 @@ from typing import Final, overload
 import numpy as np
 import pandas as pd
 
+from mo_net.resources import get_resource
+
 DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
-DEFAULT_DATA_PATH: Final[Path] = DATA_DIR / "mnist_train.csv"
 MAX_PIXEL_VALUE: Final[int] = 255
 N_DIGITS: Final[int] = 10
 OUTPUT_PATH: Final[Path] = DATA_DIR / "output"
@@ -52,11 +53,12 @@ def load_data(
 
 
 def load_data(
-    data_path: Path, split: float | None = None
+    dataset_url: str, split: float | None = None
 ) -> (
     tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     | tuple[np.ndarray, np.ndarray]
 ):
+    data_path = get_resource(dataset_url)
     return (
         _load_data_split(data_path, split)
         if split is not None

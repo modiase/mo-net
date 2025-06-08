@@ -14,7 +14,6 @@ from more_itertools import peekable, sample
 
 from mo_net.data import (
     DATA_DIR,
-    DEFAULT_DATA_PATH,
     OUTPUT_PATH,
     load_data,
 )
@@ -29,6 +28,7 @@ from mo_net.model import Model
 from mo_net.protos import ActivationFn, NormalisationType
 from mo_net.quickstart import mnist_cnn, mnist_mlp
 from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
+from mo_net.resources import MNIST_TRAIN_URL
 from mo_net.train import (
     TrainingParameters,
 )
@@ -64,13 +64,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=None,
     )
     @click.option(
-        "-d",
-        "--data-path",
-        type=Path,
-        help="Set the path to the data file",
-        default=DEFAULT_DATA_PATH,
-    )
-    @click.option(
         "-s",
         "--learning-rate-limits",
         type=lambda x: tuple(float(y) for y in x.split(",")),
@@ -90,6 +83,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         is_flag=True,
         help="Use monotonic training",
         default=False,
+    )
+    @click.option(
+        "-d",
+        "--dataset-url",
+        type=str,
+        help="Set the url to the dataset",
+        default=MNIST_TRAIN_URL,
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -229,7 +229,7 @@ def train(
     *,
     activation_fn: ActivationFn,
     batch_size: int | None,
-    data_path: Path,
+    dataset_url: str,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
     history_max_len: int,
@@ -250,7 +250,7 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> None:
-    X_train, Y_train, X_val, Y_val = load_data(data_path, split=0.9)
+    X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.9)
 
     seed = int(os.getenv("MNIST_SEED", time.time()))
     np.random.seed(seed)
@@ -406,13 +406,13 @@ def train(
 )
 @click.option(
     "-d",
-    "--data-path",
-    type=Path,
-    help="Set the path to the data file",
-    default=DEFAULT_DATA_PATH,
+    "--dataset-url",
+    type=str,
+    help="Set the url to the dataset",
+    default=MNIST_TRAIN_URL,
 )
-def infer(*, model_path: Path | None, data_path: Path):
-    X_train, Y_train, X_val, Y_val = load_data(data_path, split=0.8)
+def infer(*, model_path: Path | None, dataset_url: Path):
+    X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.8)
 
     if model_path is None:
         output_dir = DATA_DIR / "output"
@@ -494,7 +494,7 @@ def infer(*, model_path: Path | None, data_path: Path):
     "--data-path",
     type=Path,
     help="Set the path to the data file",
-    default=DEFAULT_DATA_PATH,
+    default=MNIST_TRAIN_URL,
 )
 @click.option(
     "--with-transformed",
