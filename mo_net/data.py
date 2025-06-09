@@ -4,6 +4,7 @@ from typing import Final, overload
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from mo_net.resources import get_resource
 
@@ -60,6 +61,7 @@ def load_data(
     tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     | tuple[np.ndarray, np.ndarray]
 ):
+    logger.info(f"Loading data from {dataset_url}.")
     data_path = get_resource(dataset_url)
     return (
         _load_data_split(data_path, split)

@@ -9,5 +9,5 @@ The goal of this project is to implement deep learning concepts and functions by
 
 ```shell
 uv sync
-uv run train --quickstart mnist_mlp
+uv run train --quickstart mlp
 ```
