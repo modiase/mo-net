@@ -24,10 +24,10 @@ def get_resource(url: str) -> Path:
                 f"https://{parsed.netloc}.s3.amazonaws.com/{parsed.path.lstrip('/')}"
             )
         case "file":
-            download_url = Path(parsed.path).resolve()
-            if not download_url.exists():
-                raise FileNotFoundError(f"File not found: {download_url}")
-            return download_url
+            path = Path(parsed.path).resolve()
+            if not path.exists():
+                raise FileNotFoundError(f"File not found: {path}")
+            return path
         case _:
             raise ValueError(f"Unsupported protocol: {parsed.scheme}")
 
@@ -36,7 +36,7 @@ def get_resource(url: str) -> Path:
     cache_path = RESOURCE_CACHE / hashlib.md5(url.encode()).hexdigest()
 
     if cache_path.exists():
-        return str(cache_path)
+        return cache_path
 
     response = requests.get(download_url)
     response.raise_for_status()

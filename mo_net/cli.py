@@ -23,7 +23,7 @@ from mo_net.functions import (
     Tanh,
     parse_activation_fn,
 )
-from mo_net.logging import LogLevel, setup_logging
+from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
 from mo_net.protos import ActivationFn, NormalisationType
 from mo_net.quickstart import mnist_cnn, mnist_mlp
@@ -411,7 +411,7 @@ def train(
     help="Set the url to the dataset",
     default=MNIST_TRAIN_URL,
 )
-def infer(*, model_path: Path | None, dataset_url: Path):
+def infer(*, model_path: Path | None, dataset_url: str):
     X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.8)
 
     if model_path is None:
@@ -439,7 +439,7 @@ def infer(*, model_path: Path | None, dataset_url: Path):
     Y_test_pred = model.predict(X_val)
     Y_test_true = np.argmax(Y_val, axis=1)
 
-    X_test, Y_test = load_data(DATA_DIR / "mnist_test.csv")
+    X_test, Y_test = load_data(dataset_url)
     Y_test_pred = model.predict(X_test)
     Y_test_true = np.argmax(Y_test, axis=1)
     logger.info(
@@ -491,9 +491,9 @@ def infer(*, model_path: Path | None, dataset_url: Path):
 @cli.command(help="Sample input data", name="sample")
 @click.option(
     "-d",
-    "--data-path",
-    type=Path,
-    help="Set the path to the data file",
+    "--dataset-url",
+    type=str,
+    help="Set the url to the dataset",
     default=MNIST_TRAIN_URL,
 )
 @click.option(
@@ -503,8 +503,8 @@ def infer(*, model_path: Path | None, dataset_url: Path):
     help="Sample the transformed data",
     default=False,
 )
-def sample_data(*, data_path: Path, with_transformed: bool):
-    X_train = load_data(data_path)[0]
+def sample_data(*, dataset_url: str, with_transformed: bool):
+    X_train = load_data(dataset_url)[0]
     sample_indices = sample(range(len(X_train)), 25)
     if with_transformed:
         for i in sample_indices:

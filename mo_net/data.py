@@ -45,10 +45,12 @@ def _load_data_split(
 
 
 @overload
-def load_data(data_path: Path, split: None = None) -> tuple[np.ndarray, np.ndarray]: ...
+def load_data(
+    dataset_url: str, split: None = None
+) -> tuple[np.ndarray, np.ndarray]: ...
 @overload
 def load_data(
-    data_path: Path, split: float
+    dataset_url: str, split: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: ...
 
 

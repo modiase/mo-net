@@ -3,7 +3,7 @@ import uvicorn
 from loguru import logger
 
 from mo_net.db import DB_PATH
-from mo_net.logging import LogLevel, setup_logging
+from mo_net.log import LogLevel, setup_logging
 
 
 @click.command()
