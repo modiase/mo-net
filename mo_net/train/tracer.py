@@ -64,8 +64,8 @@ class Tracer:
         self._linear_layers: Sequence[Linear] = (
             tuple(  # TODO: Consider reducing coupling to dense layers.
                 layer
-                for block in model.blocks
-                for layer in block.layers
+                for module in model.modules
+                for layer in module.layers
                 if isinstance(layer, Linear)
             )
         )

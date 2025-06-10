@@ -23,15 +23,15 @@ from mo_net.functions import (
     cross_entropy,
 )
 from mo_net.model import ModelBase
-from mo_net.model.block.base import Base, Hidden, Output
-from mo_net.model.block.dense import Dense
-from mo_net.model.block.norm import BatchNormOptions, LayerNormOptions, Norm
 from mo_net.model.layer.base import Hidden as HiddenLayer
 from mo_net.model.layer.base import ParametrisedHidden
 from mo_net.model.layer.dropout import Dropout
 from mo_net.model.layer.input import Input
 from mo_net.model.layer.linear import Linear
 from mo_net.model.layer.output import OutputLayer, RawOutputLayer, SoftmaxOutputLayer
+from mo_net.model.module.base import Base, Hidden, Output
+from mo_net.model.module.dense import Dense
+from mo_net.model.module.norm import BatchNormOptions, LayerNormOptions, Norm
 from mo_net.protos import (
     ActivationFn,
     Activations,
@@ -49,8 +49,8 @@ class Model(ModelBase):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: tuple[int, ...]
-        hidden_blocks: tuple[SupportsDeserialize, ...]
-        output_block: SupportsDeserialize
+        hidden_modules: tuple[SupportsDeserialize, ...]
+        output_module: SupportsDeserialize
 
     @classmethod
     def get_name(cls) -> str:
@@ -61,8 +61,8 @@ class Model(ModelBase):
         return "Model"
 
     @property
-    def blocks(self) -> Sequence[Base]:
-        return tuple([*self.hidden_blocks, self.output_block])
+    def modules(self) -> Sequence[Base]:
+        return tuple([*self.hidden_modules, self.output_module])
 
     @property
     def input_dimensions(self) -> Dimensions:
@@ -70,7 +70,7 @@ class Model(ModelBase):
 
     @property
     def output_dimensions(self) -> Dimensions:
-        return self.output_block.output_layer.output_dimensions
+        return self.output_module.output_layer.output_dimensions
 
     @overload
     @classmethod
@@ -121,10 +121,10 @@ class Model(ModelBase):
         model_input_dimension, model_hidden_dimensions, model_output_dimension = (
             itemgetter(0, slice(1, -1), -1)(module_dimensions)
         )
-        Block: Callable[[Dimensions, Dimensions], Hidden]
+        Module: Callable[[Dimensions, Dimensions], Hidden]
         match normalisation_type:
             case NormalisationType.LAYER:
-                Block = partial(
+                Module = partial(
                     Norm,
                     activation_fn=activation_fn,
                     store_output_activations=tracing_enabled,
@@ -135,7 +135,7 @@ class Model(ModelBase):
                     raise ValueError(
                         "Batch size must be provided when using batch normalisation."
                     )
-                Block = partial(
+                Module = partial(
                     Norm,
                     activation_fn=activation_fn,
                     store_output_activations=tracing_enabled,
@@ -144,7 +144,7 @@ class Model(ModelBase):
                     ),
                 )
             case NormalisationType.NONE:
-                Block = partial(
+                Module = partial(
                     Dense,
                     activation_fn=activation_fn,
                     store_output_activations=tracing_enabled,
@@ -152,8 +152,8 @@ class Model(ModelBase):
             case never:
                 assert_never(never)
 
-        hidden_blocks: Sequence[Hidden] = tuple(
-            Block(  # type: ignore[call-arg]
+        hidden_modules: Sequence[Hidden] = tuple(
+            Module(  # type: ignore[call-arg]
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
             )
@@ -162,7 +162,7 @@ class Model(ModelBase):
             )
         )
 
-        output_block = Output(
+        output_module = Output(
             layers=tuple(
                 [
                     Linear(
@@ -183,8 +183,8 @@ class Model(ModelBase):
         )
         model = cls(
             input_dimensions=model_input_dimension,
-            hidden=hidden_blocks,
-            output=output_block,
+            hidden=hidden_modules,
+            output=output_module,
         )
         for regulariser in regularisers:
             regulariser(model)
@@ -208,17 +208,17 @@ class Model(ModelBase):
             module for module in hidden if not isinstance(module, (Hidden, HiddenLayer))
         ):
             raise ValueError(f"Invalid hidden modules: {invalid}")
-        self._hidden_blocks = tuple(
+        self._hidden_modules = tuple(
             module if isinstance(module, Hidden) else Hidden(layers=(module,))
             for module in hidden
         )
         if output is None:
             output = RawOutputLayer(
-                input_dimensions=last(self._hidden_blocks).output_dimensions
+                input_dimensions=last(self._hidden_modules).output_dimensions
             )
         if not isinstance(output, (Output, OutputLayer)):
             raise ValueError(f"Invalid output module: {output}")
-        self._output_block = (
+        self._output_module = (
             output if isinstance(output, Output) else Output(output_layer=output)
         )
         self._loss_contributors: MutableSequence[LossContributor] = []
@@ -227,11 +227,11 @@ class Model(ModelBase):
         }
 
     def reinitialise(self) -> None:
-        for block in self.hidden_blocks:
-            if isinstance(block, SupportsReinitialisation):
-                block.reinitialise()
-        if isinstance(self.output_block, SupportsReinitialisation):
-            self.output_block.reinitialise()
+        for module in self.hidden_modules:
+            if isinstance(module, SupportsReinitialisation):
+                module.reinitialise()
+        if isinstance(self.output_module, SupportsReinitialisation):
+            self.output_module.reinitialise()
 
     @property
     def loss_contributors(self) -> Sequence[LossContributor]:
@@ -241,48 +241,50 @@ class Model(ModelBase):
         self._loss_contributors.append(contributor)
 
     @property
-    def hidden_blocks(self) -> Sequence[Hidden]:
-        return self._hidden_blocks
+    def hidden_modules(self) -> Sequence[Hidden]:
+        return self._hidden_modules
 
-    def accept_hidden_block_visitor(
+    def accept_hidden_module_visitor(
         self, visitor: Callable[[Hidden, int], Hidden]
     ) -> None:
-        for index, block in enumerate(self.hidden_blocks):
-            visitor(block, index)
+        for index, module in enumerate(self.hidden_modules):
+            visitor(module, index)
 
     @property
     def input_layer(self) -> Input:
         return self._input_layer
 
     @property
-    def output_block(self) -> Output:
-        return self._output_block
+    def output_module(self) -> Output:
+        return self._output_module
 
     def forward_prop(self, X: np.ndarray) -> Activations:
         return reduce(
-            lambda A, block: block.forward_prop(input_activations=A),
-            [*self.hidden_blocks, self.output_block],
+            lambda A, module: module.forward_prop(input_activations=A),
+            [*self.hidden_modules, self.output_module],
             Activations(X),
         )
 
     def backward_prop(self, Y_true: np.ndarray) -> None:
         reduce(
-            lambda dZ, block: block.backward_prop(dZ=dZ),
-            reversed(self.hidden_blocks),
-            self.output_block.backward_prop(Y_true=Y_true),
+            lambda dZ, module: module.backward_prop(dZ=dZ),
+            reversed(self.hidden_modules),
+            self.output_module.backward_prop(Y_true=Y_true),
         )
 
     def update_parameters(self) -> None:
-        for block in self.hidden_blocks:
-            block.update_parameters()
-        self.output_block.update_parameters()
+        for module in self.hidden_modules:
+            module.update_parameters()
+        self.output_module.update_parameters()
 
     def dump(self, io: IO[bytes]) -> None:
         pickle.dump(
             self.Serialized(
                 input_dimensions=tuple(self.input_layer.input_dimensions),
-                hidden_blocks=tuple(block.serialize() for block in self.hidden_blocks),
-                output_block=self.output_block.serialize(),
+                hidden_modules=tuple(
+                    module.serialize() for module in self.hidden_modules
+                ),
+                output_module=self.output_module.serialize(),
             ),
             io,
         )
@@ -295,10 +297,10 @@ class Model(ModelBase):
         return cls(
             input_dimensions=serialized.input_dimensions,
             hidden=tuple(
-                block.deserialize(training=training)
-                for block in serialized.hidden_blocks
+                module.deserialize(training=training)
+                for module in serialized.hidden_modules
             ),
-            output=serialized.output_block.deserialize(training=training),
+            output=serialized.output_module.deserialize(training=training),
         )
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -313,16 +315,16 @@ class Model(ModelBase):
     def serialize(self) -> Serialized:
         return self.Serialized(
             input_dimensions=tuple(self.input_dimensions),
-            hidden_blocks=tuple(block.serialize() for block in self.hidden_blocks),
-            output_block=self.output_block.serialize(),
+            hidden_modules=tuple(module.serialize() for module in self.hidden_modules),
+            output_module=self.output_module.serialize(),
         )
 
     @property
     def grad_layers(self) -> Sequence[ParametrisedHidden]:
         return tuple(
             layer
-            for block in tuple([*self.hidden_blocks, self.output_block])
-            for layer in block.layers
+            for module in tuple([*self.hidden_modules, self.output_module])
+            for layer in module.layers
             if isinstance(layer, ParametrisedHidden)
         )
 
@@ -335,27 +337,27 @@ class Model(ModelBase):
 
     @property
     def parameter_count(self) -> int:
-        return sum(block.parameter_count for block in self.blocks)
+        return sum(module.parameter_count for module in self.modules)
 
     @property
     def parameter_n_bytes(self) -> int:
         return sum(layer.parameter_nbytes for layer in self.grad_layers)
 
     @property
-    def block_dimensions(self) -> Sequence[tuple[Dimensions, Dimensions]]:
-        return tuple(HasDimensions.get_dimensions(block) for block in self.blocks)
+    def module_dimensions(self) -> Sequence[tuple[Dimensions, Dimensions]]:
+        return tuple(HasDimensions.get_dimensions(module) for module in self.modules)
 
-    def append_block(self, block: Hidden) -> None:
-        self._hidden_blocks = tuple([*self._hidden_blocks, block])
+    def append_module(self, module: Hidden) -> None:
+        self._hidden_modules = tuple([*self._hidden_modules, module])
 
-    def prepend_block(self, block: Hidden) -> None:
-        self._hidden_blocks = tuple([block, *self._hidden_blocks])
+    def prepend_module(self, module: Hidden) -> None:
+        self._hidden_modules = tuple([module, *self._hidden_modules])
 
     def append_layer(self, layer: HiddenLayer) -> None:
-        last(self._hidden_blocks).append_layer(layer)
+        last(self._hidden_modules).append_layer(layer)
 
     def prepend_layer(self, layer: HiddenLayer) -> None:
-        first(self._hidden_blocks).prepend_layer(layer)
+        first(self._hidden_modules).prepend_layer(layer)
 
     def get_layer(self, layer_id: str) -> ParametrisedHidden:
         return self._layer_id_to_layer[layer_id]
@@ -364,13 +366,13 @@ class Model(ModelBase):
     def layers(self) -> Sequence[Base]:
         return tuple(
             chain.from_iterable(
-                block.layers
-                if isinstance(block, Hidden)
-                else chain(block.layers, (block.output_layer,))
-                if isinstance(block, Output)
-                else (block,)
-                for block in chain(
-                    [self.input_layer], self.hidden_blocks, [self.output_block]
+                module.layers
+                if isinstance(module, Hidden)
+                else chain(module.layers, (module.output_layer,))
+                if isinstance(module, Output)
+                else (module,)
+                for module in chain(
+                    [self.input_layer], self.hidden_modules, [self.output_module]
                 )
             )
         )

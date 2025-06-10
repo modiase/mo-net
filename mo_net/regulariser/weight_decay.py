@@ -47,7 +47,7 @@ def attach_weight_decay_regulariser(
     optimizer: BaseOptimizer,
     model: Model,
 ) -> None:
-    for layer in chain.from_iterable(block.layers for block in model.blocks):
+    for layer in chain.from_iterable(module.layers for module in model.modules):
         if not isinstance(layer, Linear):
             continue
         layer_regulariser = WeightDecayRegulariser(

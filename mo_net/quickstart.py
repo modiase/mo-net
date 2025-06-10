@@ -1,10 +1,10 @@
 from mo_net.config import TrainingParameters
 from mo_net.functions import ReLU
-from mo_net.model.block.convolution import Convolution
-from mo_net.model.block.norm import LayerNormOptions, Norm
 from mo_net.model.layer.output import SoftmaxOutputLayer
 from mo_net.model.layer.reshape import Reshape
 from mo_net.model.model import Model
+from mo_net.model.module.convolution import Convolution
+from mo_net.model.module.norm import LayerNormOptions, Norm
 from mo_net.protos import NormalisationType
 
 

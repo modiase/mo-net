@@ -55,14 +55,14 @@ class Base(HasDimensions):
         if not layer.output_dimensions == self.input_dimensions:
             raise ValueError(
                 f"Output dimensions of layer to prepend ({layer.output_dimensions}) "
-                f"do not match input dimensions of block ({self.input_dimensions})."
+                f"do not match input dimensions of module ({self.input_dimensions})."
             )
         self._layers = tuple([layer, *self._layers])
 
     def append_layer(self, layer: HiddenLayer) -> None:
         if not self.output_dimensions == layer.input_dimensions:
             raise ValueError(
-                f"Output dimensions of block ({self.output_dimensions}) "
+                f"Output dimensions of module ({self.output_dimensions}) "
                 f"do not match input dimensions of layer to append ({layer.input_dimensions})."
             )
         self._layers = tuple([*self._layers, layer])

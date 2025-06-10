@@ -201,7 +201,7 @@ class BasicTrainer:
         )
         logger.info(f"{self._model.print()}")
         logger.info(
-            f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.block_dimensions)} and parameter count: {self._model.parameter_count}."
+            f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.module_dimensions)} and parameter count: {self._model.parameter_count}."
         )
 
         self._run.start_run(

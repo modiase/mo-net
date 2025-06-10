@@ -6,9 +6,9 @@ import pytest
 from more_itertools import one
 
 from mo_net.constants import N_BYTES_PER_FLOAT
-from mo_net.model.block.base import Hidden
 from mo_net.model.layer.linear import Linear
 from mo_net.model.model import Model
+from mo_net.model.module.base import Hidden
 
 
 def test_model_initialisation_of_mlp_has_correct_dimensions():
@@ -17,10 +17,10 @@ def test_model_initialisation_of_mlp_has_correct_dimensions():
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
 
-    assert model.hidden_blocks[0].layers[0]._parameters.weights.shape == (2, 2)
-    assert model.hidden_blocks[0].layers[0]._parameters.biases.shape == (2,)
-    assert model.output_block.layers[0]._parameters.weights.shape == (2, 2)
-    assert model.output_block.layers[0]._parameters.biases.shape == (2,)
+    assert model.hidden_modules[0].layers[0]._parameters.weights.shape == (2, 2)
+    assert model.hidden_modules[0].layers[0]._parameters.biases.shape == (2,)
+    assert model.output_module.layers[0]._parameters.weights.shape == (2, 2)
+    assert model.output_module.layers[0]._parameters.biases.shape == (2,)
 
 
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
@@ -108,7 +108,7 @@ def test_serialize_deserialize():
     deserialized = Model.load(buffer)
     X_prop_after = deserialized.forward_prop(X)
 
-    assert model.block_dimensions == deserialized.block_dimensions
+    assert model.module_dimensions == deserialized.module_dimensions
     assert np.allclose(X_prop_before, X_prop_after)
 
 

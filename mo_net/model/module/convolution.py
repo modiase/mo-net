@@ -1,10 +1,10 @@
 from mo_net.functions import ReLU
-from mo_net.model.block.base import Hidden
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm import BatchNorm
 from mo_net.model.layer.convolution import Convolution2D
 from mo_net.model.layer.pool import MaxPooling2D
 from mo_net.model.layer.reshape import Flatten
+from mo_net.model.module.base import Hidden
 from mo_net.protos import ActivationFn, Dimensions
 
 
