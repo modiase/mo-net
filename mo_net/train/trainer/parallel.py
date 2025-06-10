@@ -40,7 +40,6 @@ class SharedMemoryManager:
         def read(self, size: int = -1) -> bytes:
             """Read data from shared memory buffer"""
             if size == -1:
-                # Read to end
                 size = self._max_size - self._position
 
             if self._position >= self._max_size:
@@ -53,13 +52,11 @@ class SharedMemoryManager:
 
         def write(self, data: bytes) -> int:
             """Write data directly to shared memory buffer"""
-            # Convert memoryview to bytes if needed
             if isinstance(data, memoryview):
                 data = data.tobytes()
 
             data_len = len(data)
             if self._position + data_len > self._max_size:
-                # Truncate if necessary
                 available_space = self._max_size - self._position
                 if available_space <= 0:
                     return 0
@@ -157,7 +154,6 @@ class SharedMemoryManager:
 
         if bytes_written < self._gradient_size_bytes:
             remaining_space = self._gradient_size_bytes - bytes_written
-            # Fill remaining space with zeros using proper memoryview assignment
             for i in range(remaining_space):
                 self._gradient_shared_memories[worker_id].buf[bytes_written + i] = 0
             logger.trace(
@@ -170,7 +166,6 @@ class SharedMemoryManager:
             f"now waiting at gradient barrier"
         )
 
-        # Wait at barrier for all workers to finish writing gradients
         barrier_start = time.perf_counter()
         self._gradient_barrier.wait()
         barrier_time = time.perf_counter() - barrier_start
@@ -206,10 +201,8 @@ class SharedMemoryManager:
             layers_processed = 0
             while reader.tell() < self._gradient_size_bytes:
                 try:
-                    # Use peek to check if there's a valid layer header
                     layer_id = ParametrisedHidden.get_layer_id(reader, peek=True)
 
-                    # Check if we hit padding (empty layer_id indicates padding)
                     if not layer_id:
                         logger.trace(
                             f"Leader hit padding for worker {worker_id} (empty layer_id) at position {reader.tell()}"
@@ -220,8 +213,6 @@ class SharedMemoryManager:
                         f"Leader found layer {layer_id} from worker {worker_id}"
                     )
 
-                    # Get the layer and deserialize its parameters directly
-                    # (deserialize_parameters will consume the header itself)
                     layer = model.get_layer(layer_id)
                     layer.deserialize_parameters(reader)
 
@@ -231,7 +222,6 @@ class SharedMemoryManager:
                     )
 
                 except (struct.error, UnicodeDecodeError, ValueError, IndexError):
-                    # Hit malformed data or end of buffer - done with this worker
                     logger.trace(
                         f"Leader hit malformed data/end for worker {worker_id} at position {reader.tell()}"
                     )
@@ -258,7 +248,6 @@ class SharedMemoryManager:
         start_time = time.perf_counter()
         logger.trace("Leader starting parameter update broadcast")
 
-        # Serialize parameter updates to shared memory
         serialize_start = time.perf_counter()
         data_bytes = pickle.dumps(update)
         data_bytes_len = len(data_bytes)
@@ -278,7 +267,6 @@ class SharedMemoryManager:
             f"now waiting at update barrier"
         )
 
-        # Wait at barrier for all workers to be ready for update
         barrier_start = time.perf_counter()
         self._update_barrier.wait()
         barrier_time = time.perf_counter() - barrier_start
@@ -294,7 +282,6 @@ class SharedMemoryManager:
         start_time = time.perf_counter()
         logger.trace("Worker waiting at update barrier for parameter updates")
 
-        # Wait at barrier for leader to write update
         barrier_start = time.perf_counter()
         self._update_barrier.wait()
         barrier_time = time.perf_counter() - barrier_start
@@ -302,7 +289,6 @@ class SharedMemoryManager:
             f"Worker passed update barrier after {barrier_time:.4f}s, reading updates"
         )
 
-        # Read update from shared memory
         read_start = time.perf_counter()
         data_bytes_len = int.from_bytes(
             self._update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET],
@@ -401,7 +387,6 @@ def worker_process(
         f"Worker {worker_id} process starting with PID {mp.current_process().pid}"
     )
 
-    # Load model
     model_start = time.perf_counter()
     with open(model_checkpoint_path, "rb") as f:
         model = Model.load(f, training=True)
@@ -410,7 +395,6 @@ def worker_process(
         f"Worker {worker_id} loaded model in {model_time:.4f}s from {model_checkpoint_path}"
     )
 
-    # Signal ready and connect to shared memory
     worker_ready_event.set()
     logger.trace(f"Worker {worker_id} signaled ready, connecting to shared memory")
 
@@ -437,11 +421,11 @@ def worker_process(
         f"X_train: {X_train.shape} {X_train.dtype}, Y_train: {Y_train.shape} {Y_train.dtype}"
     )
 
-    iteration_count = 0
-    total_forward_time = 0
-    total_backward_time = 0
-    total_gradient_time = 0
-    total_update_time = 0
+    iteration_count = 0.0
+    total_forward_time = 0.0
+    total_backward_time = 0.0
+    total_gradient_time = 0.0
+    total_update_time = 0.0
 
     while not stop_event.is_set():
         try:
@@ -477,13 +461,11 @@ def worker_process(
                 f"forward {forward_time:.4f}s, backward {backward_time:.4f}s"
             )
 
-            # Submit gradients via barrier synchronization
             gradient_start = time.perf_counter()
             shared_memory_manager.worker_put_result(worker_id, model.grad_layers)
             gradient_time = time.perf_counter() - gradient_start
             total_gradient_time += gradient_time
 
-            # Receive parameter updates
             if not reload_event.is_set():
                 update_start = time.perf_counter()
                 aggregated_update = shared_memory_manager.worker_wait_for_update()
@@ -498,7 +480,6 @@ def worker_process(
                     f"(gradient: {gradient_time:.4f}s, update: {update_time:.4f}s)"
                 )
 
-                # Log performance summary every 10 iterations
                 if iteration_count % 10 == 0:
                     avg_forward = total_forward_time / iteration_count
                     avg_backward = total_backward_time / iteration_count
@@ -516,7 +497,6 @@ def worker_process(
             )
             break
 
-    # Cleanup
     cleanup_start = time.perf_counter()
     try:
         X_shared_memory.close()
@@ -564,7 +544,6 @@ class ParallelTrainer(BasicTrainer):
         if self._monitor is not None:
             self._monitor.reset(restore_history=True)
 
-        # Reset worker events
         for event in self._worker_ready_events:
             event.clear()
         for event in self._reload_events:
@@ -665,7 +644,6 @@ class ParallelTrainer(BasicTrainer):
             f"updates {self._model.parameter_n_bytes} bytes = {total_memory_bytes} bytes total"
         )
 
-        # Copy training data to shared memory
         copy_start = time.perf_counter()
         X_shared: np.ndarray = np.ndarray(
             self._X_train.shape,
@@ -682,7 +660,6 @@ class ParallelTrainer(BasicTrainer):
         copy_time = time.perf_counter() - copy_start
         logger.trace(f"Copied training data to shared memory in {copy_time:.4f}s")
 
-        # Create barriers for synchronization (workers + 1 leader)
         barrier_parties = self._training_parameters.workers + 1
         self._gradient_barrier = mp.Barrier(barrier_parties)
         self._update_barrier = mp.Barrier(barrier_parties)
@@ -690,7 +667,6 @@ class ParallelTrainer(BasicTrainer):
             f"Created barriers for {barrier_parties} parties ({self._training_parameters.workers} workers + 1 leader)"
         )
 
-        # Set up synchronization
         sync_start = time.perf_counter()
         stop_event = mp.Event()
         self._worker_ready_events = tuple(
@@ -701,7 +677,6 @@ class ParallelTrainer(BasicTrainer):
         )
         sync_time = time.perf_counter() - sync_start
 
-        # Create shared memory manager with barriers
         manager_start = time.perf_counter()
         self._shared_memory_manager = SharedMemoryManager(
             worker_count=self._training_parameters.workers,
@@ -712,7 +687,6 @@ class ParallelTrainer(BasicTrainer):
         )
         manager_time = time.perf_counter() - manager_start
 
-        # Create worker processes
         processes_start = time.perf_counter()
         self._processes = tuple(
             ParallelTrainer.create_worker_process(
@@ -781,23 +755,19 @@ class ParallelTrainer(BasicTrainer):
         with self._create_training_step_context():
             logger.trace("Leader starting training step, waiting for gradients")
 
-            # Aggregate gradients from workers (populates cache["dP"] directly)
             gradient_start = time.perf_counter()
             self._shared_memory_manager.leader_get_aggregated_results(self._model)
             gradient_time = time.perf_counter() - gradient_start
 
-            # Compute optimizer updates (modifies cache["dP"] in place)
             compute_start = time.perf_counter()
             self._optimizer.compute_update()
             compute_time = time.perf_counter() - compute_start
 
-            # Send computed updates to workers
             update_start = time.perf_counter()
             update = self._model.get_gradient_caches()
             self._shared_memory_manager.leader_send_update(update)
             update_time = time.perf_counter() - update_start
 
-            # Apply parameter updates
             param_start = time.perf_counter()
             self._model.update_parameters()
             param_time = time.perf_counter() - param_start
@@ -809,8 +779,10 @@ class ParallelTrainer(BasicTrainer):
                 f"update: {update_time:.4f}s, params: {param_time:.4f}s)"
             )
 
-            # Return the same update for both gradient and update since they're now equivalent
-            return update, update
+            return (
+                update,
+                update,
+            )  # TODO: return layer_id->gradient+update mapping if requested.
 
     def shutdown(self) -> None:
         logger.trace("Starting ParallelTrainer shutdown")
