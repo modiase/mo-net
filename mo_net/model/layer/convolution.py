@@ -434,8 +434,10 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
 
     def serialize_parameters(self, buffer: IO[bytes]) -> None:
         self._write_header(buffer)
-        buffer.write(memoryview(self._cache["dP"].weights))
-        buffer.write(memoryview(self._cache["dP"].biases))
+        if self._cache["dP"] is None:
+            raise RuntimeError("Cache is not populated during serialization.")
+        buffer.write(memoryview(self._cache["dP"].weights))  # type: ignore[attr-defined]
+        buffer.write(memoryview(self._cache["dP"].biases))  # type: ignore[attr-defined]
 
     def deserialize_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:

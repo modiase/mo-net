@@ -348,6 +348,8 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
 
     def serialize_parameters(self, buffer: IO[bytes]) -> None:
         self._write_header(buffer)
+        if self._cache["dP"] is None:
+            raise RuntimeError("Cache is not populated during serialization.")
         buffer.write(memoryview(self._cache["dP"].weights))
         buffer.write(memoryview(self._cache["dP"].biases))
 

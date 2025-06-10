@@ -165,7 +165,7 @@ def test_linear_backward_prop(test_case: BackwardPropTestCase):
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
     assert np.allclose(layer.backward_prop(dZ=test_case.dZ), test_case.expected_dX)  # type: ignore[arg-type]
-    assert layer.cache["dP"] is not None
+    assert layer.cache["dP"] is not None  # type: ignore[index]
     assert np.allclose(layer.cache["dP"].weights, test_case.expected_dW)  # type: ignore[attr-defined]
     assert np.allclose(layer.cache["dP"].biases, test_case.expected_dB)  # type: ignore[attr-defined]
 

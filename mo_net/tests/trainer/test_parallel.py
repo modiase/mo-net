@@ -1,7 +1,8 @@
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, List, Tuple
+from typing import Any, Tuple
 from unittest.mock import Mock
 
 import numpy as np
@@ -29,7 +30,7 @@ class MockedSharedMemoryManager(SharedMemoryManager):
         ]
 
     def worker_put_result(
-        self, worker_id: int, grad_layers: List[ParametrisedHidden]
+        self, worker_id: int, grad_layers: Sequence[ParametrisedHidden]
     ) -> None:
         """Simplified worker_put_result without barrier synchronization"""
         writer = self._gradient_buffers[worker_id]

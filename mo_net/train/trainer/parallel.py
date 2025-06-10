@@ -5,11 +5,12 @@ import struct
 import sys
 import time
 import typing
-from collections.abc import Callable, Sequence
+from collections.abc import Buffer, Callable, Iterable, Iterator, Sequence
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Barrier
 from pathlib import Path
-from typing import AnyStr, Final, ParamSpec, TypeVar
+from typing import IO as IO_Type
+from typing import Final, ParamSpec, TypeVar
 
 import numpy as np
 from loguru import logger
@@ -30,10 +31,10 @@ _DATA_BYTES_LEN_OFFSET: Final[int] = 4
 class SharedMemoryManager:
     """Manages shared memory for efficient gradient aggregation using barrier synchronization"""
 
-    class IO(typing.IO[bytes]):
+    class IO(IO_Type[bytes]):
         """Wrapper that makes shared memory buffer look like IO[bytes] for reading and writing"""
 
-        def __init__(self, shared_memory_buffer, max_size: int):
+        def __init__(self, shared_memory_buffer: memoryview, max_size: int):
             self._buffer = shared_memory_buffer
             self._position = 0
             self._max_size = max_size
@@ -51,39 +52,125 @@ class SharedMemoryManager:
             self._position = end_pos
             return data
 
-        def write(self, s: AnyStr) -> int:
+        def write(self, s: bytes | Buffer, /) -> int:
             """Write data directly to shared memory buffer"""
-            if isinstance(s, memoryview):
-                s = s.tobytes()
+            if not isinstance(s, bytes):
+                # memoryview
+                _s = s.tobytes()  # type: ignore[attr-defined]
+            else:
+                _s = s
 
-            data_len = len(s)
+            data_len = len(_s)
             if self._position + data_len > self._max_size:
                 available_space = self._max_size - self._position
                 if available_space <= 0:
                     return 0
-                s = s[:available_space]
-                data_len = len(s)
+                _s = _s[:available_space]
+                data_len = len(_s)
 
-            self._buffer[self._position : self._position + data_len] = s
+            self._buffer[self._position : self._position + data_len] = _s
             self._position += data_len
             return data_len
+
+        def writelines(self, lines: Iterable[bytes | Buffer]) -> None:
+            """Write a list of byte strings to the buffer"""
+            for line in lines:
+                self.write(line)
 
         def tell(self) -> int:
             """Return current position"""
             return self._position
 
-        def seek(self, pos: int) -> int:
+        def seek(self, pos: int, whence: int = 0, /) -> int:
             """Seek to position"""
             self._position = max(0, min(pos, self._max_size))
             return self._position
 
-        def reset(self) -> None:
-            """Reset position to beginning"""
-            self._position = 0
-
         def close(self) -> None:
             """No-op for compatibility"""
             pass
+
+        def __enter__(self) -> "SharedMemoryManager.IO":
+            """Context manager entry"""
+            return self
+
+        def __exit__(self, type, value, traceback) -> None:
+            """Context manager exit"""
+            self.close()
+
+        # Additional IO[bytes] protocol methods for completeness
+        @property
+        def mode(self) -> str:
+            return "rb+"
+
+        @property
+        def name(self) -> str:
+            return "<shared_memory>"
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def fileno(self) -> int:
+            raise OSError("SharedMemory buffer has no file descriptor")
+
+        def flush(self) -> None:
+            """No-op for shared memory"""
+            pass
+
+        def isatty(self) -> bool:
+            return False
+
+        def readable(self) -> bool:
+            return True
+
+        def readline(self, limit: int = -1) -> bytes:
+            """Read until newline or limit"""
+            start_pos = self._position
+            if limit == -1:
+                limit = self._max_size - start_pos
+
+            end_pos = min(start_pos + limit, self._max_size)
+
+            for i in range(start_pos, end_pos):
+                if self._buffer[i] == ord(b"\n"):
+                    self._position = i + 1
+                    return bytes(self._buffer[start_pos : i + 1])
+
+            self._position = end_pos
+            return bytes(self._buffer[start_pos:end_pos])
+
+        def readlines(self, hint: int = -1) -> list[bytes]:
+            """Read lines from buffer"""
+            lines = []
+            while self._position < self._max_size:
+                line = self.readline()
+                if not line:
+                    break
+                lines.append(line)
+                if hint > 0 and sum(len(l) for l in lines) >= hint:
+                    break
+            return lines
+
+        def seekable(self) -> bool:
+            return True
+
+        def truncate(self, size: typing.Optional[int] = None) -> int:
+            """Truncate buffer (no-op for shared memory)"""
+            if size is None:
+                size = self._position
+            return size
+
+        def writable(self) -> bool:
+            return True
+
+        def __iter__(self) -> Iterator[bytes]:
+            """Iterate over the buffer"""
+            return iter(self.readlines())
+
+        def __next__(self) -> bytes:
+            """Next item in the buffer"""
+            return self.readline()
 
     def __init__(
         self,
@@ -345,7 +432,9 @@ def worker_decorator(func: Callable[P, R]) -> Callable[P, R]:
     """Decorator for worker processes"""
 
     @functools.wraps(func)
-    def wrapper(*args: P.args, worker_id: int, log_level: str, **kwargs: P.kwargs) -> R:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        worker_id = kwargs.pop("worker_id")
+        log_level = kwargs.pop("log_level")
         logger.configure(extra={"worker_id": worker_id})
         logger.add(
             sys.stderr,
@@ -355,7 +444,7 @@ def worker_decorator(func: Callable[P, R]) -> Callable[P, R]:
         logger.trace(
             f"Worker {worker_id} decorator initialized with log level {log_level}"
         )
-        return func(*args, worker_id=worker_id, log_level=log_level, **kwargs)
+        return func(*args, **kwargs, worker_id=worker_id, log_level=log_level)  # type: ignore[arg-type]
 
     return wrapper
 
@@ -760,6 +849,8 @@ class ParallelTrainer(BasicTrainer):
             logger.trace("Leader starting training step, waiting for gradients")
 
             gradient_start = time.perf_counter()
+            if self._shared_memory_manager is None:
+                raise RuntimeError("Shared memory manager not initialized.")
             self._shared_memory_manager.leader_get_aggregated_results(self._model)
             gradient_time = time.perf_counter() - gradient_start
 
