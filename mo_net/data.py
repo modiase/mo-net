@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from mo_net.resources import get_resource
+from mo_net.resources import MNIST_TRAIN_URL, get_resource
 
 DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
 MAX_PIXEL_VALUE: Final[int] = 255
@@ -68,3 +68,9 @@ def load_data(
         if split is not None
         else _load_data(data_path)
     )
+
+
+def infer_dataset_url(quickstart: str | None) -> str | None:
+    if quickstart == "mnist_mlp" or quickstart == "mnist_cnn":
+        return MNIST_TRAIN_URL
+    return None
