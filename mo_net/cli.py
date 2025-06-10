@@ -494,7 +494,7 @@ def infer(*, model_path: Path | None, dataset_url: str):
     sample_indices = sample(np.where(Y_test_true != Y_test_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(8, 5, idx + 1)
-        plt.imshow(X_val[i].reshape(28, 28), cmap="gray")
+        plt.imshow(X_train[i].reshape(28, 28), cmap="gray")
         plt.title(f"Pred: {Y_test_pred[i]}, True: {Y_test_true[i]}")
         plt.axis("off")
     plt.subplot(8, 1, (6, 8))
