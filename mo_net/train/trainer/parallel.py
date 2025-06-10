@@ -4,11 +4,12 @@ import pickle
 import struct
 import sys
 import time
+import typing
 from collections.abc import Callable, Sequence
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Barrier
 from pathlib import Path
-from typing import Final, ParamSpec, TypeVar
+from typing import AnyStr, Final, ParamSpec, TypeVar
 
 import numpy as np
 from loguru import logger
@@ -29,7 +30,7 @@ _DATA_BYTES_LEN_OFFSET: Final[int] = 4
 class SharedMemoryManager:
     """Manages shared memory for efficient gradient aggregation using barrier synchronization"""
 
-    class IO:
+    class IO(typing.IO[bytes]):
         """Wrapper that makes shared memory buffer look like IO[bytes] for reading and writing"""
 
         def __init__(self, shared_memory_buffer, max_size: int):
@@ -50,20 +51,20 @@ class SharedMemoryManager:
             self._position = end_pos
             return data
 
-        def write(self, data: bytes) -> int:
+        def write(self, s: AnyStr) -> int:
             """Write data directly to shared memory buffer"""
-            if isinstance(data, memoryview):
-                data = data.tobytes()
+            if isinstance(s, memoryview):
+                s = s.tobytes()
 
-            data_len = len(data)
+            data_len = len(s)
             if self._position + data_len > self._max_size:
                 available_space = self._max_size - self._position
                 if available_space <= 0:
                     return 0
-                data = data[:available_space]
-                data_len = len(data)
+                s = s[:available_space]
+                data_len = len(s)
 
-            self._buffer[self._position : self._position + data_len] = data
+            self._buffer[self._position : self._position + data_len] = s
             self._position += data_len
             return data_len
 
@@ -469,6 +470,9 @@ def worker_process(
             if not reload_event.is_set():
                 update_start = time.perf_counter()
                 aggregated_update = shared_memory_manager.worker_wait_for_update()
+                if aggregated_update is None:
+                    raise RuntimeError("No update received from leader")
+
                 model.populate_caches(aggregated_update)
                 model.update_parameters()
                 update_time = time.perf_counter() - update_start
@@ -524,8 +528,8 @@ class ParallelTrainer(BasicTrainer):
         self._processes: tuple[mp.Process, ...] = ()
         self._shared_memory_manager: SharedMemoryManager | None = None
         self._gradient_shapes: list = []
-        self._gradient_barrier: mp.Barrier | None = None
-        self._update_barrier: mp.Barrier | None = None
+        self._gradient_barrier: Barrier | None = None
+        self._update_barrier: Barrier | None = None
         logger.trace("ParallelTrainer initialization completed")
 
     def resume(
