@@ -15,6 +15,7 @@ from more_itertools import peekable, sample
 from mo_net.data import (
     DATA_DIR,
     OUTPUT_PATH,
+    infer_dataset_url,
     load_data,
 )
 from mo_net.functions import (
@@ -89,13 +90,64 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--dataset-url",
         type=str,
         help="Set the url to the dataset",
-        default=MNIST_TRAIN_URL,
+        default=None,
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
 
     return wrapper
+
+
+def get_model(
+    *,
+    model_path: Path | None,
+    quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
+    dims: Sequence[int],
+    X_train: np.ndarray,
+    activation_fn: ActivationFn,
+    batch_size: int,
+    normalisation_type: NormalisationType,
+    tracing_enabled: bool,
+    dropout_keep_probs: Sequence[float],
+    training_parameters: TrainingParameters,
+) -> Model:
+    if model_path is None:
+        match quickstart:
+            case None:
+                if len(dims) == 0:
+                    raise ValueError("Dims must be provided when training a new model.")
+                return Model.mlp_of(  # type: ignore[call-overload]
+                    module_dimensions=(
+                        tuple(
+                            map(
+                                lambda d: (d,),
+                                [
+                                    X_train.shape[1],
+                                    *dims,
+                                    N_DIGITS,
+                                ],
+                            )
+                        )
+                    ),
+                    activation_fn=activation_fn,
+                    batch_size=batch_size,
+                    normalisation_type=normalisation_type,
+                    tracing_enabled=tracing_enabled,
+                    dropout_keep_probs=dropout_keep_probs,
+                )
+            case "mnist_mlp":
+                return mnist_mlp(training_parameters)
+            case "mnist_cnn":
+                return mnist_cnn(training_parameters)
+            case never_quickstart:
+                assert_never(never_quickstart)
+    else:
+        if len(dims) != 0:
+            raise ValueError(
+                "Dims must not be provided when loading a model from a file."
+            )
+        return Model.load(open(model_path, "rb"), training=True)
 
 
 @click.group()
@@ -208,7 +260,7 @@ def cli(): ...
 @click.option(
     "-q",
     "--quickstart",
-    type=click.Choice(["mlp", "cnn"]),
+    type=click.Choice(["mnist_mlp", "mnist_cnn"]),
     help="Set the quickstart",
     default=None,
 )
@@ -225,11 +277,17 @@ def cli(): ...
     help="Set the log level",
     default="INFO",
 )
+@click.option(
+    "--train-split",
+    type=float,
+    help="Set the split for the dataset",
+    default=0.9,
+)
 def train(
     *,
     activation_fn: ActivationFn,
     batch_size: int | None,
-    dataset_url: str,
+    dataset_url: str | None,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
     history_max_len: int,
@@ -244,20 +302,23 @@ def train(
     num_epochs: int,
     optimizer_type: OptimizerType,
     only_misclassified_examples: bool,
-    quickstart: Literal["mlp", "cnn"] | None,
+    quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
     regulariser_lambda: float,
     tracing_enabled: bool,
+    train_split: float,
     warmup_epochs: int,
     workers: int,
 ) -> None:
-    X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.9)
+    dataset_url = infer_dataset_url(quickstart)
+    if dataset_url is None:
+        raise ValueError("No dataset URL provided and no quickstart template used.")
+    X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=train_split)
 
-    seed = int(os.getenv("MNIST_SEED", time.time()))
+    seed = int(os.getenv("MO_NET_SEED", time.time()))
     np.random.seed(seed)
     setup_logging(log_level)
     logger.info(f"Training model with {seed=}.")
 
-    model: Model
     train_set_size = X_train.shape[0]
     if batch_size is None:
         batch_size = min(train_set_size, MAX_BATCH_SIZE)
@@ -282,42 +343,18 @@ def train(
         workers=workers,
     )
 
-    if model_path is None:
-        match quickstart:
-            case None:
-                if len(dims) == 0:
-                    raise ValueError("Dims must be provided when training a new model.")
-                model = Model.mlp_of(  # type: ignore[call-overload]
-                    module_dimensions=(
-                        tuple(
-                            map(
-                                lambda d: (d,),
-                                [
-                                    X_train.shape[1],
-                                    *dims,
-                                    N_DIGITS,
-                                ],
-                            )
-                        )
-                    ),
-                    activation_fn=activation_fn,
-                    batch_size=batch_size,
-                    normalisation_type=normalisation_type,
-                    tracing_enabled=tracing_enabled,
-                    dropout_keep_probs=dropout_keep_probs,
-                )
-            case "mlp":
-                model = mnist_mlp(training_parameters)
-            case "cnn":
-                model = mnist_cnn(training_parameters)
-            case never_quickstart:
-                assert_never(never_quickstart)
-    else:
-        if len(dims) != 0:
-            raise ValueError(
-                "Dims must not be provided when loading a model from a file."
-            )
-        model = Model.load(open(model_path, "rb"), training=True)
+    model = get_model(
+        model_path=model_path,
+        quickstart=quickstart,
+        dims=dims,
+        X_train=X_train,
+        activation_fn=activation_fn,
+        batch_size=batch_size,
+        normalisation_type=normalisation_type,
+        tracing_enabled=tracing_enabled,
+        dropout_keep_probs=dropout_keep_probs,
+        training_parameters=training_parameters,
+    )
 
     model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
     run = TrainingRun(
