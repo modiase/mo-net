@@ -29,7 +29,7 @@ class ForwardPropTestCase:
             input_dimensions=(1,),
             input_activations=np.array([[1.0], [2.0], [3.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([2.0]), _beta=np.array([1.0])
+                weights=np.array([2.0]), biases=np.array([1.0])
             ),
             training=True,
             running_mean=np.array([0.0]),
@@ -43,7 +43,7 @@ class ForwardPropTestCase:
             input_dimensions=(1,),
             input_activations=np.array([[1.0], [2.0], [3.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([2.0]), _beta=np.array([1.0])
+                weights=np.array([2.0]), biases=np.array([1.0])
             ),
             training=False,
             running_mean=np.array([2.0]),
@@ -55,7 +55,7 @@ class ForwardPropTestCase:
             input_dimensions=(2,),
             input_activations=np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0, 2.0]), _beta=np.array([0.0, 1.0])
+                weights=np.array([1.0, 2.0]), biases=np.array([0.0, 1.0])
             ),
             training=True,
             running_mean=np.array([0.0, 0.0]),
@@ -69,7 +69,7 @@ class ForwardPropTestCase:
             input_dimensions=(2,),
             input_activations=np.array([[1.0, 2.0], [3.0, 4.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0, 1.0]), _beta=np.array([0.0, 0.0])
+                weights=np.array([1.0, 1.0]), biases=np.array([0.0, 0.0])
             ),
             training=True,
             running_mean=np.array([0.0, 0.0]),
@@ -81,7 +81,7 @@ class ForwardPropTestCase:
             input_dimensions=(1,),
             input_activations=np.random.randn(100, 1) * 10 + 5,
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0]), _beta=np.array([0.0])
+                weights=np.array([1.0]), biases=np.array([0.0])
             ),
             training=True,
             running_mean=np.array([0.0]),
@@ -135,8 +135,8 @@ class BackwardPropTestCase:
     parameters: ParametersType
     dZ: np.ndarray
     expected_dX: np.ndarray
-    expected_d_gamma: np.ndarray
-    expected_d_beta: np.ndarray
+    expected_dweights: np.ndarray
+    expected_dbiases: np.ndarray
 
 
 @pytest.mark.parametrize(
@@ -147,48 +147,48 @@ class BackwardPropTestCase:
             input_dimensions=(1,),
             input_activations=np.array([[1.0], [2.0], [3.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([2.0]), _beta=np.array([1.0])
+                weights=np.array([2.0]), biases=np.array([1.0])
             ),
             dZ=np.array([[1.0], [1.0], [1.0]]),
             expected_dX=np.array([[0.0], [0.0], [0.0]]),
-            expected_d_gamma=np.array([0.0]),
-            expected_d_beta=np.array([3.0]),
+            expected_dweights=np.array([0.0]),
+            expected_dbiases=np.array([3.0]),
         ),
         BackwardPropTestCase(
             name="asymmetric_gradient_single_feature",
             input_dimensions=(1,),
             input_activations=np.array([[1.0], [2.0], [3.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0]), _beta=np.array([0.0])
+                weights=np.array([1.0]), biases=np.array([0.0])
             ),
             dZ=np.array([[1.0], [0.0], [-1.0]]),
             expected_dX=np.array([[0.816], [0.0], [-0.816]]),
-            expected_d_gamma=np.array([0.0]),
-            expected_d_beta=np.array([0.0]),
+            expected_dweights=np.array([0.0]),
+            expected_dbiases=np.array([0.0]),
         ),
         BackwardPropTestCase(
             name="multi_feature_backward",
             input_dimensions=(2,),
             input_activations=np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0, 2.0]), _beta=np.array([0.0, 1.0])
+                weights=np.array([1.0, 2.0]), biases=np.array([0.0, 1.0])
             ),
             dZ=np.array([[1.0, 1.0], [0.0, 0.0], [-1.0, -1.0]]),
             expected_dX=np.array([[0.816, 0.816], [0.0, 0.0], [-0.816, -0.816]]),
-            expected_d_gamma=np.array([0.0, 0.0]),
-            expected_d_beta=np.array([0.0, 0.0]),
+            expected_dweights=np.array([0.0, 0.0]),
+            expected_dbiases=np.array([0.0, 0.0]),
         ),
         BackwardPropTestCase(
             name="identity_backward_check",
             input_dimensions=(1,),
             input_activations=np.array([[-1.0], [0.0], [1.0]]),
             parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0]), _beta=np.array([0.0])
+                weights=np.array([1.0]), biases=np.array([0.0])
             ),
             dZ=np.array([[1.0], [1.0], [1.0]]),
             expected_dX=np.array([[0.0], [0.0], [0.0]]),
-            expected_d_gamma=np.array([0.0]),
-            expected_d_beta=np.array([3.0]),
+            expected_dweights=np.array([0.0]),
+            expected_dbiases=np.array([3.0]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -210,11 +210,11 @@ def test_batch_norm_backward_prop(test_case: BackwardPropTestCase):
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"
-    assert np.allclose(-cached_dP._gamma, test_case.expected_d_gamma, atol=1e-3), (
-        f"d_gamma incorrect: got {-cached_dP._gamma}, expected {test_case.expected_d_gamma}"
+    assert np.allclose(-cached_dP.weights, test_case.expected_dweights, atol=1e-3), (
+        f"dweights incorrect: got {-cached_dP.weights}, expected {test_case.expected_dweights}"
     )
-    assert np.allclose(-cached_dP._beta, test_case.expected_d_beta, atol=1e-3), (
-        f"d_beta incorrect: got {-cached_dP._beta}, expected {test_case.expected_d_beta}"
+    assert np.allclose(-cached_dP.biases, test_case.expected_dbiases, atol=1e-3), (
+        f"dbiases incorrect: got {-cached_dP.biases}, expected {test_case.expected_dbiases}"
     )
 
 
@@ -225,8 +225,8 @@ class ParameterUpdateTestCase:
     initial_parameters: ParametersType
     input_activations: np.ndarray
     dZ: np.ndarray
-    expected_updated_gamma: np.ndarray
-    expected_updated_beta: np.ndarray
+    expected_updatedweights: np.ndarray
+    expected_updatedbiases: np.ndarray
 
 
 @pytest.mark.parametrize(
@@ -236,23 +236,23 @@ class ParameterUpdateTestCase:
             name="simple_parameter_update",
             input_dimensions=(1,),
             initial_parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0]), _beta=np.array([0.0])
+                weights=np.array([1.0]), biases=np.array([0.0])
             ),
             input_activations=np.array([[1.0], [2.0], [3.0]]),
             dZ=np.array([[0.0], [1.0], [0.0]]),
-            expected_updated_gamma=np.array([1.0]),
-            expected_updated_beta=np.array([-1.0]),
+            expected_updatedweights=np.array([1.0]),
+            expected_updatedbiases=np.array([-1.0]),
         ),
         ParameterUpdateTestCase(
             name="multi_feature_update",
             input_dimensions=(2,),
             initial_parameters=BatchNorm.Parameters(
-                _gamma=np.array([1.0, 2.0]), _beta=np.array([0.5, -0.5])
+                weights=np.array([1.0, 2.0]), biases=np.array([0.5, -0.5])
             ),
             input_activations=np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]),
             dZ=np.array([[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]]),
-            expected_updated_gamma=np.array([1.0, 2.0]),
-            expected_updated_beta=np.array([-2.5, -6.5]),
+            expected_updatedweights=np.array([1.0, 2.0]),
+            expected_updatedbiases=np.array([-2.5, -6.5]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -270,10 +270,10 @@ def test_batch_norm_parameter_update(test_case: ParameterUpdateTestCase):
     layer.update_parameters()
 
     assert np.allclose(
-        layer.parameters._gamma, test_case.expected_updated_gamma, atol=1e-3
+        layer.parameters.weights, test_case.expected_updatedweights, atol=1e-3
     )
     assert np.allclose(
-        layer.parameters._beta, test_case.expected_updated_beta, atol=1e-3
+        layer.parameters.biases, test_case.expected_updatedbiases, atol=1e-3
     )
     assert layer.cache["dP"] is None
 
@@ -370,7 +370,7 @@ def test_batch_norm_serialization_deserialization():
         input_dimensions=(3,),
         momentum=0.8,
         parameters=BatchNorm.Parameters(
-            _gamma=np.array([1.0, 2.0, 3.0]), _beta=np.array([0.1, 0.2, 0.3])
+            weights=np.array([1.0, 2.0, 3.0]), biases=np.array([0.1, 0.2, 0.3])
         ),
         running_mean=np.array([0.5, 1.0, 1.5]),
         running_variance=np.array([0.8, 1.2, 1.6]),
@@ -382,10 +382,10 @@ def test_batch_norm_serialization_deserialization():
     assert deserialized_layer.input_dimensions == original_layer.input_dimensions
     assert deserialized_layer._momentum == original_layer._momentum
     assert np.allclose(
-        deserialized_layer.parameters._gamma, original_layer.parameters._gamma
+        deserialized_layer.parameters.weights, original_layer.parameters.weights
     )
     assert np.allclose(
-        deserialized_layer.parameters._beta, original_layer.parameters._beta
+        deserialized_layer.parameters.biases, original_layer.parameters.biases
     )
     assert np.allclose(deserialized_layer._running_mean, original_layer._running_mean)
     assert np.allclose(
@@ -431,8 +431,8 @@ def test_batch_norm_gradient_flow():
     assert dX.shape == input_data.shape
     assert np.isfinite(dX).all()
     assert layer.cache["dP"] is not None
-    assert np.isfinite(layer.cache["dP"]._gamma).all()
-    assert np.isfinite(layer.cache["dP"]._beta).all()
+    assert np.isfinite(layer.cache["dP"].weights).all()
+    assert np.isfinite(layer.cache["dP"].biases).all()
 
 
 def test_batch_norm_empty_gradient():
@@ -440,8 +440,8 @@ def test_batch_norm_empty_gradient():
     layer = BatchNorm(input_dimensions=(3,))
     empty_grad = layer.empty_gradient()
 
-    assert np.allclose(empty_grad._gamma, np.zeros(3))
-    assert np.allclose(empty_grad._beta, np.zeros(3))
+    assert np.allclose(empty_grad.weights, np.zeros(3))
+    assert np.allclose(empty_grad.biases, np.zeros(3))
 
 
 def test_batch_norm_parameter_count():
@@ -476,11 +476,11 @@ def test_batch_norm_reinitialise():
     layer = BatchNorm(
         input_dimensions=(2,),
         parameters=BatchNorm.Parameters(
-            _gamma=np.array([2.0, 3.0]), _beta=np.array([1.0, -1.0])
+            weights=np.array([2.0, 3.0]), biases=np.array([1.0, -1.0])
         ),
     )
 
     layer.reinitialise()
 
-    assert np.allclose(layer.parameters._gamma, [1.0, 1.0])
-    assert np.allclose(layer.parameters._beta, [0.0, 0.0])
+    assert np.allclose(layer.parameters.weights, [1.0, 1.0])
+    assert np.allclose(layer.parameters.biases, [0.0, 0.0])

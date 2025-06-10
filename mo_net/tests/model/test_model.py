@@ -17,10 +17,10 @@ def test_model_initialisation_of_mlp_has_correct_dimensions():
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
 
-    assert model.hidden_blocks[0].layers[0]._parameters._W.shape == (2, 2)
-    assert model.hidden_blocks[0].layers[0]._parameters._B.shape == (2,)
-    assert model.output_block.layers[0]._parameters._W.shape == (2, 2)
-    assert model.output_block.layers[0]._parameters._B.shape == (2,)
+    assert model.hidden_blocks[0].layers[0]._parameters.weights.shape == (2, 2)
+    assert model.hidden_blocks[0].layers[0]._parameters.biases.shape == (2,)
+    assert model.output_block.layers[0]._parameters.weights.shape == (2, 2)
+    assert model.output_block.layers[0]._parameters.biases.shape == (2,)
 
 
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
@@ -60,8 +60,8 @@ def test_forward_prop_linear_model(factor: int, dX: np.ndarray):
                 input_dimensions=(5,),
                 output_dimensions=(2,),
                 parameters=Linear.Parameters(
-                    _W=weights,
-                    _B=bias_1,
+                    weights=weights,
+                    biases=bias_1,
                 ),
             ),
         ],

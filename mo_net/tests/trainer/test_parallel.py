@@ -78,8 +78,6 @@ class GradientTransferTestCase:
     backward_input: np.ndarray
     expected_w_shape: Tuple[int, ...]
     expected_b_shape: Tuple[int, ...]
-    w_attr: str
-    b_attr: str
 
 
 @dataclass(frozen=True)
@@ -88,8 +86,6 @@ class GradientAggregationTestCase:
     model: Model
     gradient1: Any
     gradient2: Any
-    w_attr: str
-    b_attr: str
 
 
 @pytest.mark.parametrize(
@@ -111,8 +107,6 @@ class GradientAggregationTestCase:
             backward_input=np.array([[1.0, 0.0], [0.0, 1.0]]),
             expected_w_shape=(3, 2),
             expected_b_shape=(2,),
-            w_attr="_W",
-            b_attr="_B",
         ),
         GradientTransferTestCase(
             name="convolution",
@@ -132,8 +126,6 @@ class GradientAggregationTestCase:
             backward_input=np.random.rand(2, 2, 2, 2),
             expected_w_shape=(2, 1, 3, 3),
             expected_b_shape=(2,),
-            w_attr="weights",
-            b_attr="biases",
         ),
         GradientTransferTestCase(
             name="batch_norm",
@@ -145,8 +137,6 @@ class GradientAggregationTestCase:
             backward_input=np.random.rand(3, 4),
             expected_w_shape=(4,),
             expected_b_shape=(4,),
-            w_attr="_gamma",
-            b_attr="_beta",
         ),
     ],
 )
@@ -180,18 +170,18 @@ def test_gradient_transfer(
     assert final_gradient is not None
 
     np.testing.assert_allclose(
-        getattr(final_gradient, test_case.w_attr),
-        getattr(original_gradient, test_case.w_attr),
+        final_gradient.weights,
+        original_gradient.weights,
         rtol=1e-10,
     )
     np.testing.assert_allclose(
-        getattr(final_gradient, test_case.b_attr),
-        getattr(original_gradient, test_case.b_attr),
+        final_gradient.biases,
+        original_gradient.biases,
         rtol=1e-10,
     )
 
-    assert getattr(final_gradient, test_case.w_attr).shape == test_case.expected_w_shape
-    assert getattr(final_gradient, test_case.b_attr).shape == test_case.expected_b_shape
+    assert final_gradient.weights.shape == test_case.expected_w_shape
+    assert final_gradient.biases.shape == test_case.expected_b_shape
 
 
 @pytest.mark.parametrize(
@@ -210,13 +200,11 @@ def test_gradient_transfer(
                 ],
             ),
             gradient1=Linear.Parameters(
-                _W=np.array([[1.0], [2.0]]), _B=np.array([3.0])
+                weights=np.array([[1.0], [2.0]]), biases=np.array([3.0])
             ),
             gradient2=Linear.Parameters(
-                _W=np.array([[4.0], [5.0]]), _B=np.array([6.0])
+                weights=np.array([[4.0], [5.0]]), biases=np.array([6.0])
             ),
-            w_attr="_W",
-            b_attr="_B",
         ),
         GradientAggregationTestCase(
             name="convolution",
@@ -238,8 +226,6 @@ def test_gradient_transfer(
             gradient2=Convolution2D.Parameters(
                 weights=np.array([[[[6.0, 7.0], [8.0, 9.0]]]]), biases=np.array([10.0])
             ),
-            w_attr="weights",
-            b_attr="biases",
         ),
         GradientAggregationTestCase(
             name="batch_norm",
@@ -248,13 +234,11 @@ def test_gradient_transfer(
                 hidden=[BatchNorm(input_dimensions=(3,), training=True)],
             ),
             gradient1=BatchNorm.Parameters(
-                _gamma=np.array([1.0, 2.0, 3.0]), _beta=np.array([4.0, 5.0, 6.0])
+                weights=np.array([1.0, 2.0, 3.0]), biases=np.array([4.0, 5.0, 6.0])
             ),
             gradient2=BatchNorm.Parameters(
-                _gamma=np.array([7.0, 8.0, 9.0]), _beta=np.array([10.0, 11.0, 12.0])
+                weights=np.array([7.0, 8.0, 9.0]), biases=np.array([10.0, 11.0, 12.0])
             ),
-            w_attr="_gamma",
-            b_attr="_beta",
         ),
     ],
 )
@@ -276,20 +260,12 @@ def test_gradient_transfer_aggregation(test_case: GradientAggregationTestCase) -
 
     final_gradient = test_case.model.grad_layers[0].cache["dP"]
     np.testing.assert_allclose(
-        getattr(final_gradient, test_case.w_attr),
-        (
-            getattr(test_case.gradient1, test_case.w_attr)
-            + getattr(test_case.gradient2, test_case.w_attr)
-        )
-        / 2,
+        final_gradient.weights,
+        (test_case.gradient1.weights + test_case.gradient2.weights) / 2,
         rtol=1e-10,
     )
     np.testing.assert_allclose(
-        getattr(final_gradient, test_case.b_attr),
-        (
-            getattr(test_case.gradient1, test_case.b_attr)
-            + getattr(test_case.gradient2, test_case.b_attr)
-        )
-        / 2,
+        final_gradient.biases,
+        (test_case.gradient1.biases + test_case.gradient2.biases) / 2,
         rtol=1e-10,
     )

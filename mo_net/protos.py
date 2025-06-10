@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Generic, NewType, Protocol, Self, TypeVar, TypedDict, cast
+from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast
 
 import numpy as np
 from typing_extensions import runtime_checkable
@@ -46,11 +46,11 @@ class EventLike(Protocol):
 
 
 class HasBiases(Protocol):
-    _B: np.ndarray
+    biases: np.ndarray
 
 
 class HasWeights(Protocol):
-    _W: np.ndarray
+    weights: np.ndarray
 
 
 type LossContributor = Callable[[], float]

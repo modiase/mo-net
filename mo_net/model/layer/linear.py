@@ -28,20 +28,25 @@ EPSILON: Final[float] = 1e-8
 
 @dataclass(kw_only=True)
 class Parameters(SupportsGradientOperations):
-    _W: np.ndarray
-    _B: np.ndarray
+    weights: np.ndarray
+    biases: np.ndarray
 
     def __getitem__(
         self, index: int | tuple[int, ...]
     ) -> tuple[np.ndarray, np.ndarray]:
-        return self._W[index], self._B[index]
+        return self.weights[index], self.biases[index]
 
     def __add__(self, other: Self | float | int) -> Self:
         match other:
             case Parameters():
-                return self.__class__(_W=self._W + other._W, _B=self._B + other._B)
+                return self.__class__(
+                    weights=self.weights + other.weights,
+                    biases=self.biases + other.biases,
+                )
             case float() | int():
-                return self.__class__(_W=self._W + other, _B=self._B + other)
+                return self.__class__(
+                    weights=self.weights + other, biases=self.biases + other
+                )
             case _:
                 return NotImplemented
 
@@ -49,7 +54,7 @@ class Parameters(SupportsGradientOperations):
         return self.__add__(other)
 
     def __neg__(self) -> Self:
-        return self.__class__(_W=-self._W, _B=-self._B)
+        return self.__class__(weights=-self.weights, biases=-self.biases)
 
     def __sub__(self, other: Self | float | int) -> Self:
         return self.__add__(-other)
@@ -60,9 +65,14 @@ class Parameters(SupportsGradientOperations):
     def __mul__(self, other: float | int | Self) -> Self:
         match other:
             case float() | int():
-                return self.__class__(_W=other * self._W, _B=other * self._B)
+                return self.__class__(
+                    weights=other * self.weights, biases=other * self.biases
+                )
             case self.__class__():
-                return self.__class__(_W=self._W * other._W, _B=self._B * other._B)
+                return self.__class__(
+                    weights=self.weights * other.weights,
+                    biases=self.biases * other.biases,
+                )
             case _:
                 return NotImplemented
 
@@ -73,8 +83,8 @@ class Parameters(SupportsGradientOperations):
         match other:
             case Parameters():
                 return self.__class__(
-                    _W=self._W / (other._W + EPSILON),
-                    _B=self._B / (other._B + EPSILON),
+                    weights=self.weights / (other.weights + EPSILON),
+                    biases=self.biases / (other.biases + EPSILON),
                 )
             case float() | int():
                 return self.__mul__(1 / other)
@@ -82,21 +92,23 @@ class Parameters(SupportsGradientOperations):
                 return NotImplemented
 
     def __pow__(self, scalar: float | int) -> Self:
-        return self.__class__(_W=self._W**scalar, _B=self._B**scalar)
+        return self.__class__(weights=self.weights**scalar, biases=self.biases**scalar)
 
     @classmethod
     def random(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
-        return cls(_W=np.random.randn(_dim_in, _dim_out), _B=np.zeros(_dim_out))
+        return cls(
+            weights=np.random.randn(_dim_in, _dim_out), biases=np.zeros(_dim_out)
+        )
 
     @classmethod
     def xavier(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
         return cls(
-            _W=np.random.randn(_dim_in, _dim_out) * np.sqrt(1 / _dim_in),
-            _B=np.zeros(_dim_out),
+            weights=np.random.randn(_dim_in, _dim_out) * np.sqrt(1 / _dim_in),
+            biases=np.zeros(_dim_out),
         )
 
     @classmethod
@@ -104,8 +116,8 @@ class Parameters(SupportsGradientOperations):
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
         return cls(
-            _W=np.random.normal(0, np.sqrt(2 / _dim_in), (_dim_in, _dim_out)),
-            _B=np.zeros(_dim_out),
+            weights=np.random.normal(0, np.sqrt(2 / _dim_in), (_dim_in, _dim_out)),
+            biases=np.zeros(_dim_out),
         )
 
     @classmethod
@@ -124,20 +136,20 @@ class Parameters(SupportsGradientOperations):
     @classmethod
     def eye(cls, dim: Dimensions) -> Self:
         _dim = one(dim)
-        return cls(_W=np.eye(_dim), _B=np.zeros(_dim))
+        return cls(weights=np.eye(_dim), biases=np.zeros(_dim))
 
     @classmethod
     def of(cls, W: np.ndarray, B: np.ndarray) -> Self:
-        return cls(_W=np.atleast_2d(W), _B=np.atleast_1d(B))
+        return cls(weights=np.atleast_2d(W), biases=np.atleast_1d(B))
 
     def from_bytes(self, data: IO[bytes]) -> Self:
-        W = np.frombuffer(data.read(self._W.nbytes), dtype=self._W.dtype).reshape(
-            self._W.shape
-        )
-        B = np.frombuffer(data.read(self._B.nbytes), dtype=self._B.dtype).reshape(
-            self._B.shape
-        )
-        return self.__class__(_W=W, _B=B)
+        W = np.frombuffer(
+            data.read(self.weights.nbytes), dtype=self.weights.dtype
+        ).reshape(self.weights.shape)
+        B = np.frombuffer(
+            data.read(self.biases.nbytes), dtype=self.biases.dtype
+        ).reshape(self.biases.shape)
+        return self.__class__(weights=W, biases=B)
 
 
 type ParametersType = Parameters
@@ -226,15 +238,18 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         self._weight_max_norm = weight_max_norm
         self._bias_max_norm = bias_max_norm
         if parameters is not None:
-            if parameters._W.shape != (one(input_dimensions), one(output_dimensions)):
+            if parameters.weights.shape != (
+                one(input_dimensions),
+                one(output_dimensions),
+            ):
                 raise ValueError(
-                    f"Weight matrix shape ({parameters._W.shape}) "
+                    f"Weight matrix shape ({parameters.weights.shape}) "
                     f"does not match input dimensions ({input_dimensions}) "
                     f"and output dimensions ({output_dimensions})."
                 )
-            if parameters._B.shape != (one(output_dimensions),):
+            if parameters.biases.shape != (one(output_dimensions),):
                 raise ValueError(
-                    f"Bias vector shape ({parameters._B.shape}) "
+                    f"Bias vector shape ({parameters.biases.shape}) "
                     f"does not match output dimensions ({output_dimensions})."
                 )
 
@@ -253,7 +268,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
         output_activations = Activations(
-            input_activations @ self._parameters._W + self._parameters._B
+            input_activations @ self._parameters.weights + self._parameters.biases
         )
         if self._store_output_activations:
             self._cache["output_activations"] = output_activations
@@ -286,13 +301,13 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             D[Parameters],
             self.Parameters.of(W=dW, B=dB),
         )
-        return dZ @ self._parameters._W.T
+        return dZ @ self._parameters.weights.T
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                _W=np.zeros_like(self._parameters._W),
-                _B=np.zeros_like(self._parameters._B),
+                weights=np.zeros_like(self._parameters.weights),
+                biases=np.zeros_like(self._parameters.biases),
             )
         )
 
@@ -329,12 +344,12 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
 
     @property
     def parameter_count(self) -> int:
-        return self._parameters._W.size + self._parameters._B.size
+        return self._parameters.weights.size + self._parameters.biases.size
 
     def serialize_parameters(self, buffer: IO[bytes]) -> None:
         self._write_header(buffer)
-        buffer.write(memoryview(self._cache["dP"]._W))
-        buffer.write(memoryview(self._cache["dP"]._B))
+        buffer.write(memoryview(self._cache["dP"].weights))
+        buffer.write(memoryview(self._cache["dP"].biases))
 
     def deserialize_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
@@ -347,4 +362,4 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
 
     @property
     def parameter_nbytes(self) -> int:
-        return self._parameters._W.nbytes + self._parameters._B.nbytes
+        return self._parameters.weights.nbytes + self._parameters.biases.nbytes

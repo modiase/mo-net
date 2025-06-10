@@ -23,14 +23,17 @@ class WeightDecayRegulariser(TrainingStepHandler):
         self._layer.cache["dP"] = d(
             dP
             + Linear.Parameters(
-                _W=self._lambda * learning_rate * self._layer.parameters._W,
-                _B=np.zeros_like(dP._B),  # type: ignore[attr-defined]
+                weights=self._lambda * learning_rate * self._layer.parameters.weights,
+                biases=np.zeros_like(dP._B),  # type: ignore[attr-defined]
             )
         )
 
     def compute_regularisation_loss(self) -> float:
         return (
-            0.5 * self._lambda * np.sum(self._layer.parameters._W**2) / self._batch_size
+            0.5
+            * self._lambda
+            * np.sum(self._layer.parameters.weights**2)
+            / self._batch_size
         )
 
     def __call__(self) -> float:
