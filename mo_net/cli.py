@@ -184,6 +184,7 @@ def cli(): ...
     ),
     help="Set the normalisation type",
     default=NormalisationType.LAYER,
+    callback=lambda _, __, value: value.upper() if isinstance(value, str) else value,
 )
 @click.option(
     "-k",
