@@ -309,7 +309,7 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> None:
-    dataset_url = infer_dataset_url(quickstart)
+    dataset_url = infer_dataset_url(quickstart) if dataset_url is None else dataset_url
     if dataset_url is None:
         raise ValueError("No dataset URL provided and no quickstart template used.")
     X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=train_split)
