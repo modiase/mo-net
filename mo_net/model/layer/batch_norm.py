@@ -258,14 +258,14 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
                 "input_activations is not populated during backward pass."
             )
 
-        dX_norm = dZ / self._parameters._gamma
+        dX_norm = dZ * self._parameters._gamma
         d_gamma = np.sum(dZ * output_activations, axis=0)
-        d_beta = np.sum(dZ, axis=0)  # type: ignore[call-overload]
+        d_beta = np.sum(dZ, axis=0)
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
-                    _gamma=d_gamma,
-                    _beta=d_beta,
+                    _gamma=-d_gamma,
+                    _beta=-d_beta,
                 )
             )
         batch_size = self._cache["batch_size"]
@@ -275,7 +275,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             axis=0,
         )
         d_batch_mean = (
-            np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
+            -np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
             + d_batch_variance
             * np.sum(-2 * (input_activations - mean), axis=0)
             / batch_size

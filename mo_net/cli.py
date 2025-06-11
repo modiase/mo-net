@@ -180,11 +180,11 @@ def cli(): ...
     "-t",
     "--normalisation-type",
     type=click.Choice(
-        [NormalisationType.LAYER, NormalisationType.BATCH, NormalisationType.NONE]
+        [v.value for v in NormalisationType],
+        case_sensitive=False,
     ),
     help="Set the normalisation type",
-    default=NormalisationType.LAYER,
-    callback=lambda _, __, value: value.upper() if isinstance(value, str) else value,
+    default=NormalisationType.LAYER.value,
 )
 @click.option(
     "-k",
