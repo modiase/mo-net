@@ -29,7 +29,7 @@ from mo_net.model import Model
 from mo_net.protos import ActivationFn, NormalisationType
 from mo_net.quickstart import mnist_cnn, mnist_mlp
 from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
-from mo_net.resources import MNIST_TRAIN_URL
+from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.train import (
     TrainingParameters,
 )
@@ -449,7 +449,13 @@ def train(
     help="Set the url to the dataset",
     default=MNIST_TRAIN_URL,
 )
-def infer(*, model_path: Path | None, dataset_url: str):
+@click.option(
+    "--test-dataset-url",
+    type=str,
+    help="Set the url to the dataset",
+    default=MNIST_TEST_URL,
+)
+def infer(*, model_path: Path | None, dataset_url: str, test_dataset_url: str):
     X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.8)
 
     if model_path is None:
@@ -474,10 +480,7 @@ def infer(*, model_path: Path | None, dataset_url: str):
         f"Training Set Accuracy: {np.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
     )
 
-    Y_test_pred = model.predict(X_val)
-    Y_test_true = np.argmax(Y_val, axis=1)
-
-    X_test, Y_test = load_data(dataset_url)
+    X_test, Y_test = load_data(test_dataset_url)
     Y_test_pred = model.predict(X_test)
     Y_test_true = np.argmax(Y_test, axis=1)
     logger.info(
