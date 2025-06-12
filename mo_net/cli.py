@@ -184,6 +184,7 @@ def cli(): ...
         case_sensitive=False,
     ),
     help="Set the normalisation type",
+    callback=NormalisationType.cli_parse,
     default=NormalisationType.LAYER.value,
 )
 @click.option(
@@ -221,7 +222,7 @@ def cli(): ...
     "--warmup-epochs",
     type=int,
     help="Set the number of warmup epochs",
-    default=100,
+    default=10,
 )
 @click.option(
     "-r",
