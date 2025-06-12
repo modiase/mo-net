@@ -134,9 +134,35 @@ class Cache(GradCache):
     output_activations: Activations | None
     var: np.ndarray | None
     batch_size: int | None
+    spatial_size: int | None
 
 
 type CacheType = Cache
+
+
+def _compute_batch_stats(
+    input_activations: np.ndarray, is_spatial: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    if is_spatial:
+        # For conv inputs: reshape to (N*H*W, C) and compute per-channel stats
+        n_channels = input_activations.shape[1]
+        reshaped = input_activations.transpose(0, 2, 3, 1).reshape(-1, n_channels)
+        return np.mean(reshaped, axis=0), np.var(reshaped, axis=0)
+    else:
+        # For FC inputs: compute stats across batch dimension
+        return np.mean(input_activations, axis=0), np.var(input_activations, axis=0)
+
+
+def _update_running_stats(
+    running_mean: np.ndarray,
+    running_var: np.ndarray,
+    batch_mean: np.ndarray,
+    batch_var: np.ndarray,
+    momentum: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    new_mean = momentum * running_mean + (1 - momentum) * batch_mean
+    new_var = momentum * running_var + (1 - momentum) * batch_var
+    return new_mean, new_var
 
 
 class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
@@ -200,6 +226,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             "output_activations": None,
             "batch_size": None,
             "var": None,
+            "spatial_size": None,
         }
         self._store_output_activations = store_output_activations
         self._parameters = (
@@ -207,16 +234,20 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        batch_mean = np.mean(input_activations, axis=0)
-        batch_variance = np.var(input_activations, axis=0)
+        if len(input_activations.shape) != 2:
+            raise ValueError(
+                f"BatchNorm expects 2D input (batch_size, features), got shape {input_activations.shape}"
+            )
+
+        batch_mean, batch_variance = _compute_batch_stats(input_activations)
 
         if self._training:
-            self._running_mean = (
-                self._momentum * self._running_mean + (1 - self._momentum) * batch_mean
-            )
-            self._running_variance = (
-                self._momentum * self._running_variance
-                + (1 - self._momentum) * batch_variance
+            self._running_mean, self._running_variance = _update_running_stats(
+                self._running_mean,
+                self._running_variance,
+                batch_mean,
+                batch_variance,
+                self._momentum,
             )
 
             normalised_activations = (input_activations - batch_mean) / np.sqrt(
@@ -240,11 +271,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
         return self._parameters._gamma * normalised_activations + self._parameters._beta
 
-    def _backward_prop(
-        self,
-        *,
-        dZ: D[Activations],
-    ) -> D[Activations]:
+    def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if (mean := self._cache["mean"]) is None:
             raise RuntimeError("Mean is not populated during backward pass.")
         if (var := self._cache["var"]) is None:
@@ -261,15 +288,11 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         dX_norm = dZ * self._parameters._gamma
         d_gamma = np.sum(dZ * output_activations, axis=0)
         d_beta = np.sum(dZ, axis=0)
-        if self._training:
-            self._cache["dP"] = d(
-                self.Parameters(
-                    _gamma=-d_gamma,
-                    _beta=-d_beta,
-                )
-            )
-        batch_size = self._cache["batch_size"]
 
+        if self._training:
+            self._cache["dP"] = d(self.Parameters(_gamma=-d_gamma, _beta=-d_beta))
+
+        batch_size = self._cache["batch_size"]
         d_batch_variance = -0.5 * np.sum(
             dX_norm * (input_activations - mean) * np.power(var + self._EPSILON, -1.5),
             axis=0,
@@ -332,3 +355,162 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     @property
     def parameter_count(self) -> int:
         return self._parameters._gamma.size + self._parameters._beta.size
+
+
+class BatchNorm2D(BatchNorm):
+    def __init__(
+        self,
+        *,
+        input_dimensions: Dimensions,
+        momentum: float = 0.9,
+        parameters: ParametersType | None = None,
+        running_mean: np.ndarray | None = None,
+        running_variance: np.ndarray | None = None,
+        store_output_activations: bool = False,
+        training: bool = True,
+    ):
+        if len(input_dimensions) != 3:
+            raise ValueError(
+                f"BatchNorm2D expects 3D input dimensions (channels, height, width), got {input_dimensions}"
+            )
+
+        n_channels = input_dimensions[0]
+        param_shape = (n_channels,)
+
+        super().__init__(
+            input_dimensions=input_dimensions,
+            momentum=momentum,
+            parameters=parameters,
+            running_mean=running_mean
+            if running_mean is not None
+            else np.zeros(param_shape),
+            running_variance=running_variance
+            if running_variance is not None
+            else np.ones(param_shape),
+            store_output_activations=store_output_activations,
+            training=training,
+        )
+
+    def _forward_prop(self, *, input_activations: Activations) -> Activations:
+        if len(input_activations.shape) != 4:
+            raise ValueError(
+                f"BatchNorm2D expects 4D input (batch_size, channels, height, width), got shape {input_activations.shape}"
+            )
+
+        batch_size, n_channels = input_activations.shape[0], input_activations.shape[1]
+        spatial_size = input_activations.shape[2] * input_activations.shape[3]
+
+        batch_mean, batch_variance = _compute_batch_stats(
+            input_activations, is_spatial=True
+        )
+
+        if self._training:
+            self._running_mean, self._running_variance = _update_running_stats(
+                self._running_mean,
+                self._running_variance,
+                batch_mean,
+                batch_variance,
+                self._momentum,
+            )
+
+            norm_mean = batch_mean.reshape(1, n_channels, 1, 1)
+            norm_var = batch_variance.reshape(1, n_channels, 1, 1)
+            normalised_activations = (input_activations - norm_mean) / np.sqrt(
+                norm_var + self._EPSILON
+            )
+
+            self._cache.update(
+                {
+                    "input_activations": input_activations,
+                    "mean": batch_mean,
+                    "var": batch_variance,
+                    "batch_size": batch_size,
+                    "spatial_size": spatial_size,
+                }
+            )
+        else:
+            norm_mean = self._running_mean.reshape(1, n_channels, 1, 1)
+            norm_var = self._running_variance.reshape(1, n_channels, 1, 1)
+            normalised_activations = (input_activations - norm_mean) / np.sqrt(
+                norm_var + self._EPSILON
+            )
+
+        if self._store_output_activations or self._training:
+            self._cache["output_activations"] = normalised_activations
+
+        gamma = self._parameters._gamma.reshape(1, n_channels, 1, 1)
+        beta = self._parameters._beta.reshape(1, n_channels, 1, 1)
+
+        return gamma * normalised_activations + beta
+
+    def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
+        if (mean := self._cache["mean"]) is None:
+            raise RuntimeError("Mean is not populated during backward pass.")
+        if (var := self._cache["var"]) is None:
+            raise RuntimeError("Variance is not populated during backward pass.")
+        if (output_activations := self._cache["output_activations"]) is None:
+            raise RuntimeError(
+                "Output activations are not populated during backward pass."
+            )
+        if (input_activations := self._cache["input_activations"]) is None:
+            raise RuntimeError(
+                "input_activations is not populated during backward pass."
+            )
+
+        batch_size = self._cache["batch_size"]
+        spatial_size = self._cache["spatial_size"]
+        n_channels = mean.shape[0]
+
+        dZ_reshaped = dZ.transpose(0, 2, 3, 1).reshape(-1, n_channels)
+        output_reshaped = output_activations.transpose(0, 2, 3, 1).reshape(
+            -1, n_channels
+        )
+
+        d_gamma = np.sum(dZ_reshaped * output_reshaped, axis=0)
+        d_beta = np.sum(dZ_reshaped, axis=0)
+
+        if self._training:
+            self._cache["dP"] = d(self.Parameters(_gamma=-d_gamma, _beta=-d_beta))
+
+        mean_reshaped = mean.reshape(1, n_channels, 1, 1)
+        dX_norm_reshaped = dZ_reshaped * self._parameters._gamma
+        x_minus_mean_reshaped = (
+            (input_activations - mean_reshaped)
+            .transpose(0, 2, 3, 1)
+            .reshape(-1, n_channels)
+        )
+        total_elements = batch_size * spatial_size
+
+        d_var = -0.5 * np.sum(
+            dX_norm_reshaped
+            * x_minus_mean_reshaped
+            * np.power(var + self._EPSILON, -1.5),
+            axis=0,
+        )
+
+        d_mean = (
+            -np.sum(dX_norm_reshaped / np.sqrt(var + self._EPSILON), axis=0)
+            + d_var * np.sum(-2 * x_minus_mean_reshaped, axis=0) / total_elements
+        )
+
+        dX_reshaped = (
+            dX_norm_reshaped / np.sqrt(var + self._EPSILON)
+            + d_var * 2 * x_minus_mean_reshaped / total_elements
+            + d_mean / total_elements
+        )
+
+        dX = dX_reshaped.reshape(
+            batch_size,
+            input_activations.shape[2],
+            input_activations.shape[3],
+            n_channels,
+        ).transpose(0, 3, 1, 2)
+
+        return dX
+
+    def empty_parameters(self) -> ParametersType:
+        n_channels = self._input_dimensions[0]
+        return self.Parameters(
+            _gamma=np.ones(n_channels),
+            _beta=np.zeros(n_channels),
+        )

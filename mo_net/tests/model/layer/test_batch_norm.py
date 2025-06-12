@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from mo_net.model.layer.batch_norm import BatchNorm, ParametersType
+from mo_net.model.layer.batch_norm import BatchNorm, BatchNorm2D, ParametersType
 from mo_net.protos import Activations, Dimensions
 
 
@@ -484,3 +484,288 @@ def test_batch_norm_reinitialise():
 
     assert np.allclose(layer.parameters._gamma, [1.0, 1.0])
     assert np.allclose(layer.parameters._beta, [0.0, 0.0])
+
+
+@dataclass(frozen=True)
+class BatchNorm2DForwardTestCase:
+    name: str
+    input_dimensions: Dimensions
+    input_activations: np.ndarray
+    parameters: ParametersType | None
+    training: bool
+    running_mean: np.ndarray | None
+    running_variance: np.ndarray | None
+    expected_output: np.ndarray
+    expected_running_mean: np.ndarray | None = None
+    expected_running_variance: np.ndarray | None = None
+
+
+@pytest.mark.parametrize(
+    "test_case",
+    [
+        BatchNorm2DForwardTestCase(
+            name="simple_2d_single_channel",
+            input_dimensions=(1, 2, 2),
+            input_activations=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0]), _beta=np.array([0.0])
+            ),
+            training=True,
+            running_mean=np.array([0.0]),
+            running_variance=np.array([1.0]),
+            expected_output=np.array([[[[-1.161, -0.387], [0.387, 1.161]]]]),
+            expected_running_mean=np.array([0.25]),
+            expected_running_variance=np.array([0.95]),
+        ),
+        BatchNorm2DForwardTestCase(
+            name="multi_channel_forward",
+            input_dimensions=(2, 2, 2),
+            input_activations=np.array(
+                [
+                    [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
+                ]
+            ),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0, 2.0]), _beta=np.array([0.0, 1.0])
+            ),
+            training=True,
+            running_mean=np.array([0.0, 0.0]),
+            running_variance=np.array([1.0, 1.0]),
+            expected_output=np.array(
+                [
+                    [
+                        [[-1.161, -0.387], [0.387, 1.161]],
+                        [[-1.161, 0.226], [1.613, 3.0]],
+                    ],
+                ]
+            ),
+            expected_running_mean=np.array([0.25, 0.65]),
+            expected_running_variance=np.array([0.95, 0.95]),
+        ),
+        BatchNorm2DForwardTestCase(
+            name="batch_size_greater_than_one",
+            input_dimensions=(1, 2, 2),
+            input_activations=np.array(
+                [
+                    [[[1.0, 2.0], [3.0, 4.0]]],
+                    [[[5.0, 6.0], [7.0, 8.0]]],
+                ]
+            ),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0]), _beta=np.array([0.0])
+            ),
+            training=True,
+            running_mean=np.array([0.0]),
+            running_variance=np.array([1.0]),
+            expected_output=np.array(
+                [
+                    [[[-1.528, -1.091], [-0.655, -0.218]]],
+                    [[[0.218, 0.655], [1.091, 1.528]]],
+                ]
+            ),
+            expected_running_mean=np.array([0.45]),
+            expected_running_variance=np.array([0.9575]),
+        ),
+        BatchNorm2DForwardTestCase(
+            name="inference_mode",
+            input_dimensions=(2, 2, 2),
+            input_activations=np.array(
+                [
+                    [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
+                ]
+            ),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0, 2.0]), _beta=np.array([0.0, 1.0])
+            ),
+            training=False,
+            running_mean=np.array([2.5, 6.5]),
+            running_variance=np.array([1.25, 1.25]),
+            expected_output=np.array(
+                [
+                    [
+                        [[-1.342, -0.447], [0.447, 1.342]],
+                        [[-2.683, -0.894], [0.894, 3.683]],
+                    ],
+                ]
+            ),
+        ),
+    ],
+    ids=lambda test_case: test_case.name,
+)
+def test_batch_norm_2d_forward_prop(test_case: BatchNorm2DForwardTestCase):
+    layer = BatchNorm2D(
+        input_dimensions=test_case.input_dimensions,
+        parameters=test_case.parameters,
+        training=test_case.training,
+        running_mean=test_case.running_mean,
+        running_variance=test_case.running_variance,
+    )
+
+    output = layer.forward_prop(
+        input_activations=Activations(test_case.input_activations)
+    )
+
+    if test_case.expected_output is not None:
+        assert np.allclose(output, test_case.expected_output, atol=1e-3)
+
+    if test_case.training and test_case.expected_running_mean is not None:
+        assert np.allclose(
+            layer._running_mean, test_case.expected_running_mean, atol=1e-3
+        )
+    if test_case.training and test_case.expected_running_variance is not None:
+        assert np.allclose(
+            layer._running_variance, test_case.expected_running_variance, atol=1e-3
+        )
+
+
+@dataclass(frozen=True)
+class BatchNorm2DBackwardTestCase:
+    name: str
+    input_dimensions: Dimensions
+    input_activations: np.ndarray
+    parameters: ParametersType
+    dZ: np.ndarray
+    expected_dX: np.ndarray
+    expected_d_gamma: np.ndarray
+    expected_d_beta: np.ndarray
+
+
+@pytest.mark.parametrize(
+    "test_case",
+    [
+        BatchNorm2DBackwardTestCase(
+            name="simple_single_channel_backward",
+            input_dimensions=(1, 2, 2),
+            input_activations=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0]), _beta=np.array([0.0])
+            ),
+            dZ=np.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
+            expected_dX=np.array([[[[0.0, 0.0], [0.0, 0.0]]]]),
+            expected_d_gamma=np.array([0.0]),
+            expected_d_beta=np.array([4.0]),
+        ),
+        BatchNorm2DBackwardTestCase(
+            name="multi_channel_backward",
+            input_dimensions=(2, 2, 2),
+            input_activations=np.array(
+                [
+                    [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
+                ]
+            ),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0, 2.0]), _beta=np.array([0.0, 0.0])
+            ),
+            dZ=np.array(
+                [
+                    [[[1.0, 0.0], [-1.0, 0.0]], [[0.0, 1.0], [0.0, -1.0]]],
+                ]
+            ),
+            expected_dX=np.array(
+                [
+                    [[[0.75, -0.25], [-0.75, 0.25]], [[0.75, -0.25], [-0.75, 0.25]]],
+                ]
+            ),
+            expected_d_gamma=np.array([0.0, 0.0]),
+            expected_d_beta=np.array([0.0, 0.0]),
+        ),
+        BatchNorm2DBackwardTestCase(
+            name="batch_size_greater_than_one_backward",
+            input_dimensions=(1, 2, 2),
+            input_activations=np.array(
+                [
+                    [[[1.0, 2.0], [3.0, 4.0]]],
+                    [[[5.0, 6.0], [7.0, 8.0]]],
+                ]
+            ),
+            parameters=BatchNorm2D.Parameters(
+                _gamma=np.array([1.0]), _beta=np.array([0.0])
+            ),
+            dZ=np.array(
+                [
+                    [[[1.0, 1.0], [1.0, 1.0]]],
+                    [[[1.0, 1.0], [1.0, 1.0]]],
+                ]
+            ),
+            expected_dX=np.array(
+                [
+                    [[[0.0, 0.0], [0.0, 0.0]]],
+                    [[[0.0, 0.0], [0.0, 0.0]]],
+                ]
+            ),
+            expected_d_gamma=np.array([0.0]),
+            expected_d_beta=np.array([8.0]),
+        ),
+    ],
+    ids=lambda test_case: test_case.name,
+)
+def test_batch_norm_2d_backward_prop(test_case: BatchNorm2DBackwardTestCase):
+    layer = BatchNorm2D(
+        input_dimensions=test_case.input_dimensions,
+        parameters=test_case.parameters,
+        training=True,
+    )
+
+    layer.forward_prop(input_activations=Activations(test_case.input_activations))
+    dX = layer.backward_prop(dZ=test_case.dZ)
+
+    assert np.allclose(dX, test_case.expected_dX, atol=1e-3)
+
+    cached_dP = layer.cache["dP"]
+    assert cached_dP is not None
+    assert np.allclose(-cached_dP._gamma, test_case.expected_d_gamma, atol=1e-3)
+    assert np.allclose(-cached_dP._beta, test_case.expected_d_beta, atol=1e-3)
+
+
+def test_batch_norm_2d_parameter_count():
+    layer = BatchNorm2D(input_dimensions=(3, 4, 4))
+    assert layer.parameter_count == 6
+
+
+def test_batch_norm_2d_empty_parameters():
+    layer = BatchNorm2D(input_dimensions=(3, 4, 4))
+    empty_params = layer.empty_parameters()
+
+    assert np.allclose(empty_params._gamma, np.ones(3))
+    assert np.allclose(empty_params._beta, np.zeros(3))
+
+
+def test_batch_norm_2d_input_validation():
+    layer = BatchNorm2D(input_dimensions=(2, 3, 3))
+
+    with pytest.raises(ValueError, match="BatchNorm2D expects 4D input"):
+        layer.forward_prop(input_activations=Activations(np.random.randn(5, 2)))
+
+    with pytest.raises(ValueError, match="BatchNorm2D expects 4D input"):
+        layer.forward_prop(input_activations=Activations(np.random.randn(5, 2, 3)))
+
+
+def test_batch_norm_2d_initialization_validation():
+    with pytest.raises(ValueError, match="BatchNorm2D expects 3D input dimensions"):
+        BatchNorm2D(input_dimensions=(2,))
+
+    with pytest.raises(ValueError, match="BatchNorm2D expects 3D input dimensions"):
+        BatchNorm2D(input_dimensions=(2, 3))
+
+
+def test_batch_norm_2d_with_convolution_output():
+    batch_size = 2
+    channels = 3
+    height = 4
+    width = 4
+
+    # Create input that looks like a convolution output
+    input_data = np.random.randn(batch_size, channels, height, width)
+
+    layer = BatchNorm2D(input_dimensions=(channels, height, width), training=True)
+
+    output = layer.forward_prop(input_activations=Activations(input_data))
+
+    # Output should maintain shape
+    assert output.shape == (batch_size, channels, height, width)
+
+    # Check statistics per channel
+    for c in range(channels):
+        channel_data = output[:, c, :, :]
+        assert np.abs(np.mean(channel_data)) < 0.1
+        assert np.abs(np.std(channel_data) - 1.0) < 0.1
