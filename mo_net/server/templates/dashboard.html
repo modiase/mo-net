@@ -297,9 +297,20 @@ function plotLearningRate(data) {
 
 function plotTimeline(data) {
     if (!data || data.length === 0 || !data[0].timestamp) return;
+    
+    // Deduplicate by validation loss - keep only first occurrence of each unique val_loss
+    const seenValLoss = new Set();
+    const filteredData = data.filter(d => {
+        if (seenValLoss.has(d.val_loss)) {
+            return false;
+        }
+        seenValLoss.add(d.val_loss);
+        return true;
+    });
+    
     Plotly.newPlot('timeline-plot', [{
-        x: data.map(d => d.timestamp),
-        y: data.map(d => d.val_loss),
+        x: filteredData.map(d => d.timestamp),
+        y: filteredData.map(d => d.val_loss),
         type: 'scatter',
         mode: 'lines+markers',
         name: 'Validation Loss over Time',
