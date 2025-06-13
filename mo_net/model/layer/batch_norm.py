@@ -118,6 +118,36 @@ class Parameters(SupportsGradientOperations):
     def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
+    def __rsub__(self, other: float | Self) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    weights=other - self.weights,
+                    biases=other - self.biases,
+                )
+            case self.__class__():
+                return self.__class__(
+                    weights=other.weights - self.weights,
+                    biases=other.biases - self.biases,
+                )
+            case _:
+                return NotImplemented
+
+    def __rtruediv__(self, other: float | Self) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    weights=other / self.weights,
+                    biases=other / self.biases,
+                )
+            case self.__class__():
+                return self.__class__(
+                    weights=other.weights / self.weights,
+                    biases=other.biases / self.biases,
+                )
+            case _:
+                return NotImplemented
+
     @classmethod
     def empty(cls, *, input_dimensions: Dimensions) -> Self:
         return cls(
@@ -139,7 +169,7 @@ class Parameters(SupportsGradientOperations):
 type ParametersType = Parameters
 
 
-class Cache(GradCache):
+class Cache(GradCache[ParametersType]):
     input_activations: Activations | None
     mean: np.ndarray | None
     output_activations: Activations | None
@@ -357,7 +387,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
 
     def serialize_parameters(self, buffer: IO[bytes]) -> None:
         self._write_header(buffer)
-        if self._cache is None:
+        if self._cache is None or self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
         buffer.write(memoryview(self._cache["dP"].weights))
         buffer.write(memoryview(self._cache["dP"].biases))

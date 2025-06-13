@@ -16,7 +16,7 @@ class ForwardPropTestCase:
     training: bool
     running_mean: np.ndarray | None
     running_variance: np.ndarray | None
-    expected_output: np.ndarray
+    expected_output: np.ndarray | None
     expected_running_mean: np.ndarray | None = None
     expected_running_variance: np.ndarray | None = None
 
@@ -135,8 +135,8 @@ class BackwardPropTestCase:
     parameters: ParametersType
     dZ: np.ndarray
     expected_dX: np.ndarray
-    expected_dweights: np.ndarray
-    expected_dbiases: np.ndarray
+    expected_weights: np.ndarray
+    expected_biases: np.ndarray
 
 
 @pytest.mark.parametrize(
@@ -151,8 +151,8 @@ class BackwardPropTestCase:
             ),
             dZ=np.array([[1.0], [1.0], [1.0]]),
             expected_dX=np.array([[0.0], [0.0], [0.0]]),
-            expected_dweights=np.array([0.0]),
-            expected_dbiases=np.array([3.0]),
+            expected_weights=np.array([0.0]),
+            expected_biases=np.array([3.0]),
         ),
         BackwardPropTestCase(
             name="asymmetric_gradient_single_feature",
@@ -163,8 +163,8 @@ class BackwardPropTestCase:
             ),
             dZ=np.array([[1.0], [0.0], [-1.0]]),
             expected_dX=np.array([[0.816], [0.0], [-0.816]]),
-            expected_dweights=np.array([0.0]),
-            expected_dbiases=np.array([0.0]),
+            expected_weights=np.array([0.0]),
+            expected_biases=np.array([0.0]),
         ),
         BackwardPropTestCase(
             name="multi_feature_backward",
@@ -175,8 +175,8 @@ class BackwardPropTestCase:
             ),
             dZ=np.array([[1.0, 1.0], [0.0, 0.0], [-1.0, -1.0]]),
             expected_dX=np.array([[0.816, 0.816], [0.0, 0.0], [-0.816, -0.816]]),
-            expected_dweights=np.array([0.0, 0.0]),
-            expected_dbiases=np.array([0.0, 0.0]),
+            expected_weights=np.array([0.0, 0.0]),
+            expected_biases=np.array([0.0, 0.0]),
         ),
         BackwardPropTestCase(
             name="identity_backward_check",
@@ -187,8 +187,8 @@ class BackwardPropTestCase:
             ),
             dZ=np.array([[1.0], [1.0], [1.0]]),
             expected_dX=np.array([[0.0], [0.0], [0.0]]),
-            expected_dweights=np.array([0.0]),
-            expected_dbiases=np.array([3.0]),
+            expected_weights=np.array([0.0]),
+            expected_biases=np.array([3.0]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -204,17 +204,17 @@ def test_batch_norm_backward_prop(test_case: BackwardPropTestCase):
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
     dX = layer.backward_prop(dZ=test_case.dZ)
 
-    assert np.allclose(dX, test_case.expected_dX, atol=1e-3), (
+    assert np.allclose(dX, test_case.expected_dX, atol=1e-3), ( # type: ignore[arg-type]
         f"dX incorrect: got {dX}, expected {test_case.expected_dX}"
     )
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"
-    assert np.allclose(-cached_dP.weights, test_case.expected_dweights, atol=1e-3), (
-        f"dweights incorrect: got {-cached_dP.weights}, expected {test_case.expected_dweights}"
+    assert np.allclose(-cached_dP.weights, test_case.expected_weights, atol=1e-3), (  # type: ignore[attr-defined]
+        f"weights incorrect: got {-cached_dP.weights}, expected {test_case.expected_weights}" # type: ignore[attr-defined]
     )
-    assert np.allclose(-cached_dP.biases, test_case.expected_dbiases, atol=1e-3), (
-        f"dbiases incorrect: got {-cached_dP.biases}, expected {test_case.expected_dbiases}"
+    assert np.allclose(-cached_dP.biases, test_case.expected_biases, atol=1e-3), (  # type: ignore[attr-defined]
+        f"biases incorrect: got {-cached_dP.biases}, expected {test_case.expected_biases}" # type: ignore[attr-defined]
     )
 
 

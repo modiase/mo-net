@@ -9,7 +9,7 @@ from collections.abc import Buffer, Callable, Iterable, Iterator, Sequence
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Barrier
 from pathlib import Path
-from typing import IO as IO_Type
+from typing import IO as IO_Type, cast
 from typing import Final, ParamSpec, TypeVar
 
 import numpy as np
@@ -434,7 +434,7 @@ def worker_decorator(func: Callable[P, R]) -> Callable[P, R]:
     @functools.wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         worker_id = kwargs.pop("worker_id")
-        log_level = kwargs.pop("log_level")
+        log_level = cast(str, kwargs.pop("log_level"))
         logger.configure(extra={"worker_id": worker_id})
         logger.add(
             sys.stderr,

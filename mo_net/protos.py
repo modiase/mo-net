@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast
+from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast, Optional, Type as TypingType, Union
 
 import numpy as np
 from typing_extensions import runtime_checkable
@@ -110,6 +110,7 @@ type UpdateGradientType = RawGradientType
 
 
 ParamType = TypeVar("ParamType", bound=SupportsGradientOperations)
+ParamType_co = TypeVar("ParamType_co", bound=SupportsGradientOperations, covariant=True)
 
 
 class GradCache(TypedDict, Generic[ParamType]):  # noqa: F821
@@ -120,16 +121,16 @@ CacheType_co = TypeVar("CacheType_co", bound=GradCache, covariant=True)
 
 
 @runtime_checkable
-class GradLayer(Protocol, Generic[ParamType, CacheType_co]):
+class GradLayer(Protocol, Generic[ParamType_co, CacheType_co]):
     @property
-    def parameters(self) -> ParamType: ...
+    def parameters(self) -> ParamType_co: ...
 
     @property
     def cache(self) -> CacheType_co: ...
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None: ...
 
-    def empty_gradient(self) -> D[ParamType]: ...
+    def empty_gradient(self) -> D[ParamType_co]: ...
 
 
 @runtime_checkable

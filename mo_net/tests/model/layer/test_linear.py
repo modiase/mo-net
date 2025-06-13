@@ -317,9 +317,11 @@ def test_linear_frozen_parameters():
 def test_linear_empty_gradient(simple_layer: Linear):
     empty_grad = simple_layer.empty_gradient()
     assert np.allclose(
-        empty_grad.weights, np.zeros_like(simple_layer.parameters.weights)
-    )  # type: ignore[attr-defined]
-    assert np.allclose(empty_grad.biases, np.zeros_like(simple_layer.parameters.biases))  # type: ignore[attr-defined]
+        empty_grad.weights, np.zeros_like(simple_layer.parameters.weights)  # type: ignore[attr-defined]
+    )
+    assert np.allclose(
+        empty_grad.biases, np.zeros_like(simple_layer.parameters.biases)  # type: ignore[attr-defined]
+    )
 
 
 def test_linear_parameter_count(simple_layer: Linear):

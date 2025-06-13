@@ -23,7 +23,7 @@ from mo_net.protos import (
 class _LayerRegistry:
     """Thread-safe registry for tracking layer IDs and ensuring uniqueness."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._lock = threading.Lock()
         self._used_names: MutableSet[str] = set()
 
@@ -115,6 +115,10 @@ class ParametrisedHidden(Hidden, GradLayer[ParamType, CacheType_co]):
     @property
     @abstractmethod
     def parameter_nbytes(self) -> int: ...
+
+    @property
+    @abstractmethod
+    def parameter_count(self) -> int: ...
 
     @abstractmethod
     def deserialize_parameters(self, data: IO[bytes]) -> None: ...

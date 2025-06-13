@@ -366,10 +366,10 @@ class Model(ModelBase):
     def layers(self) -> Sequence[Base]:
         return tuple(
             chain.from_iterable(
-                module.layers
-                if isinstance(module, Hidden)
-                else chain(module.layers, (module.output_layer,))
-                if isinstance(module, Output)
+                module.layers  # type: ignore[misc]
+                if isinstance(module, Base)
+                else chain(module.layers, (module.output_layer,))  # type: ignore[arg-type]
+                if isinstance(module, Output)  # type: ignore[arg-type]
                 else (module,)
                 for module in chain(
                     [self.input_layer], self.hidden_modules, [self.output_module]

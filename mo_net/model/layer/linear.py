@@ -17,6 +17,7 @@ from mo_net.protos import (
     Activations,
     D,
     Dimensions,
+    GradCache,
     GradLayer,
     SupportsGradientOperations,
     d,
@@ -155,10 +156,9 @@ class Parameters(SupportsGradientOperations):
 type ParametersType = Parameters
 
 
-class Cache(TypedDict):
+class Cache(GradCache[ParametersType]):
     input_activations: Activations | None
     output_activations: Activations | None
-    dP: D[ParametersType] | None
 
 
 type CacheType = Cache
@@ -259,7 +259,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             else self._parameters_init_fn(input_dimensions, output_dimensions)
         )
         self._store_output_activations = store_output_activations
-        self._cache: Linear.Cache = {
+        self._cache: CacheType = {
             "input_activations": None,
             "output_activations": None,
             "dP": None,
@@ -335,7 +335,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         f(self)
 
     @property
-    def cache(self) -> Linear.Cache:
+    def cache(self) -> CacheType:
         return self._cache
 
     @property
