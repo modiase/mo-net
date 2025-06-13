@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Generic, NewType, Protocol, Self, TypeVar, TypedDict, cast
+from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast
 
+import click
 import numpy as np
 from typing_extensions import runtime_checkable
 
@@ -191,3 +192,8 @@ class NormalisationType(StrEnum):
     LAYER = "layer"
     BATCH = "batch"
     NONE = "none"
+
+    @classmethod
+    def cli_parse(cls, ctx: click.Context, param: click.Parameter, value: str) -> Self:
+        del ctx, param  # unused
+        return cls(value)
