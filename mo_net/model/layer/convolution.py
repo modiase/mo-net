@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import IO, TypedDict, assert_never, cast
+from typing import IO, Final, TypedDict, assert_never, cast
 
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
@@ -16,6 +16,8 @@ from mo_net.protos import (
     SupportsGradientOperations,
     d,
 )
+
+EPSILON: Final[float] = 1e-8
 
 
 class Cache(TypedDict):
@@ -350,11 +352,11 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         if self._clip_gradients:
             dK *= min(
                 1.0,
-                self._weight_max_norm * np.sqrt(dK.size) / np.linalg.norm(dK),
+                self._weight_max_norm * np.sqrt(dK.size) / (np.linalg.norm(dK) + EPSILON),
             )
             db *= min(
                 1.0,
-                self._bias_max_norm * np.sqrt(db.size) / np.linalg.norm(db),
+                self._bias_max_norm * np.sqrt(db.size) / (np.linalg.norm(db) + EPSILON),
             )
 
         pad_h = self._kernel_height - 1
