@@ -1,6 +1,6 @@
-from mo_net.model.block.base import Hidden
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.linear import Linear
+from mo_net.model.module.base import Hidden
 from mo_net.protos import ActivationFn, Dimensions
 
 

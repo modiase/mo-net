@@ -46,7 +46,7 @@ dev = [
 default-groups = []
 
 [tool.mypy]
-plugins = ["sqlalchemy.ext.mypy.plugin"]
+plugins = ["sqlalchemy.ext.mypy.plugin", "mypy_plugins.d"]
 
 [[tool.mypy.overrides]]
 module = "h5py"

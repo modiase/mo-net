@@ -5,6 +5,7 @@ from loguru import logger
 
 
 class LogLevel(StrEnum):
+    TRACE = "TRACE"
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"

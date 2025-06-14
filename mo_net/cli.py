@@ -29,7 +29,7 @@ from mo_net.model import Model
 from mo_net.protos import ActivationFn, NormalisationType
 from mo_net.quickstart import mnist_cnn, mnist_mlp
 from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
-from mo_net.resources import MNIST_TRAIN_URL
+from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.train import (
     TrainingParameters,
 )
@@ -180,11 +180,11 @@ def cli(): ...
     "-t",
     "--normalisation-type",
     type=click.Choice(
-        [NormalisationType.LAYER, NormalisationType.BATCH, NormalisationType.NONE]
+        [v.value for v in NormalisationType],
+        case_sensitive=False,
     ),
     help="Set the normalisation type",
-    default=NormalisationType.LAYER,
-    callback=lambda _, __, value: value.upper() if isinstance(value, str) else value,
+    default=NormalisationType.LAYER.value,
 )
 @click.option(
     "-k",
@@ -274,9 +274,12 @@ def cli(): ...
 )
 @click.option(
     "--log-level",
-    type=click.Choice(tuple(LogLevel)),
+    type=click.Choice(tuple(level.lower() for level in LogLevel)),
     help="Set the log level",
-    default="INFO",
+    default="info",
+    callback=lambda _, __, value: LogLevel(value.upper())
+    if isinstance(value, str)
+    else LogLevel.INFO,
 )
 @click.option(
     "--train-split",
@@ -331,6 +334,7 @@ def train(
         dropout_keep_probs=tuple(dropout_keep_probs),
         history_max_len=history_max_len,
         learning_rate_limits=learning_rate_limits,
+        log_level=log_level.value,
         max_restarts=max_restarts if not tracing_enabled else 0,
         monotonic=monotonic,
         no_monitoring=no_monitoring,
@@ -449,7 +453,13 @@ def train(
     help="Set the url to the dataset",
     default=MNIST_TRAIN_URL,
 )
-def infer(*, model_path: Path | None, dataset_url: str):
+@click.option(
+    "--test-dataset-url",
+    type=str,
+    help="Set the url to the dataset",
+    default=MNIST_TEST_URL,
+)
+def infer(*, model_path: Path | None, dataset_url: str, test_dataset_url: str):
     X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.8)
 
     if model_path is None:
@@ -474,10 +484,7 @@ def infer(*, model_path: Path | None, dataset_url: str):
         f"Training Set Accuracy: {np.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
     )
 
-    Y_test_pred = model.predict(X_val)
-    Y_test_true = np.argmax(Y_val, axis=1)
-
-    X_test, Y_test = load_data(dataset_url)
+    X_test, Y_test = load_data(test_dataset_url)
     Y_test_pred = model.predict(X_test)
     Y_test_true = np.argmax(Y_test, axis=1)
     logger.info(
@@ -495,7 +502,7 @@ def infer(*, model_path: Path | None, dataset_url: str):
     sample_indices = sample(np.where(Y_test_true != Y_test_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(8, 5, idx + 1)
-        plt.imshow(X_train[i].reshape(28, 28), cmap="gray")
+        plt.imshow(X_test[i].reshape(28, 28), cmap="gray")
         plt.title(f"Pred: {Y_test_pred[i]}, True: {Y_test_true[i]}")
         plt.axis("off")
     plt.subplot(8, 1, (6, 8))

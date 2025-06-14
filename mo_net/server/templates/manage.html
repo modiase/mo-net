@@ -80,9 +80,22 @@ function updateRunsTable(runs) {
     const tbody = document.getElementById('runs-table-body');
     tbody.innerHTML = runs.runs.map(run => {
         const isCompleted = run.completed_at !== null;
-        const statusBadge = isCompleted ? 
-            '<span class="status-badge status-completed">Completed</span>' : 
-            '<span class="status-badge status-running">Running</span>';
+        
+        // Calculate progress to determine if truly completed or stopped
+        const progress = run.total_epochs > 0 ? (run.current_epoch + 1) / run.total_epochs : 0;
+        
+        // Determine status display
+        let statusBadge;
+        if (isCompleted) {
+            if (progress >= 1.0) {
+                statusBadge = '<span class="status-badge status-completed">Completed</span>';
+            } else {
+                statusBadge = '<span class="status-badge status-stopped">Stopped</span>';
+            }
+        } else {
+            statusBadge = '<span class="status-badge status-running">Running</span>';
+        }
+        
         const completeButton = isCompleted ? 
             '<button class="btn btn-complete" disabled>Already Completed</button>' : 
             `<button class="btn btn-complete" onclick="completeRun(${run.id})">Mark Complete</button>`;

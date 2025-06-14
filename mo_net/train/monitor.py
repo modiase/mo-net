@@ -91,11 +91,11 @@ class Monitor:
         self._running_weights = WeightGradientRunningAverages.from_weights_and_update(
             self._running_weights,
             WeightGradientRunningAverages.from_weights(
-                tuple(param._W for param in linear_layer_gradients)
+                tuple(param.weights for param in linear_layer_gradients)
             ),
             self._running_update_count,
         )
-        ns = np.array([param._W.size for param in linear_layer_gradients])
+        ns = np.array([param.weights.size for param in linear_layer_gradients])
         means = self._running_weights.sums / ns
         variances = self._running_weights.sums_of_squares / ns - means**2
 
@@ -103,7 +103,9 @@ class Monitor:
             [
                 np.max((weights - mean) / (np.sqrt(variance) + EPSILON))
                 for (weights, mean, variance) in zip(
-                    [param._W for param in linear_layer_gradients], means, variances
+                    [param.weights for param in linear_layer_gradients],
+                    means,
+                    variances,
                 )
             ]
         )
