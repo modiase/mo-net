@@ -58,7 +58,7 @@ class Flatten(Hidden):
         return Activations(input_activations.reshape(input_activations.shape[0], -1))
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        return dZ.reshape(dZ.shape[0], *self.input_dimensions)
+        return dZ.reshape(dZ.shape[0], *self.input_dimensions)  # type: ignore[attr-defined]
 
     def serialize(self) -> Flatten.Serialized:
         return Flatten.Serialized(

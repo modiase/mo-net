@@ -238,6 +238,10 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             "var": np.var(input_activations, axis=tuple(range(1, input_activations.ndim)), keepdims=True),
         })
 
+        if self._cache["mean"] is None:
+            raise RuntimeError("Mean is not populated during forward pass.")
+        if self._cache["var"] is None:
+            raise RuntimeError("Variance is not populated during forward pass.")
         normalized = (input_activations - self._cache["mean"]) / np.sqrt(self._cache["var"] + self._EPSILON)
         
         if self._store_output_activations or self._training:
@@ -250,12 +254,13 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         *,
         dZ: D[Activations],
     ) -> D[Activations]:
-        if any(v is None for v in [
-            self._cache["mean"],
-            self._cache["var"],
-            self._cache["output_activations"],
-            self._cache["input_activations"]
-        ]):
+        if self._cache["mean"] is None:
+            raise RuntimeError("Cache not properly populated during forward pass.")
+        if self._cache["var"] is None:
+            raise RuntimeError("Cache not properly populated during forward pass.")
+        if self._cache["output_activations"] is None:
+            raise RuntimeError("Cache not properly populated during forward pass.")
+        if self._cache["input_activations"] is None:
             raise RuntimeError("Cache not properly populated during forward pass.")
 
         dX_norm = dZ * self._parameters.weights

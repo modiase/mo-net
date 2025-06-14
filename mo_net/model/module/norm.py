@@ -41,7 +41,7 @@ class Norm(Hidden):
                 )
             case LayerNormOptions():
                 norm_layer = LayerNorm(
-                    neurons=one(output_dimensions),
+                    input_dimensions=output_dimensions,
                     store_output_activations=store_output_activations,
                 )
             case never:
