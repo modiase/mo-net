@@ -17,6 +17,7 @@ class TrainingParameters(BaseModel):
     no_transform: bool
     normalisation_type: NormalisationType
     num_epochs: int
+    quiet: bool
     regulariser_lambda: float
     trace_logging: bool
     train_set_size: int

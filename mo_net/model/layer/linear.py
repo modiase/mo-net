@@ -125,9 +125,9 @@ class Parameters(SupportsGradientOperations):
     def appropriate(
         cls, dim_in: Dimensions, dim_out: Dimensions, activation_fn: ActivationFn
     ) -> Self:
-        if activation_fn == ReLU or activation_fn == LeakyReLU:
+        if activation_fn.name in (ReLU.name, LeakyReLU.name):
             return cls.he(dim_in, dim_out)
-        elif activation_fn == Tanh or activation_fn == Identity:
+        elif activation_fn.name in (Tanh.name, Identity.name):
             return cls.xavier(dim_in, dim_out)
         else:
             raise ValueError(
