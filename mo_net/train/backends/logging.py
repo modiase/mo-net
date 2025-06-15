@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Protocol
+from urllib.parse import urlparse
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -55,7 +56,7 @@ class CsvBackend(LoggingBackend):
 
     @property
     def connection_string(self) -> str:
-        return f"file://{str(self._path)}"
+        return f"csv://{str(self._path)}"
 
     def create(self) -> None:
         self._file = open(self._path, "w")
@@ -65,7 +66,7 @@ class CsvBackend(LoggingBackend):
         pd.DataFrame(columns=self._columns).to_csv(self._file, index=False)
         if self._file is not None:
             self._file.flush()
-        return str(self._path)
+        return str(self._path.name.replace(self._path.suffix, ""))
 
     def end_run(self, run_id: str) -> None:
         del run_id  # unused
@@ -197,3 +198,52 @@ class SqliteBackend(LoggingBackend):
             .order_by(Iteration.timestamp)
             .all()
         )
+
+
+class NullBackend(LoggingBackend):
+    def __init__(self) -> None:
+        pass
+
+    @property
+    def connection_string(self) -> str:
+        return "null://"
+
+    def create(self) -> None:
+        pass
+
+    def start_run(self, seed: int, total_batches: int, total_epochs: int) -> str:
+        del seed, total_batches, total_epochs  # unused
+        return "-1"
+
+    def end_run(self, run_id: str) -> None:
+        del run_id  # unused
+
+    def teardown(self) -> None:
+        pass
+
+    def log_training_parameters(self, *, training_parameters: str) -> None:
+        del training_parameters  # unused
+
+    def log_iteration(
+        self,
+        *,
+        batch_loss: float,
+        val_loss: float,
+        batch: int,
+        epoch: int,
+        learning_rate: float,
+        timestamp: datetime,
+    ) -> None:
+        del batch_loss, val_loss, batch, epoch, learning_rate, timestamp  # unused
+
+
+def parse_connection_string(connection_string: str) -> LoggingBackend:
+    match url := urlparse(connection_string):
+        case url if url.scheme == "null":
+            return NullBackend()
+        case url if url.scheme == "csv":
+            return CsvBackend(path=Path(url.path))
+        case url if url.scheme == "sqlite":
+            return SqliteBackend(path=Path(url.path))
+        case _:
+            return SqliteBackend()

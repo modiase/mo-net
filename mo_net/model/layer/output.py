@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import reduce
 from typing import TypedDict, TypeVar
 
 import numpy as np
@@ -40,11 +39,7 @@ class OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
         }
 
     def backward_prop(self, *, Y_true: np.ndarray) -> D[Activations]:
-        return reduce(
-            lambda dZ, handler: handler.post_backward(dZ=dZ),
-            reversed(self._training_step_handlers),
-            self._backward_prop(Y_true=Y_true),
-        )
+        return self._backward_prop(Y_true=Y_true)
 
     @abstractmethod
     def _backward_prop(

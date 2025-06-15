@@ -206,6 +206,12 @@ body {
     border: 1px solid #c3e6cb;
 }
 
+.status-stopped {
+    background-color: #ffeaa7;
+    color: #d35400;
+    border: 1px solid #e67e22;
+}
+
 .plot-container {
     background: white;
     border-radius: 10px;
