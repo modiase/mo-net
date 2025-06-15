@@ -29,8 +29,12 @@ class SplitConfig:
     split_index: int
 
     @property
+    def val_ratio(self) -> float:
+        return 1 - self.split_ratio
+
+    @property
     def n_splits(self) -> int:
-        return ceil(1 / (1 - self.split_ratio))
+        return ceil(1 / self.val_ratio)
 
     @classmethod
     def of(cls, split_ratio: float, split_index: int = 0) -> Self:
@@ -44,7 +48,7 @@ class SplitConfig:
 
     @log_result(LogLevel.DEBUG)
     def get_train_indices(self, train_set_size: int) -> Sequence[tuple[int, int]]:
-        val_size = int(train_set_size * (1 - self.split_ratio))
+        val_size = int(train_set_size * self.val_ratio)
         val_start = self.split_index * val_size
         val_end = val_start + val_size
 
