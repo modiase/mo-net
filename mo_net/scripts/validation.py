@@ -11,7 +11,7 @@ import click
 import pandas as pd
 from loguru import logger
 
-from mo_net.cli import _train, training_options
+from mo_net.cli import train, training_options
 from mo_net.resources import get_resource
 from mo_net.train.trainer.trainer import TrainingResult
 
@@ -32,7 +32,7 @@ def _run_fold(split_index: int, *, tmp_dir: Path, **kwargs) -> TrainingResult | 
     kwargs["train_split_index"] = split_index
     kwargs["workers"] = 0
     try:
-        return _train(**kwargs)
+        return train(**kwargs)
     except Exception as e:
         logger.error(f"Fold {split_index} failed: {e}")
         return None

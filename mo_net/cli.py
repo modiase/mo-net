@@ -58,6 +58,26 @@ MAX_BATCH_SIZE: Final[int] = 10000
 N_DIGITS: Final[int] = 10
 
 
+def dataset_split_options(f: Callable[P, R]) -> Callable[P, R]:
+    @click.option(
+        "--train-split",
+        type=float,
+        help="Set the split for the dataset",
+        default=DEFAULT_TRAIN_SPLIT,
+    )
+    @click.option(
+        "--train-split-index",
+        type=int,
+        help="Set the index for the split of the dataset",
+        default=0,
+    )
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "-b",
@@ -227,18 +247,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         else LogLevel.INFO,
     )
     @click.option(
-        "--train-split",
-        type=float,
-        help="Set the split for the dataset",
-        default=DEFAULT_TRAIN_SPLIT,
-    )
-    @click.option(
-        "--train-split-index",
-        type=int,
-        help="Set the index for the split of the dataset",
-        default=0,
-    )
-    @click.option(
         "--quiet",
         type=bool,
         is_flag=True,
@@ -251,6 +259,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the connection string for the logging backend",
         default=None,
     )
+    @dataset_split_options
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -313,19 +322,19 @@ def get_model(
 def cli(): ...
 
 
-@cli.command(help="Train the model")
+@cli.command("train", help="Train the model")
 @training_options
-def train(*args, **kwargs) -> TrainingResult:
+def cli_train(*args, **kwargs) -> TrainingResult:
     log_level = kwargs.get("log_level", LogLevel.INFO)
     seed = int(os.getenv("MO_NET_SEED", time.time()))
     kwargs["seed"] = seed
     np.random.seed(seed)
     setup_logging(log_level)
     logger.info(f"Training model with {seed=}.")
-    return _train(*args, **kwargs)
+    return train(*args, **kwargs)
 
 
-def _train(
+def train(
     *,
     activation_fn: ActivationFn,
     batch_size: int | None,
@@ -509,18 +518,7 @@ def _train(
     help="Set the url to the dataset",
     default=MNIST_TEST_URL,
 )
-@click.option(
-    "--train-split",
-    type=float,
-    help="Set the split for the dataset",
-    default=DEFAULT_TRAIN_SPLIT,
-)
-@click.option(
-    "--train-split-index",
-    type=int,
-    help="Set the index for the split of the dataset",
-    default=0,
-)
+@dataset_split_options
 def infer(
     *,
     model_path: Path | None,
