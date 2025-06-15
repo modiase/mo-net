@@ -385,14 +385,14 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
     def parameter_nbytes(self) -> int:
         return self._parameters.weights.nbytes + self._parameters.biases.nbytes
 
-    def serialize_parameters(self, buffer: IO[bytes]) -> None:
+    def write_serialized_parameters(self, buffer: IO[bytes]) -> None:
         self._write_header(buffer)
         if self._cache is None or self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
         buffer.write(memoryview(self._cache["dP"].weights))
         buffer.write(memoryview(self._cache["dP"].biases))
 
-    def deserialize_parameters(self, data: IO[bytes]) -> None:
+    def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
             raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
         update = self._parameters.from_bytes(data)

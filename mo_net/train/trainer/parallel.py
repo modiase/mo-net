@@ -9,8 +9,8 @@ from collections.abc import Buffer, Callable, Iterable, Iterator, Sequence
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.synchronize import Barrier
 from pathlib import Path
-from typing import IO as IO_Type, cast
-from typing import Final, ParamSpec, TypeVar
+from typing import IO as IO_Type
+from typing import Final, ParamSpec, TypeVar, cast
 
 import numpy as np
 from loguru import logger
@@ -231,7 +231,7 @@ class SharedMemoryManager:
 
         for i, layer in enumerate(grad_layers):
             layer_start = time.perf_counter()
-            layer.serialize_parameters(writer)
+            layer.write_serialized_parameters(writer)
             layer_time = time.perf_counter() - layer_start
             logger.trace(
                 f"Worker {worker_id} serialized layer {i} ({type(layer).__name__}) in {layer_time:.4f}s"
@@ -302,7 +302,7 @@ class SharedMemoryManager:
                     )
 
                     layer = model.get_layer(layer_id)
-                    layer.deserialize_parameters(reader)
+                    layer.read_serialized_parameters(reader)
 
                     layers_processed += 1
                     logger.trace(

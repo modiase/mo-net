@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, ClassVar, Self, TypedDict
+from typing import IO, ClassVar, Self
 
 import numpy as np
 
@@ -232,18 +232,30 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        self._cache.update({
-            "input_activations": input_activations,
-            "mean": np.mean(input_activations, axis=tuple(range(1, input_activations.ndim)), keepdims=True),
-            "var": np.var(input_activations, axis=tuple(range(1, input_activations.ndim)), keepdims=True),
-        })
+        self._cache.update(
+            {
+                "input_activations": input_activations,
+                "mean": np.mean(
+                    input_activations,
+                    axis=tuple(range(1, input_activations.ndim)),
+                    keepdims=True,
+                ),
+                "var": np.var(
+                    input_activations,
+                    axis=tuple(range(1, input_activations.ndim)),
+                    keepdims=True,
+                ),
+            }
+        )
 
         if self._cache["mean"] is None:
             raise RuntimeError("Mean is not populated during forward pass.")
         if self._cache["var"] is None:
             raise RuntimeError("Variance is not populated during forward pass.")
-        normalized = (input_activations - self._cache["mean"]) / np.sqrt(self._cache["var"] + self._EPSILON)
-        
+        normalized = (input_activations - self._cache["mean"]) / np.sqrt(
+            self._cache["var"] + self._EPSILON
+        )
+
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalized
 
@@ -264,7 +276,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             raise RuntimeError("Cache not properly populated during forward pass.")
 
         dX_norm = dZ * self._parameters.weights
-        
+
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
@@ -273,26 +285,46 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
                 )
             )
 
-        return d(Activations(
-            dX_norm / np.sqrt(self._cache["var"] + self._EPSILON)
-            + (-0.5 * np.sum(
-                dX_norm * (self._cache["input_activations"] - self._cache["mean"]) * 
-                np.power(self._cache["var"] + self._EPSILON, -1.5),
-                axis=tuple(range(1, dX_norm.ndim)),
-                keepdims=True,
-            ) * 2 * (self._cache["input_activations"] - self._cache["mean"]))
-            + (-np.sum(dX_norm / np.sqrt(self._cache["var"] + self._EPSILON), 
-                    axis=tuple(range(1, dX_norm.ndim)), 
-                    keepdims=True)
-            + (-0.5 * np.sum(
-                dX_norm * (self._cache["input_activations"] - self._cache["mean"]) * 
-                np.power(self._cache["var"] + self._EPSILON, -1.5),
-                axis=tuple(range(1, dX_norm.ndim)),
-                keepdims=True,
-            ) * np.sum(-2 * (self._cache["input_activations"] - self._cache["mean"]), 
-                        axis=tuple(range(1, dX_norm.ndim)), 
-                        keepdims=True)))
-        ))
+        return d(
+            Activations(
+                dX_norm / np.sqrt(self._cache["var"] + self._EPSILON)
+                + (
+                    -0.5
+                    * np.sum(
+                        dX_norm
+                        * (self._cache["input_activations"] - self._cache["mean"])
+                        * np.power(self._cache["var"] + self._EPSILON, -1.5),
+                        axis=tuple(range(1, dX_norm.ndim)),
+                        keepdims=True,
+                    )
+                    * 2
+                    * (self._cache["input_activations"] - self._cache["mean"])
+                )
+                + (
+                    -np.sum(
+                        dX_norm / np.sqrt(self._cache["var"] + self._EPSILON),
+                        axis=tuple(range(1, dX_norm.ndim)),
+                        keepdims=True,
+                    )
+                    + (
+                        -0.5
+                        * np.sum(
+                            dX_norm
+                            * (self._cache["input_activations"] - self._cache["mean"])
+                            * np.power(self._cache["var"] + self._EPSILON, -1.5),
+                            axis=tuple(range(1, dX_norm.ndim)),
+                            keepdims=True,
+                        )
+                        * np.sum(
+                            -2
+                            * (self._cache["input_activations"] - self._cache["mean"]),
+                            axis=tuple(range(1, dX_norm.ndim)),
+                            keepdims=True,
+                        )
+                    )
+                )
+            )
+        )
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
@@ -340,14 +372,14 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
     def parameter_nbytes(self) -> int:
         return self._parameters.weights.nbytes + self._parameters.biases.nbytes
 
-    def serialize_parameters(self, buffer: IO[bytes]) -> None:
+    def write_serialized_parameters(self, buffer: IO[bytes]) -> None:
         self._write_header(buffer)
         if self._cache is None or self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
         buffer.write(memoryview(self._cache["dP"].weights))
         buffer.write(memoryview(self._cache["dP"].biases))
 
-    def deserialize_parameters(self, data: IO[bytes]) -> None:
+    def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
             raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
         update = self._parameters.from_bytes(data)

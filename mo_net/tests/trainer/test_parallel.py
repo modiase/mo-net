@@ -37,7 +37,7 @@ class MockedSharedMemoryManager(SharedMemoryManager):
         writer.seek(0)
 
         for layer in grad_layers:
-            layer.serialize_parameters(writer)
+            layer.write_serialized_parameters(writer)
 
         writer.write(b"\x00" * (self._gradient_size_bytes - writer.tell()))
 
@@ -60,7 +60,7 @@ class MockedSharedMemoryManager(SharedMemoryManager):
 
                     model.get_layer(
                         ParametrisedHidden.get_layer_id(reader, peek=True)
-                    ).deserialize_parameters(reader)
+                    ).read_serialized_parameters(reader)
 
                 except (struct.error, UnicodeDecodeError, ValueError, IndexError):
                     logger.debug(f"Hit malformed data/end for worker {worker_id}")

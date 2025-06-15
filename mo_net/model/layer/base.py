@@ -110,7 +110,7 @@ class Hidden(_Base):
 
 class ParametrisedHidden(Hidden, GradLayer[ParamType, CacheType_co]):
     @abstractmethod
-    def serialize_parameters(self, buffer: IO[bytes]) -> None: ...
+    def write_serialized_parameters(self, buffer: IO[bytes]) -> None: ...
 
     @property
     @abstractmethod
@@ -121,7 +121,7 @@ class ParametrisedHidden(Hidden, GradLayer[ParamType, CacheType_co]):
     def parameter_count(self) -> int: ...
 
     @abstractmethod
-    def deserialize_parameters(self, data: IO[bytes]) -> None: ...
+    def read_serialized_parameters(self, data: IO[bytes]) -> None: ...
 
     def __repr__(self) -> str:
         return (

@@ -317,10 +317,12 @@ def test_linear_frozen_parameters():
 def test_linear_empty_gradient(simple_layer: Linear):
     empty_grad = simple_layer.empty_gradient()
     assert np.allclose(
-        empty_grad.weights, np.zeros_like(simple_layer.parameters.weights)  # type: ignore[attr-defined]
+        empty_grad.weights,
+        np.zeros_like(simple_layer.parameters.weights),  # type: ignore[attr-defined]
     )
     assert np.allclose(
-        empty_grad.biases, np.zeros_like(simple_layer.parameters.biases)  # type: ignore[attr-defined]
+        empty_grad.biases,
+        np.zeros_like(simple_layer.parameters.biases),  # type: ignore[attr-defined]
     )
 
 
@@ -344,13 +346,13 @@ def test_linear_serialization_deserialization():
 
     buffer = io.BytesIO()
     layer._layer_id = "test_layer_for_serialization"
-    layer.serialize_parameters(buffer)
+    layer.write_serialized_parameters(buffer)
 
     # Clear gradients and test deserialization
     layer.cache["dP"] = None
 
     buffer.seek(0)
-    layer.deserialize_parameters(buffer)
+    layer.read_serialized_parameters(buffer)
 
     assert layer.cache["dP"] is not None
     assert np.allclose(layer.cache["dP"].weights, original_dP.weights)
@@ -367,10 +369,10 @@ def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
     layer_1.backward_prop(dZ=np.array([[1.0, 1.0]]))
 
     buffer = io.BytesIO()
-    layer_1.serialize_parameters(buffer)
+    layer_1.write_serialized_parameters(buffer)
     buffer.seek(0)
     with pytest.raises(BadLayerId):
-        layer_2.deserialize_parameters(buffer)
+        layer_2.read_serialized_parameters(buffer)
 
 
 def test_linear_error_on_backward_prop_without_forward():
