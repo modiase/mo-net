@@ -269,15 +269,15 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
 
 def get_model(
     *,
-    model_path: Path | None,
-    quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
-    dims: Sequence[int],
     X_train: np.ndarray,
     activation_fn: ActivationFn,
     batch_size: int,
-    normalisation_type: NormalisationType,
-    tracing_enabled: bool,
+    dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
+    model_path: Path | None,
+    normalisation_type: NormalisationType,
+    quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
+    tracing_enabled: bool,
     training_parameters: TrainingParameters,
 ) -> Model:
     if model_path is None:
