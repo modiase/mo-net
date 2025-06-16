@@ -306,12 +306,12 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             )
 
         dX_norm = dZ * self._parameters.weights
-        d_gamma = np.sum(dZ * output_activations, axis=0)
+        d_weights = np.sum(dZ * output_activations, axis=0)
         d_beta = np.sum(dZ, axis=0)
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
-                    weights=-d_gamma,
+                    weights=-d_weights,
                     biases=-d_beta,
                 )
             )
