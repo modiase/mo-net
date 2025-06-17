@@ -247,25 +247,14 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
                 ),
             }
         )
-
-        if self._cache["mean"] is None:
-            raise RuntimeError("Mean is not populated during forward pass.")
-        if self._cache["var"] is None:
-            raise RuntimeError("Variance is not populated during forward pass.")
         normalized = (input_activations - self._cache["mean"]) / np.sqrt(
             self._cache["var"] + self._EPSILON
         )
-
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalized
-
         return self._parameters.weights * normalized + self._parameters.biases
 
-    def _backward_prop(
-        self,
-        *,
-        dZ: D[Activations],
-    ) -> D[Activations]:
+    def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if self._cache["mean"] is None:
             raise RuntimeError("Cache not properly populated during forward pass.")
         if self._cache["var"] is None:
@@ -275,56 +264,31 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         if self._cache["input_activations"] is None:
             raise RuntimeError("Cache not properly populated during forward pass.")
 
+        normalized = self._cache["output_activations"]
         dX_norm = dZ * self._parameters.weights
 
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
-                    weights=-np.sum(dZ * self._cache["output_activations"], axis=0),
-                    biases=-np.sum(dZ, axis=0),
+                    weights=np.sum(dZ * normalized, axis=0), biases=np.sum(dZ, axis=0)
                 )
             )
 
-        return d(
-            Activations(
-                dX_norm / np.sqrt(self._cache["var"] + self._EPSILON)
-                + (
-                    -0.5
-                    * np.sum(
-                        dX_norm
-                        * (self._cache["input_activations"] - self._cache["mean"])
-                        * np.power(self._cache["var"] + self._EPSILON, -1.5),
-                        axis=tuple(range(1, dX_norm.ndim)),
-                        keepdims=True,
-                    )
-                    * 2
-                    * (self._cache["input_activations"] - self._cache["mean"])
-                )
-                + (
-                    -np.sum(
-                        dX_norm / np.sqrt(self._cache["var"] + self._EPSILON),
-                        axis=tuple(range(1, dX_norm.ndim)),
-                        keepdims=True,
-                    )
-                    + (
-                        -0.5
-                        * np.sum(
-                            dX_norm
-                            * (self._cache["input_activations"] - self._cache["mean"])
-                            * np.power(self._cache["var"] + self._EPSILON, -1.5),
-                            axis=tuple(range(1, dX_norm.ndim)),
-                            keepdims=True,
-                        )
-                        * np.sum(
-                            -2
-                            * (self._cache["input_activations"] - self._cache["mean"]),
-                            axis=tuple(range(1, dX_norm.ndim)),
-                            keepdims=True,
-                        )
-                    )
-                )
+        std = np.sqrt(self._cache["var"] + self._EPSILON)
+        x_centered = self._cache["input_activations"] - self._cache["mean"]
+        N = np.prod(x_centered.shape[1:])
+
+        dX = dX_norm / std
+        dX += (-1 / N) * (
+            np.sum(dX_norm, axis=tuple(range(1, dX_norm.ndim)), keepdims=True)
+            + x_centered
+            * np.sum(
+                dX_norm * x_centered, axis=tuple(range(1, dX_norm.ndim)), keepdims=True
             )
+            / (std * std)
         )
+
+        return d(Activations(dX))
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
