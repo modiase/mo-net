@@ -2,7 +2,7 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Tuple
+from typing import Any
 from unittest.mock import Mock
 
 import numpy as np
@@ -77,8 +77,8 @@ class GradientTransferTestCase:
     model: Model
     forward_input: np.ndarray
     backward_input: np.ndarray
-    expected_w_shape: Tuple[int, ...]
-    expected_b_shape: Tuple[int, ...]
+    expected_w_shape: tuple[int, ...]
+    expected_b_shape: tuple[int, ...]
 
 
 @dataclass(frozen=True)
