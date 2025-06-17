@@ -744,7 +744,7 @@ class ParallelTrainer(BasicTrainer):
         )
         self._update_shared_memory = mp.shared_memory.SharedMemory(
             create=True,
-            size=int(self._model.parameter_n_bytes * 1.5),
+            size=int(self._model.parameter_n_bytes * 1.2),  # extra space for headroom
         )
 
         total_memory_bytes = (

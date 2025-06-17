@@ -22,7 +22,9 @@ class MockedSharedMemoryManager(SharedMemoryManager):
 
     def __init__(self, worker_count: int, gradient_n_bytes: int) -> None:
         self.worker_count = worker_count
-        self._gradient_size_bytes = int(gradient_n_bytes * 1.2)
+        self._gradient_size_bytes = int(
+            gradient_n_bytes * 1.2
+        )  # extra space for headroom
         self._gradient_barrier = Mock()
         self._update_barrier = Mock()
         self._gradient_buffers = [
