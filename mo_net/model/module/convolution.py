@@ -1,6 +1,6 @@
 from mo_net.functions import ReLU
 from mo_net.model.layer.activation import Activation
-from mo_net.model.layer.batch_norm import BatchNorm
+from mo_net.model.layer.batch_norm.batch_norm_2d import BatchNorm2D
 from mo_net.model.layer.convolution import Convolution2D
 from mo_net.model.layer.pool import MaxPooling2D
 from mo_net.model.layer.reshape import Flatten
@@ -29,7 +29,7 @@ class Convolution(Hidden):
                     kernel_size=kernel_size,
                     stride=stride,
                 ),
-                batch_norm_layer := BatchNorm(
+                batch_norm_layer := BatchNorm2D(
                     input_dimensions=conv_layer.output_dimensions,
                 ),
                 Activation(

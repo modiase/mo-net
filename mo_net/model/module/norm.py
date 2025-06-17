@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from typing import assert_never
 
-from more_itertools import one
-
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm import BatchNorm
 from mo_net.model.layer.layer_norm import LayerNorm

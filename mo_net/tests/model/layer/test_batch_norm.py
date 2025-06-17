@@ -206,17 +206,17 @@ def test_batch_norm_backward_prop(test_case: BackwardPropTestCase):
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
     dX = layer.backward_prop(dZ=test_case.dZ)
 
-    assert np.allclose(dX, test_case.expected_dX, atol=1e-3), ( # type: ignore[arg-type]
+    assert np.allclose(dX, test_case.expected_dX, atol=1e-3), (  # type: ignore[arg-type]
         f"dX incorrect: got {dX}, expected {test_case.expected_dX}"
     )
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"
     assert np.allclose(-cached_dP.weights, test_case.expected_weights, atol=1e-3), (  # type: ignore[attr-defined]
-        f"weights incorrect: got {-cached_dP.weights}, expected {test_case.expected_weights}" # type: ignore[attr-defined]
+        f"weights incorrect: got {-cached_dP.weights}, expected {test_case.expected_weights}"  # type: ignore[attr-defined]
     )
     assert np.allclose(-cached_dP.biases, test_case.expected_biases, atol=1e-3), (  # type: ignore[attr-defined]
-        f"biases incorrect: got {-cached_dP.biases}, expected {test_case.expected_biases}" # type: ignore[attr-defined]
+        f"biases incorrect: got {-cached_dP.biases}, expected {test_case.expected_biases}"  # type: ignore[attr-defined]
     )
 
 
