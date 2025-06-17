@@ -36,7 +36,7 @@ from mo_net.train import (
     TrainingParameters,
 )
 from mo_net.train.augment import affine_transform
-from mo_net.train.backends.logging import parse_connection_string
+from mo_net.train.backends.log import parse_connection_string
 from mo_net.train.run import TrainingRun
 from mo_net.train.trainer.parallel import ParallelTrainer
 from mo_net.train.trainer.trainer import (

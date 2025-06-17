@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from mo_net.train.backends.logging import LoggingBackend
+from mo_net.train.backends.log import LoggingBackend
 
 
 class TrainingRun:
