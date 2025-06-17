@@ -5,9 +5,10 @@ import numpy as np
 import pytest
 from more_itertools import one
 
-from mo_net.model.block.base import Hidden
+from mo_net.constants import N_BYTES_PER_FLOAT
 from mo_net.model.layer.linear import Linear
 from mo_net.model.model import Model
+from mo_net.model.module.base import Hidden
 
 
 def test_model_initialisation_of_mlp_has_correct_dimensions():
@@ -16,10 +17,10 @@ def test_model_initialisation_of_mlp_has_correct_dimensions():
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
 
-    assert model.hidden_blocks[0].layers[0]._parameters._W.shape == (2, 2)
-    assert model.hidden_blocks[0].layers[0]._parameters._B.shape == (2,)
-    assert model.output_block.layers[0]._parameters._W.shape == (2, 2)
-    assert model.output_block.layers[0]._parameters._B.shape == (2,)
+    assert model.hidden_modules[0].layers[0]._parameters.weights.shape == (2, 2)
+    assert model.hidden_modules[0].layers[0]._parameters.biases.shape == (2,)
+    assert model.output_module.layers[0]._parameters.weights.shape == (2, 2)
+    assert model.output_module.layers[0]._parameters.biases.shape == (2,)
 
 
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
@@ -59,8 +60,8 @@ def test_forward_prop_linear_model(factor: int, dX: np.ndarray):
                 input_dimensions=(5,),
                 output_dimensions=(2,),
                 parameters=Linear.Parameters(
-                    _W=weights,
-                    _B=bias_1,
+                    weights=weights,
+                    biases=bias_1,
                 ),
             ),
         ],
@@ -100,10 +101,19 @@ def test_serialize_deserialize():
 
     X_prop_before = model.forward_prop(X)
     buffer = io.BytesIO()
+    for i, layer in enumerate(model.layers):
+        layer._layer_id = f"test_layer_for_serialization_{i}"
     buffer.write(pickle.dumps(model.serialize()))
     buffer.seek(0)
     deserialized = Model.load(buffer)
     X_prop_after = deserialized.forward_prop(X)
 
-    assert model.block_dimensions == deserialized.block_dimensions
+    assert model.module_dimensions == deserialized.module_dimensions
     assert np.allclose(X_prop_before, X_prop_after)
+
+
+def test_gradient_size():
+    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    assert model.parameter_count == 2 * 6  # 2 x (4 weights, 2 biases)
+    assert model.grad_layers[0].parameter_nbytes == 6 * N_BYTES_PER_FLOAT
+    assert model.grad_layers[1].parameter_nbytes == 6 * N_BYTES_PER_FLOAT

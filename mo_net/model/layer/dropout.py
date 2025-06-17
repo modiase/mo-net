@@ -89,14 +89,14 @@ class Dropout(Hidden):
         keep_probs: Sequence[float],
         training: bool,
     ) -> None:
-        if len(keep_probs) != len(model.hidden_blocks):
+        if len(keep_probs) != len(model.hidden_modules):
             raise ValueError(
-                f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden blocks ({len(model.hidden_blocks)})"
+                f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden modules ({len(model.hidden_modules)})"
             )
-        for block, keep_prob in zip(model.hidden_blocks, keep_probs, strict=True):
-            block.append_layer(
+        for module, keep_prob in zip(model.hidden_modules, keep_probs, strict=True):
+            module.append_layer(
                 Dropout(
-                    input_dimensions=block.output_dimensions,
+                    input_dimensions=module.output_dimensions,
                     keep_prob=keep_prob,
                     training=training,
                 )

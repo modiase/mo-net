@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Generic, Literal, Protocol, Sequence, TypeVar, overload
 
 import numpy as np
+from loguru import logger
 
 from mo_net.model.model import Model
 from mo_net.protos import SupportsGradientOperations
@@ -51,11 +52,16 @@ class Base(ABC, Generic[ConfigT]):
         ]
         | None
     ):
+        logger.trace("Starting training step.")
         self._model.forward_prop(X=X_train_batch)
+        logger.trace("Forward propagation complete.")
         self._model.backward_prop(Y_true=Y_train_batch)
+        logger.trace("Backward propagation complete.")
         if return_gradients:
             gradient = self._model.get_gradient_caches()
+        logger.trace("Computing update.")
         self.compute_update()
+        logger.trace("Update computed.")
         for handler in self._after_compute_update_handlers:
             handler(self.learning_rate)
         if return_gradients:

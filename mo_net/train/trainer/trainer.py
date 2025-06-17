@@ -106,6 +106,7 @@ class BasicTrainer:
         self._training_parameters = training_parameters
         self._X_train = X_train
         self._Y_train = Y_train
+        self._logger = logger.bind(name="trainer")
         self._batcher = Batcher(
             X=X_train,
             Y=Y_train,
@@ -123,7 +124,9 @@ class BasicTrainer:
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
-        self._on_shutdown_handlers: Sequence[Callable[[], None]] = ()
+        self._on_shutdown_handlers: Sequence[Callable[[], None]] = (
+            lambda: self._run.end_run(),
+        )
 
     def subscribe_to_after_training_step(
         self,
@@ -147,12 +150,12 @@ class BasicTrainer:
                     try:
                         handler()
                     except Exception:
-                        logger.exception("Error in shutdown handler.")
+                        self._logger.exception("Error in shutdown handler.")
                 if not self._disable_shutdown:
                     try:
                         self.shutdown()
                     except Exception:
-                        logger.exception("Error in shutdown handler.")
+                        self._logger.exception("Error in shutdown handler.")
 
         return _training_loop_context()
 
@@ -179,7 +182,7 @@ class BasicTrainer:
         model_checkpoint_path: Path,
         start_epoch: int,
     ) -> TrainingResult:
-        logger.info(f"Resuming training from epoch {start_epoch}.")
+        self._logger.info(f"Resuming training from epoch {start_epoch}.")
 
         self._start_epoch = start_epoch
         self._model = Model.load(open(model_checkpoint_path, "rb"), training=True)
@@ -192,13 +195,14 @@ class BasicTrainer:
             return self._training_loop()
 
     def train(self) -> TrainingResult:
-        logger.info(
+        self._logger.info(
             f"Training model {self._model.__class__.__name__}"
             f" for {self._training_parameters.num_epochs=} iterations"
             f" using optimizer {self._optimizer.__class__.__name__}."
         )
-        logger.info(
-            f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.block_dimensions)} and parameter count: {self._model.parameter_count}."
+        self._logger.info(f"{self._model.print()}")
+        self._logger.info(
+            f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.module_dimensions)} and parameter count: {self._model.parameter_count}."
         )
 
         self._run.start_run(
@@ -214,9 +218,9 @@ class BasicTrainer:
             training_parameters=self._training_parameters.model_dump_json()
         )
 
-        logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
-        logger.info(f"Training parameters: {self._training_parameters}.")
-        logger.info(f"Logging to: {self._run._backend.connection_string}.")
+        self._logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
+        self._logger.info(f"Training parameters: {self._training_parameters}.")
+        self._logger.info(f"Logging to: {self._run._backend.connection_string}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
         self._L_val_min = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
@@ -248,9 +252,6 @@ class BasicTrainer:
             return self._training_loop()
 
     def _before_training_loop(self) -> None:
-        self.subscribe_to_shutdown(
-            lambda: self._run.end_run(),
-        )
         if self._training_parameters.max_restarts > 0:
             self._optimizer.snapshot()
 
@@ -270,6 +271,7 @@ class BasicTrainer:
             unit=" epoch",
             unit_scale=1 / self._training_parameters.batches_per_epoch,
             bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
+            disable=self._training_parameters.quiet,
         ):
             with self._create_training_step_context():
                 X_train_batch, Y_train_batch = next(self._batcher)
@@ -316,25 +318,33 @@ class BasicTrainer:
                     case never:
                         assert_never(never)
 
-                self._run.log_iteration(
-                    epoch=self._training_parameters.current_epoch(i),
-                    batch=i,
-                    batch_loss=L_batch,
-                    val_loss=L_val,
-                    learning_rate=self._optimizer.learning_rate,
-                )
+            self._run.log_iteration(
+                epoch=self._training_parameters.current_epoch(i),
+                batch=i,
+                batch_loss=L_batch,
+                val_loss=L_val,
+                learning_rate=self._optimizer.learning_rate,
+            )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
-                tqdm.write(
-                    f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
-                    + (
-                        f", {report}"
-                        if (report := self._optimizer.report()) != ""
-                        else ""
+                if not self._training_parameters.quiet:
+                    tqdm.write(
+                        f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
+                        + (
+                            f", {report}"
+                            if (report := self._optimizer.report()) != ""
+                            else ""
+                        )
                     )
-                )
                 last_log_time = time.time()
 
+        self._run.log_iteration(
+            epoch=self._training_parameters.num_epochs,
+            batch=self._training_parameters.total_batches,
+            batch_loss=L_batch,
+            val_loss=L_val,
+            learning_rate=self._optimizer.learning_rate,
+        )
         return TrainingSuccessful(
             model_checkpoint_path=self._model_checkpoint_path,
         )

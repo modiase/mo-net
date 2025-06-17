@@ -14,7 +14,9 @@ from more_itertools import peekable, sample
 
 from mo_net.data import (
     DATA_DIR,
+    DEFAULT_TRAIN_SPLIT,
     OUTPUT_PATH,
+    SplitConfig,
     infer_dataset_url,
     load_data,
 )
@@ -29,12 +31,12 @@ from mo_net.model import Model
 from mo_net.protos import ActivationFn, NormalisationType
 from mo_net.quickstart import mnist_cnn, mnist_mlp
 from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
-from mo_net.resources import MNIST_TRAIN_URL
+from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.train import (
     TrainingParameters,
 )
 from mo_net.train.augment import affine_transform
-from mo_net.train.backends.logging import SqliteBackend
+from mo_net.train.backends.log import parse_connection_string
 from mo_net.train.run import TrainingRun
 from mo_net.train.trainer.parallel import ParallelTrainer
 from mo_net.train.trainer.trainer import (
@@ -56,12 +58,39 @@ MAX_BATCH_SIZE: Final[int] = 10000
 N_DIGITS: Final[int] = 10
 
 
+def dataset_split_options(f: Callable[P, R]) -> Callable[P, R]:
+    @click.option(
+        "--train-split",
+        type=float,
+        help="Set the split for the dataset",
+        default=DEFAULT_TRAIN_SPLIT,
+    )
+    @click.option(
+        "--train-split-index",
+        type=int,
+        help="Set the index for the split of the dataset",
+        default=0,
+    )
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "-b",
         "--batch-size",
         type=int,
         help="Set the batch size",
+        default=None,
+    )
+    @click.option(
+        "-p",
+        "--model-output-path",
+        type=Path,
+        help="Set the path to the model file",
         default=None,
     )
     @click.option(
@@ -92,6 +121,145 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the url to the dataset",
         default=None,
     )
+    @click.option(
+        "-n",
+        "--num-epochs",
+        help="Set number of epochs",
+        type=int,
+        default=DEFAULT_NUM_EPOCHS,
+    )
+    @click.option(
+        "-i",
+        "--dims",
+        type=int,
+        multiple=True,
+        default=(),
+    )
+    @click.option(
+        "-m",
+        "--model-path",
+        help="Set the path to the model file",
+        type=Path,
+    )
+    @click.option(
+        "-t",
+        "--normalisation-type",
+        type=click.Choice(
+            [v.value for v in NormalisationType],
+            case_sensitive=False,
+        ),
+        help="Set the normalisation type",
+        default=NormalisationType.LAYER.value,
+    )
+    @click.option(
+        "-k",
+        "--dropout-keep-probs",
+        type=float,
+        help="Set the dropout keep probabilities.",
+        multiple=True,
+        default=(),
+    )
+    @click.option(
+        "-f",
+        "--activation-fn",
+        type=click.Choice([ReLU.name, Tanh.name, LeakyReLU.name]),
+        help="Set the activation function",
+        default=ReLU.name,
+        callback=parse_activation_fn,
+    )
+    @click.option(
+        "--tracing-enabled",
+        type=bool,
+        is_flag=True,
+        help="Enable tracing",
+        default=False,
+    )
+    @click.option(
+        "-l",
+        "--regulariser-lambda",
+        type=float,
+        help="Set the regulariser lambda",
+        default=0.0,
+    )
+    @click.option(
+        "-e",
+        "--warmup-epochs",
+        type=int,
+        help="Set the number of warmup epochs",
+        default=100,
+    )
+    @click.option(
+        "-r",
+        "--max-restarts",
+        type=int,
+        help="Set the maximum number of restarts",
+        default=0,
+    )
+    @click.option(
+        "-w",
+        "--workers",
+        type=int,
+        help="Set the number of workers",
+        default=0,
+    )
+    @click.option(
+        "--no-monitoring",
+        type=bool,
+        is_flag=True,
+        help="Disable monitoring",
+        default=False,
+    )
+    @click.option(
+        "--no-transform",
+        type=bool,
+        is_flag=True,
+        help="Disable transform",
+        default=False,
+    )
+    @click.option(
+        "-y",
+        "--history-max-len",
+        type=int,
+        help="Set the maximum length of the history",
+        default=100,
+    )
+    @click.option(
+        "-q",
+        "--quickstart",
+        type=click.Choice(["mnist_mlp", "mnist_cnn"]),
+        help="Set the quickstart",
+        default=None,
+    )
+    @click.option(
+        "--only-misclassified-examples",
+        type=bool,
+        is_flag=True,
+        help="Only use misclassified examples for training",
+        default=False,
+    )
+    @click.option(
+        "--log-level",
+        type=click.Choice(tuple(level.lower() for level in LogLevel)),
+        help="Set the log level",
+        default="info",
+        callback=lambda _, __, value: LogLevel(value.upper())
+        if isinstance(value, str)
+        else LogLevel.INFO,
+    )
+    @click.option(
+        "--quiet",
+        type=bool,
+        is_flag=True,
+        help="Disable logging",
+        default=False,
+    )
+    @click.option(
+        "--logging-backend-connection-string",
+        type=str,
+        help="Set the connection string for the logging backend",
+        default=None,
+    )
+    @dataset_split_options
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -101,15 +269,15 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
 
 def get_model(
     *,
-    model_path: Path | None,
-    quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
-    dims: Sequence[int],
     X_train: np.ndarray,
     activation_fn: ActivationFn,
     batch_size: int,
-    normalisation_type: NormalisationType,
-    tracing_enabled: bool,
+    dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
+    model_path: Path | None,
+    normalisation_type: NormalisationType,
+    quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
+    tracing_enabled: bool,
     training_parameters: TrainingParameters,
 ) -> Model:
     if model_path is None:
@@ -154,136 +322,18 @@ def get_model(
 def cli(): ...
 
 
-@cli.command(help="Train the model")
+@cli.command("train", help="Train the model")
 @training_options
-@click.option(
-    "-n",
-    "--num-epochs",
-    help="Set number of epochs",
-    type=int,
-    default=DEFAULT_NUM_EPOCHS,
-)
-@click.option(
-    "-i",
-    "--dims",
-    type=int,
-    multiple=True,
-    default=(),
-)
-@click.option(
-    "-m",
-    "--model-path",
-    help="Set the path to the model file",
-    type=Path,
-)
-@click.option(
-    "-t",
-    "--normalisation-type",
-    type=click.Choice(
-        [NormalisationType.LAYER, NormalisationType.BATCH, NormalisationType.NONE]
-    ),
-    help="Set the normalisation type",
-    default=NormalisationType.LAYER,
-    callback=lambda _, __, value: value.upper() if isinstance(value, str) else value,
-)
-@click.option(
-    "-k",
-    "--dropout-keep-probs",
-    type=float,
-    help="Set the dropout keep probabilities.",
-    multiple=True,
-    default=(),
-)
-@click.option(
-    "-f",
-    "--activation-fn",
-    type=click.Choice([ReLU.name, Tanh.name, LeakyReLU.name]),
-    help="Set the activation function",
-    default=ReLU.name,
-    callback=parse_activation_fn,
-)
-@click.option(
-    "--tracing-enabled",
-    type=bool,
-    is_flag=True,
-    help="Enable tracing",
-    default=False,
-)
-@click.option(
-    "-l",
-    "--regulariser-lambda",
-    type=float,
-    help="Set the regulariser lambda",
-    default=0.0,
-)
-@click.option(
-    "-e",
-    "--warmup-epochs",
-    type=int,
-    help="Set the number of warmup epochs",
-    default=100,
-)
-@click.option(
-    "-r",
-    "--max-restarts",
-    type=int,
-    help="Set the maximum number of restarts",
-    default=0,
-)
-@click.option(
-    "-w",
-    "--workers",
-    type=int,
-    help="Set the number of workers",
-    default=0,
-)
-@click.option(
-    "--no-monitoring",
-    type=bool,
-    is_flag=True,
-    help="Disable monitoring",
-    default=False,
-)
-@click.option(
-    "--no-transform",
-    type=bool,
-    is_flag=True,
-    help="Disable transform",
-    default=False,
-)
-@click.option(
-    "-y",
-    "--history-max-len",
-    type=int,
-    help="Set the maximum length of the history",
-    default=100,
-)
-@click.option(
-    "-q",
-    "--quickstart",
-    type=click.Choice(["mnist_mlp", "mnist_cnn"]),
-    help="Set the quickstart",
-    default=None,
-)
-@click.option(
-    "--only-misclassified-examples",
-    type=bool,
-    is_flag=True,
-    help="Only use misclassified examples for training",
-    default=False,
-)
-@click.option(
-    "--log-level",
-    type=click.Choice(tuple(LogLevel)),
-    help="Set the log level",
-    default="INFO",
-)
-@click.option(
-    "--train-split",
-    type=float,
-    help="Set the split for the dataset",
-    default=0.9,
-)
+def cli_train(*args, **kwargs) -> TrainingResult:
+    log_level = kwargs.get("log_level", LogLevel.INFO)
+    seed = int(os.getenv("MO_NET_SEED", time.time()))
+    kwargs["seed"] = seed
+    np.random.seed(seed)
+    setup_logging(log_level)
+    logger.info(f"Training model with {seed=}.")
+    return train(*args, **kwargs)
+
+
 def train(
     *,
     activation_fn: ActivationFn,
@@ -293,10 +343,12 @@ def train(
     dropout_keep_probs: Sequence[float],
     history_max_len: int,
     log_level: LogLevel,
+    logging_backend_connection_string: str,
     learning_rate_limits: tuple[float, float],
     model_path: Path | None,
     max_restarts: int,
     monotonic: bool,
+    model_output_path: Path | None,
     no_monitoring: bool,
     no_transform: bool,
     normalisation_type: NormalisationType,
@@ -304,21 +356,21 @@ def train(
     optimizer_type: OptimizerType,
     only_misclassified_examples: bool,
     quickstart: Literal["mnist_mlp", "mnist_cnn"] | None,
+    quiet: bool,
     regulariser_lambda: float,
+    seed: int,
     tracing_enabled: bool,
     train_split: float,
+    train_split_index: int,
     warmup_epochs: int,
     workers: int,
-) -> None:
+) -> TrainingResult:
     dataset_url = infer_dataset_url(quickstart) if dataset_url is None else dataset_url
     if dataset_url is None:
         raise ValueError("No dataset URL provided and no quickstart template used.")
-    X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=train_split)
-
-    seed = int(os.getenv("MO_NET_SEED", time.time()))
-    np.random.seed(seed)
-    setup_logging(log_level)
-    logger.info(f"Training model with {seed=}.")
+    X_train, Y_train, X_val, Y_val = load_data(
+        dataset_url, split=SplitConfig.of(train_split, train_split_index)
+    )
 
     train_set_size = X_train.shape[0]
     if batch_size is None:
@@ -331,12 +383,14 @@ def train(
         dropout_keep_probs=tuple(dropout_keep_probs),
         history_max_len=history_max_len,
         learning_rate_limits=learning_rate_limits,
+        log_level=log_level.value,
         max_restarts=max_restarts if not tracing_enabled else 0,
         monotonic=monotonic,
         no_monitoring=no_monitoring,
         no_transform=no_transform,
         normalisation_type=normalisation_type,
         num_epochs=num_epochs,
+        quiet=quiet,
         regulariser_lambda=regulariser_lambda,
         trace_logging=tracing_enabled,
         train_set_size=train_set_size,
@@ -357,10 +411,11 @@ def train(
         training_parameters=training_parameters,
     )
 
-    model_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
+    if model_output_path is None:
+        model_output_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
     run = TrainingRun(
         seed=seed,
-        backend=SqliteBackend(),
+        backend=parse_connection_string(logging_backend_connection_string),
     )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
     if regulariser_lambda > 0:
@@ -385,26 +440,26 @@ def train(
     def save_model(model_checkpoint_path: Path | None) -> None:
         if model_checkpoint_path is None:
             return
-        model_checkpoint_path.rename(model_path)
-        logger.info(f"Saved output to {model_path}.")
+        model_checkpoint_path.rename(model_output_path)
+        logger.info(f"Saved output to {model_output_path}.")
 
     restarts = 0
 
     start_epoch: int = 0
     model_checkpoint_path: Path | None = None
     trainer = (ParallelTrainer if training_parameters.workers > 0 else BasicTrainer)(
-        X_val=X_val,
         X_train=X_train,
-        Y_val=Y_val,
+        X_val=X_val,
         Y_train=Y_train,
-        run=run,
+        Y_val=Y_val,
+        disable_shutdown=training_parameters.workers != 0,
         model=model,
         optimizer=optimizer,
+        run=run,
         start_epoch=start_epoch,
         training_parameters=training_parameters,
-        disable_shutdown=training_parameters.workers != 0,
     )
-    training_result: TrainingResult | None = None
+    training_result: TrainingResult
     try:
         while restarts <= training_parameters.max_restarts:
             if restarts > 0:
@@ -429,9 +484,17 @@ def train(
                     restarts += 1
                 case never_training_result:
                     assert_never(never_training_result)
+    except Exception as e:
+        logger.error(f"Training failed: {e}")
+        raise
+    else:
+        if not isinstance(training_result, (TrainingSuccessful, TrainingFailed)):
+            raise RuntimeError(
+                "Training result is not a TrainingSuccessful or TrainingFailed."
+            )
+        return training_result
     finally:
-        if training_result is not None:
-            save_model(training_result.model_checkpoint_path)
+        save_model(training_result.model_checkpoint_path)
         trainer.shutdown()
 
 
@@ -449,8 +512,24 @@ def train(
     help="Set the url to the dataset",
     default=MNIST_TRAIN_URL,
 )
-def infer(*, model_path: Path | None, dataset_url: str):
-    X_train, Y_train, X_val, Y_val = load_data(dataset_url, split=0.8)
+@click.option(
+    "--test-dataset-url",
+    type=str,
+    help="Set the url to the dataset",
+    default=MNIST_TEST_URL,
+)
+@dataset_split_options
+def infer(
+    *,
+    model_path: Path | None,
+    dataset_url: str,
+    test_dataset_url: str,
+    train_split: float,
+    train_split_index: int,
+):
+    X_train, Y_train, _, __ = load_data(
+        dataset_url, split=SplitConfig.of(train_split, train_split_index)
+    )
 
     if model_path is None:
         output_dir = DATA_DIR / "output"
@@ -474,10 +553,7 @@ def infer(*, model_path: Path | None, dataset_url: str):
         f"Training Set Accuracy: {np.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
     )
 
-    Y_test_pred = model.predict(X_val)
-    Y_test_true = np.argmax(Y_val, axis=1)
-
-    X_test, Y_test = load_data(dataset_url)
+    X_test, Y_test = load_data(test_dataset_url)
     Y_test_pred = model.predict(X_test)
     Y_test_true = np.argmax(Y_test, axis=1)
     logger.info(
@@ -495,7 +571,7 @@ def infer(*, model_path: Path | None, dataset_url: str):
     sample_indices = sample(np.where(Y_test_true != Y_test_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(8, 5, idx + 1)
-        plt.imshow(X_train[i].reshape(28, 28), cmap="gray")
+        plt.imshow(X_test[i].reshape(28, 28), cmap="gray")
         plt.title(f"Pred: {Y_test_pred[i]}, True: {Y_test_true[i]}")
         plt.axis("off")
     plt.subplot(8, 1, (6, 8))

@@ -3,11 +3,11 @@ from typing import assert_never
 
 from more_itertools import one
 
-from mo_net.model.block.base import Hidden
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm import BatchNorm
 from mo_net.model.layer.layer_norm import LayerNorm
 from mo_net.model.layer.linear import Linear
+from mo_net.model.module.base import Hidden
 from mo_net.protos import ActivationFn, Dimensions
 
 
@@ -41,7 +41,7 @@ class Norm(Hidden):
                 )
             case LayerNormOptions():
                 norm_layer = LayerNorm(
-                    neurons=one(output_dimensions),
+                    input_dimensions=output_dimensions,
                     store_output_activations=store_output_activations,
                 )
             case never:

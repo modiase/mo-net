@@ -50,6 +50,7 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
             if run_id
             else session.query(DbRun).order_by(DbRun.updated_at.desc()).first()
         )
+
         if not run:
             raise HTTPException(status_code=404, detail="No runs found")
 
@@ -59,8 +60,21 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
             .order_by(Iteration.timestamp)
             .all()
         )
+
         if not iterations:
-            raise HTTPException(status_code=404, detail="No iterations found")
+            # Return empty DataFrame with correct structure when no iterations found
+            empty_data = pd.DataFrame(
+                columns=[
+                    "batch_loss",
+                    "val_loss",
+                    "batch",
+                    "epoch",
+                    "learning_rate",
+                    "timestamp",
+                ]
+            )
+            empty_data["monotonic_val_loss"] = pd.Series(dtype=float)
+            return empty_data, run.id, run
 
         data = pd.DataFrame(
             [
@@ -175,7 +189,7 @@ async def get_status():
 
     if current_state.current_run:
         progress = (
-            current_state.current_run.current_epoch
+            (current_state.current_run.current_epoch)
             / current_state.current_run.total_epochs
             if current_state.current_run.total_epochs > 0
             else 0
@@ -185,6 +199,12 @@ async def get_status():
                 "progress": progress,
                 "total_epochs": current_state.current_run.total_epochs,
                 "is_completed": current_state.current_run.completed_at is not None,
+                "started_at": current_state.current_run.started_at.isoformat(),
+                "completed_at": current_state.current_run.completed_at.isoformat()
+                if current_state.current_run.completed_at
+                else None,
+                "current_batch": current_state.current_run.current_batch,
+                "total_batches": current_state.current_run.total_batches,
             }
         )
 

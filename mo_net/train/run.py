@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from mo_net.train.backends.logging import LoggingBackend
+from mo_net.train.backends.log import LoggingBackend
 
 
 class TrainingRun:
@@ -23,7 +23,7 @@ class TrainingRun:
     @property
     def id(self) -> str:
         if self._run_id is None:
-            raise ValueError("Run not started")
+            raise ValueError("No run id. Call start_run() first.")
         return self._run_id
 
     @property
@@ -61,5 +61,5 @@ class TrainingRun:
 
     def end_run(self) -> None:
         if self._run_id is None:
-            raise ValueError("Run not started")
+            raise ValueError("Cannot end run. Call start_run() first.")
         self._backend.end_run(run_id=self._run_id)

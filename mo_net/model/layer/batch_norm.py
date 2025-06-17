@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Self
+from typing import IO, ClassVar, Self
 
 import numpy as np
 
 from mo_net.model.layer.base import (
-    Hidden,
+    BadLayerId,
+    ParametrisedHidden,
 )
 from mo_net.protos import (
     Activations,
@@ -23,20 +24,20 @@ from mo_net.protos import (
 
 @dataclass(frozen=True, kw_only=True)
 class Parameters(SupportsGradientOperations):
-    _gamma: np.ndarray
-    _beta: np.ndarray
+    weights: np.ndarray
+    biases: np.ndarray
 
     def __getitem__(
         self, index: int | tuple[int, ...]
     ) -> tuple[np.ndarray, np.ndarray]:
-        return self._gamma[index], self._beta[index]
+        return self.weights[index], self.biases[index]
 
     def __pow__(self, other: float | int) -> Self:
         match other:
             case float() | int():
                 return self.__class__(
-                    _gamma=self._gamma**other,
-                    _beta=self._beta**other,
+                    weights=self.weights**other,
+                    biases=self.biases**other,
                 )
             case _:
                 return NotImplemented
@@ -47,8 +48,8 @@ class Parameters(SupportsGradientOperations):
                 return self.__mul__(1 / other)
             case self.__class__():
                 return self.__class__(
-                    _gamma=self._gamma / other._gamma,
-                    _beta=self._beta / other._beta,
+                    weights=self.weights / other.weights,
+                    biases=self.biases / other.biases,
                 )
             case _:
                 return NotImplemented
@@ -57,13 +58,13 @@ class Parameters(SupportsGradientOperations):
         match other:
             case float() | int():
                 return self.__class__(
-                    _gamma=self._gamma + other,
-                    _beta=self._beta + other,
+                    weights=self.weights + other,
+                    biases=self.biases + other,
                 )
             case self.__class__():
                 return self.__class__(
-                    _gamma=self._gamma + other._gamma,
-                    _beta=self._beta + other._beta,
+                    weights=self.weights + other.weights,
+                    biases=self.biases + other.biases,
                 )
             case _:
                 return NotImplemented
@@ -72,29 +73,29 @@ class Parameters(SupportsGradientOperations):
         match other:
             case float() | int():
                 return self.__class__(
-                    _gamma=other + self._gamma,
-                    _beta=other + self._beta,
+                    weights=other + self.weights,
+                    biases=other + self.biases,
                 )
             case _:
                 return NotImplemented
 
     def __neg__(self) -> Self:
         return self.__class__(
-            _gamma=-self._gamma,
-            _beta=-self._beta,
+            weights=-self.weights,
+            biases=-self.biases,
         )
 
     def __sub__(self, other: Self | float) -> Self:
         match other:
             case float() | int():
                 return self.__class__(
-                    _gamma=self._gamma - other,
-                    _beta=self._beta - other,
+                    weights=self.weights - other,
+                    biases=self.biases - other,
                 )
             case self.__class__():
                 return self.__class__(
-                    _gamma=self._gamma - other._gamma,
-                    _beta=self._beta - other._beta,
+                    weights=self.weights - other.weights,
+                    biases=self.biases - other.biases,
                 )
             case _:
                 return NotImplemented
@@ -103,13 +104,13 @@ class Parameters(SupportsGradientOperations):
         match other:
             case float() | int():
                 return self.__class__(
-                    _gamma=self._gamma * other,
-                    _beta=self._beta * other,
+                    weights=self.weights * other,
+                    biases=self.biases * other,
                 )
             case self.__class__():
                 return self.__class__(
-                    _gamma=self._gamma * other._gamma,
-                    _beta=self._beta * other._beta,
+                    weights=self.weights * other.weights,
+                    biases=self.biases * other.biases,
                 )
             case _:
                 return NotImplemented
@@ -117,18 +118,58 @@ class Parameters(SupportsGradientOperations):
     def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
+    def __rsub__(self, other: float | Self) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    weights=other - self.weights,
+                    biases=other - self.biases,
+                )
+            case self.__class__():
+                return self.__class__(
+                    weights=other.weights - self.weights,
+                    biases=other.biases - self.biases,
+                )
+            case _:
+                return NotImplemented
+
+    def __rtruediv__(self, other: float | Self) -> Self:
+        match other:
+            case float() | int():
+                return self.__class__(
+                    weights=other / self.weights,
+                    biases=other / self.biases,
+                )
+            case self.__class__():
+                return self.__class__(
+                    weights=other.weights / self.weights,
+                    biases=other.biases / self.biases,
+                )
+            case _:
+                return NotImplemented
+
     @classmethod
     def empty(cls, *, input_dimensions: Dimensions) -> Self:
         return cls(
-            _gamma=np.ones(input_dimensions),
-            _beta=np.zeros(input_dimensions),
+            weights=np.ones(input_dimensions),
+            biases=np.zeros(input_dimensions),
+        )
+
+    def from_bytes(self, data: IO[bytes]) -> Self:
+        return self.__class__(
+            weights=np.frombuffer(
+                data.read(self.weights.nbytes), dtype=self.weights.dtype
+            ).reshape(self.weights.shape),
+            biases=np.frombuffer(
+                data.read(self.biases.nbytes), dtype=self.biases.dtype
+            ).reshape(self.biases.shape),
         )
 
 
 type ParametersType = Parameters
 
 
-class Cache(GradCache):
+class Cache(GradCache[ParametersType]):
     input_activations: Activations | None
     mean: np.ndarray | None
     output_activations: Activations | None
@@ -139,7 +180,7 @@ class Cache(GradCache):
 type CacheType = Cache
 
 
-class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
+class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
     """https://arxiv.org/abs/1502.03167"""
 
     _EPSILON: ClassVar[float] = 1e-8
@@ -148,6 +189,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
+        layer_id: str
         input_dimensions: tuple[int, ...]
         momentum: float
         parameters: Parameters
@@ -160,6 +202,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             training: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
+                layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 momentum=self.momentum,
                 parameters=self.parameters,
@@ -173,6 +216,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         *,
         input_dimensions: Dimensions,
         momentum: float = 0.9,
+        layer_id: str | None = None,
         parameters: ParametersType | None = None,
         running_mean: np.ndarray | None = None,
         running_variance: np.ndarray | None = None,
@@ -180,6 +224,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         training: bool = True,
     ):
         super().__init__(
+            layer_id=layer_id,
             input_dimensions=input_dimensions,
             output_dimensions=input_dimensions,
         )
@@ -238,7 +283,9 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalised_activations
 
-        return self._parameters._gamma * normalised_activations + self._parameters._beta
+        return (
+            self._parameters.weights * normalised_activations + self._parameters.biases
+        )
 
     def _backward_prop(
         self,
@@ -258,14 +305,14 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
                 "input_activations is not populated during backward pass."
             )
 
-        dX_norm = dZ / self._parameters._gamma
-        d_gamma = np.sum(dZ * output_activations, axis=0)
-        d_beta = np.sum(dZ, axis=0)  # type: ignore[call-overload]
+        dX_norm = dZ * self._parameters.weights
+        d_weights = np.sum(dZ * output_activations, axis=0)
+        d_beta = np.sum(dZ, axis=0)
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
-                    _gamma=d_gamma,
-                    _beta=d_beta,
+                    weights=-d_weights,
+                    biases=-d_beta,
                 )
             )
         batch_size = self._cache["batch_size"]
@@ -275,7 +322,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
             axis=0,
         )
         d_batch_mean = (
-            np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
+            -np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
             + d_batch_variance
             * np.sum(-2 * (input_activations - mean), axis=0)
             / batch_size
@@ -292,8 +339,8 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                _gamma=np.zeros_like(self._parameters._gamma),
-                _beta=np.zeros_like(self._parameters._beta),
+                weights=np.zeros_like(self._parameters.weights),
+                biases=np.zeros_like(self._parameters.biases),
             )
         )
 
@@ -322,6 +369,7 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     def serialize(self) -> SupportsDeserialize[BatchNorm]:
         return self.Serialized(
+            layer_id=self._layer_id,
             input_dimensions=tuple(self._input_dimensions),
             momentum=self._momentum,
             parameters=self._parameters,
@@ -331,4 +379,24 @@ class BatchNorm(Hidden, GradLayer[ParametersType, CacheType]):
 
     @property
     def parameter_count(self) -> int:
-        return self._parameters._gamma.size + self._parameters._beta.size
+        return self._parameters.weights.size + self._parameters.biases.size
+
+    @property
+    def parameter_nbytes(self) -> int:
+        return self._parameters.weights.nbytes + self._parameters.biases.nbytes
+
+    def write_serialized_parameters(self, buffer: IO[bytes]) -> None:
+        self._write_header(buffer)
+        if self._cache is None or self._cache["dP"] is None:
+            raise RuntimeError("Cache is not populated during serialization.")
+        buffer.write(memoryview(self._cache["dP"].weights))
+        buffer.write(memoryview(self._cache["dP"].biases))
+
+    def read_serialized_parameters(self, data: IO[bytes]) -> None:
+        if (layer_id := self.get_layer_id(data)) != self._layer_id:
+            raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
+        update = self._parameters.from_bytes(data)
+        if self._cache["dP"] is None:
+            self._cache["dP"] = d(update)
+        else:
+            self._cache["dP"] += d(update)

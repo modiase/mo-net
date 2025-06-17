@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Generic, NewType, Protocol, Self, TypeVar, TypedDict, cast
+from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast, Optional, Type as TypingType, Union
 
 import numpy as np
 from typing_extensions import runtime_checkable
@@ -46,11 +46,11 @@ class EventLike(Protocol):
 
 
 class HasBiases(Protocol):
-    _B: np.ndarray
+    biases: np.ndarray
 
 
 class HasWeights(Protocol):
-    _W: np.ndarray
+    weights: np.ndarray
 
 
 type LossContributor = Callable[[], float]
@@ -109,27 +109,28 @@ type RawGradientType = Sequence[SupportsGradientOperations]
 type UpdateGradientType = RawGradientType
 
 
-_ParamType = TypeVar("_ParamType", bound=SupportsGradientOperations)
+ParamType = TypeVar("ParamType", bound=SupportsGradientOperations)
+ParamType_co = TypeVar("ParamType_co", bound=SupportsGradientOperations, covariant=True)
 
 
-class GradCache(TypedDict, Generic[_ParamType]):  # noqa: F821
-    dP: D[_ParamType] | None
+class GradCache(TypedDict, Generic[ParamType]):  # noqa: F821
+    dP: D[ParamType] | None
 
 
-_CacheType_co = TypeVar("_CacheType_co", bound=GradCache, covariant=True)
+CacheType_co = TypeVar("CacheType_co", bound=GradCache, covariant=True)
 
 
 @runtime_checkable
-class GradLayer(Protocol, Generic[_ParamType, _CacheType_co]):
+class GradLayer(Protocol, Generic[ParamType_co, CacheType_co]):
     @property
-    def parameters(self) -> _ParamType: ...
+    def parameters(self) -> ParamType_co: ...
 
     @property
-    def cache(self) -> _CacheType_co: ...
+    def cache(self) -> CacheType_co: ...
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None: ...
 
-    def empty_gradient(self) -> D[_ParamType]: ...
+    def empty_gradient(self) -> D[ParamType_co]: ...
 
 
 @runtime_checkable

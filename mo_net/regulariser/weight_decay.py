@@ -17,20 +17,23 @@ class WeightDecayRegulariser(TrainingStepHandler):
         self._batch_size = batch_size
 
     def after_compute_update(self, learning_rate: float) -> None:
-        dP = self._layer.cache.get("dP", self._layer.empty_gradient())
+        dP = self._layer.cache.get("dP", self._layer.empty_gradient())  # type: ignore[attr-defined]
         if dP is None:
             return
-        self._layer.cache["dP"] = d(
+        self._layer.cache["dP"] = d(  # type: ignore[index]
             dP
             + Linear.Parameters(
-                _W=self._lambda * learning_rate * self._layer.parameters._W,
-                _B=np.zeros_like(dP._B),  # type: ignore[attr-defined]
+                weights=self._lambda * learning_rate * self._layer.parameters.weights,
+                biases=np.zeros_like(dP._B),  # type: ignore[attr-defined]
             )
         )
 
     def compute_regularisation_loss(self) -> float:
         return (
-            0.5 * self._lambda * np.sum(self._layer.parameters._W**2) / self._batch_size
+            0.5
+            * self._lambda
+            * np.sum(self._layer.parameters.weights**2)
+            / self._batch_size
         )
 
     def __call__(self) -> float:
@@ -44,7 +47,7 @@ def attach_weight_decay_regulariser(
     optimizer: BaseOptimizer,
     model: Model,
 ) -> None:
-    for layer in chain.from_iterable(block.layers for block in model.blocks):
+    for layer in chain.from_iterable(module.layers for module in model.modules):
         if not isinstance(layer, Linear):
             continue
         layer_regulariser = WeightDecayRegulariser(

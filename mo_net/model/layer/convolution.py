@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TypedDict, assert_never, cast
+from typing import IO, Final, TypedDict, assert_never, cast
 
 import numpy as np
 from numpy.lib.stride_tricks import as_strided
 
-from mo_net.model.layer.base import Hidden
+from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
 from mo_net.protos import (
     Activations,
     D,
@@ -16,6 +16,8 @@ from mo_net.protos import (
     SupportsGradientOperations,
     d,
 )
+
+EPSILON: Final[float] = 1e-8
 
 
 class Cache(TypedDict):
@@ -174,17 +176,28 @@ class Parameters(SupportsGradientOperations):
             biases=np.zeros(n_kernels),
         )
 
+    def from_bytes(self, data: IO[bytes]) -> Parameters:
+        return Parameters(
+            weights=np.frombuffer(
+                data.read(self.weights.nbytes), dtype=self.weights.dtype
+            ).reshape(self.weights.shape),
+            biases=np.frombuffer(
+                data.read(self.biases.nbytes), dtype=self.biases.dtype
+            ).reshape(self.biases.shape),
+        )
+
 
 type ParametersType = Parameters
 type KernelInitFn = Callable[[int, int, int, int], ParametersType]
 
 
-class Convolution2D(Hidden):
+class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
     Cache = Cache
     Parameters = Parameters
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
+        layer_id: str
         input_dimensions: tuple[int, int, int]
         n_kernels: int
         kernel_size: tuple[int, int]
@@ -200,6 +213,7 @@ class Convolution2D(Hidden):
                 return self.parameters
 
             return Convolution2D(
+                layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 n_kernels=self.n_kernels,
                 kernel_size=self.kernel_size,
@@ -217,6 +231,7 @@ class Convolution2D(Hidden):
         stride: int | tuple[int, int] = 1,
         # padding: int | tuple[int, int] = 0, # TODO: Implement padding.
         kernel_init_fn: KernelInitFn = Parameters.he,
+        layer_id: str | None = None,
         freeze_parameters: bool = False,
         clip_gradients: bool = False,
         weight_max_norm: float = 1.0,
@@ -251,7 +266,9 @@ class Convolution2D(Hidden):
             self._out_width,  # X
         )
         super().__init__(
-            input_dimensions=input_dimensions, output_dimensions=output_dimensions
+            layer_id=layer_id,
+            input_dimensions=input_dimensions,
+            output_dimensions=output_dimensions,
         )
         self._freeze_parameters = freeze_parameters
         self._n_kernels = n_kernels
@@ -335,11 +352,13 @@ class Convolution2D(Hidden):
         if self._clip_gradients:
             dK *= min(
                 1.0,
-                self._weight_max_norm * np.sqrt(dK.size) / np.linalg.norm(dK),
+                self._weight_max_norm
+                * np.sqrt(dK.size)
+                / (np.linalg.norm(dK) + EPSILON),
             )
             db *= min(
                 1.0,
-                self._bias_max_norm * np.sqrt(db.size) / np.linalg.norm(db),
+                self._bias_max_norm * np.sqrt(db.size) / (np.linalg.norm(db) + EPSILON),
             )
 
         pad_h = self._kernel_height - 1
@@ -408,6 +427,7 @@ class Convolution2D(Hidden):
     def serialize(self) -> Convolution2D.Serialized:
         channels, height, width = self.input_dimensions
         return Convolution2D.Serialized(
+            layer_id=self._layer_id,
             input_dimensions=(channels, height, width),
             n_kernels=self._n_kernels,
             kernel_size=(self._kernel_height, self._kernel_width),
@@ -415,3 +435,27 @@ class Convolution2D(Hidden):
             output_dimensions=(self._n_kernels, self._out_height, self._out_width),
             parameters=self._parameters,
         )
+
+    def write_serialized_parameters(self, buffer: IO[bytes]) -> None:
+        self._write_header(buffer)
+        if self._cache["dP"] is None:
+            raise RuntimeError("Cache is not populated during serialization.")
+        buffer.write(memoryview(self._cache["dP"].weights))  # type: ignore[attr-defined]
+        buffer.write(memoryview(self._cache["dP"].biases))  # type: ignore[attr-defined]
+
+    def read_serialized_parameters(self, data: IO[bytes]) -> None:
+        if (layer_id := self.get_layer_id(data)) != self._layer_id:
+            raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
+        update = self._parameters.from_bytes(data)
+        if self._cache["dP"] is None:
+            self._cache["dP"] = d(update)
+        else:
+            self._cache["dP"] += d(update)
+
+    @property
+    def parameter_nbytes(self) -> int:
+        return self._parameters.weights.nbytes + self._parameters.biases.nbytes
+
+    @property
+    def parameter_count(self) -> int:
+        return self._parameters.weights.size + self._parameters.biases.size
