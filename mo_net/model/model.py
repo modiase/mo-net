@@ -222,7 +222,7 @@ class Model(ModelBase):
             output if isinstance(output, Output) else Output(output_layer=output)
         )
         self._loss_contributors: MutableSequence[LossContributor] = []
-        self._layer_id_to_layer: Mapping[str, ParametrisedHidden] = {
+        self._layer_id_to_parametrised_layer: Mapping[str, ParametrisedHidden] = {
             layer.layer_id: layer for layer in self.grad_layers
         }
 
@@ -359,8 +359,8 @@ class Model(ModelBase):
     def prepend_layer(self, layer: HiddenLayer) -> None:
         first(self._hidden_modules).prepend_layer(layer)
 
-    def get_layer(self, layer_id: str) -> ParametrisedHidden:
-        return self._layer_id_to_layer[layer_id]
+    def get_parametrised_layer(self, layer_id: str) -> ParametrisedHidden:
+        return self._layer_id_to_parametrised_layer[layer_id]
 
     @property
     def layers(self) -> Sequence[Base]:

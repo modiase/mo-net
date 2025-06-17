@@ -301,7 +301,7 @@ class SharedMemoryManager:
                         f"Leader found layer {layer_id} from worker {worker_id}"
                     )
 
-                    layer = model.get_layer(layer_id)
+                    layer = model.get_parametrised_layer(layer_id)
                     layer.read_serialized_parameters(reader)
 
                     layers_processed += 1

@@ -58,7 +58,7 @@ class MockedSharedMemoryManager(SharedMemoryManager):
                         )
                         break
 
-                    model.get_layer(
+                    model.get_parametrised_layer(
                         ParametrisedHidden.get_layer_id(reader, peek=True)
                     ).read_serialized_parameters(reader)
 
