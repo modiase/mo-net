@@ -336,33 +336,40 @@ class SharedMemoryManager:
         start_time = time.perf_counter()
         logger.trace("Leader starting parameter update broadcast")
 
-        serialize_start = time.perf_counter()
         data_bytes = pickle.dumps(update)
         data_bytes_len = len(data_bytes)
-        serialize_time = time.perf_counter() - serialize_start
+        serialize_time = time.perf_counter() - start_time
 
-        self._update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET] = (
+        if _DATA_BYTES_LEN_OFFSET + data_bytes_len > self._update_shared_memory.size:
+            raise RuntimeError(
+                f"Update data too large for shared memory: {_DATA_BYTES_LEN_OFFSET + data_bytes_len} bytes > {self._update_shared_memory.size} bytes"
+            )
+
+        writer = self.IO(
+            self._update_shared_memory.buf, self._update_shared_memory.size
+        )
+        writer.write(
             data_bytes_len.to_bytes(_DATA_BYTES_LEN_OFFSET, byteorder="little")
         )
-        self._update_shared_memory.buf[
-            _DATA_BYTES_LEN_OFFSET : _DATA_BYTES_LEN_OFFSET + data_bytes_len
-        ] = data_bytes
+
+        if writer.write(data_bytes) != data_bytes_len:
+            raise RuntimeError(
+                f"Failed to write complete update data: wrote {writer.tell() - _DATA_BYTES_LEN_OFFSET} of {data_bytes_len} bytes"
+            )
 
         write_time = time.perf_counter()
         logger.trace(
             f"Leader serialized and wrote {data_bytes_len} bytes of updates in "
-            f"{serialize_time:.4f}s + {write_time - serialize_start - serialize_time:.4f}s, "
+            f"{serialize_time:.4f}s + {write_time - start_time - serialize_time:.4f}s, "
             f"now waiting at update barrier"
         )
 
-        barrier_start = time.perf_counter()
         self._update_barrier.wait()
-        barrier_time = time.perf_counter() - barrier_start
+        barrier_time = time.perf_counter() - write_time
 
-        total_time = time.perf_counter() - start_time
         logger.trace(
             f"Leader completed update broadcast: serialization {serialize_time:.4f}s + "
-            f"barrier {barrier_time:.4f}s = {total_time:.4f}s total"
+            f"barrier {barrier_time:.4f}s = {time.perf_counter() - start_time:.4f}s total"
         )
 
     def worker_wait_for_update(self) -> UpdateGradientType | None:
@@ -370,33 +377,44 @@ class SharedMemoryManager:
         start_time = time.perf_counter()
         logger.trace("Worker waiting at update barrier for parameter updates")
 
-        barrier_start = time.perf_counter()
         self._update_barrier.wait()
-        barrier_time = time.perf_counter() - barrier_start
+        barrier_time = time.perf_counter() - start_time
         logger.trace(
             f"Worker passed update barrier after {barrier_time:.4f}s, reading updates"
         )
 
-        read_start = time.perf_counter()
         data_bytes_len = int.from_bytes(
             self._update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET],
             byteorder="little",
         )
+
+        if (
+            data_bytes_len <= 0
+            or data_bytes_len > self._update_shared_memory.size - _DATA_BYTES_LEN_OFFSET
+        ):
+            raise RuntimeError(f"Invalid data length received: {data_bytes_len} bytes")
+
         data = bytes(
             self._update_shared_memory.buf[
                 _DATA_BYTES_LEN_OFFSET : _DATA_BYTES_LEN_OFFSET + data_bytes_len
             ]
         )
 
-        deserialize_start = time.perf_counter()
-        result = pickle.loads(data)
-        deserialize_time = time.perf_counter() - deserialize_start
+        if len(data) != data_bytes_len:
+            raise RuntimeError(
+                f"Truncated data received: got {len(data)} bytes, expected {data_bytes_len} bytes"
+            )
 
-        total_time = time.perf_counter() - start_time
+        try:
+            result = pickle.loads(data)
+        except Exception as e:
+            raise RuntimeError(f"Failed to unpickle data: {e}") from e
+
+        deserialize_time = time.perf_counter() - (start_time + barrier_time)
         logger.trace(
             f"Worker received parameter update: {data_bytes_len} bytes, "
-            f"barrier {barrier_time:.4f}s + read {deserialize_start - read_start:.4f}s + "
-            f"deserialize {deserialize_time:.4f}s = {total_time:.4f}s total"
+            f"barrier {barrier_time:.4f}s + read {time.perf_counter() - (start_time + barrier_time + deserialize_time):.4f}s + "
+            f"deserialize {deserialize_time:.4f}s = {time.perf_counter() - start_time:.4f}s total"
         )
         return result
 
@@ -726,7 +744,7 @@ class ParallelTrainer(BasicTrainer):
         )
         self._update_shared_memory = mp.shared_memory.SharedMemory(
             create=True,
-            size=self._model.parameter_n_bytes,
+            size=int(self._model.parameter_n_bytes * 1.5),
         )
 
         total_memory_bytes = (
