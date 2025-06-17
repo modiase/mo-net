@@ -279,7 +279,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         N = np.prod(x_centered.shape[1:])
 
         dX = dX_norm / std
-        dX += (-1 / N) * (
+        dX -= (1 / N) * (
             np.sum(dX_norm, axis=tuple(range(1, dX_norm.ndim)), keepdims=True)
             + x_centered
             * np.sum(
