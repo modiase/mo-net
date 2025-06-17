@@ -210,14 +210,6 @@ class SharedMemoryManager:
             f"{self._update_shared_memory.size} bytes update memory"
         )
 
-    def get_worker_gradient_memory_name(self, worker_id: int) -> str:
-        """Get shared memory name for worker's gradients"""
-        memory_name = self._gradient_shared_memories[worker_id].name
-        logger.trace(
-            f"Retrieved gradient memory name for worker {worker_id}: {memory_name}"
-        )
-        return memory_name
-
     def worker_put_result(
         self, worker_id: int, grad_layers: Sequence[ParametrisedHidden]
     ) -> None:
