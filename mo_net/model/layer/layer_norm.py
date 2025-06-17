@@ -247,8 +247,8 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
                 ),
             }
         )
-        normalized = (input_activations - self._cache["mean"]) / np.sqrt(
-            self._cache["var"] + self._EPSILON
+        normalized = (input_activations - self._cache["mean"]) / (
+            np.sqrt(self._cache["var"]) + self._EPSILON  # type: ignore[arg-type]
         )
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalized

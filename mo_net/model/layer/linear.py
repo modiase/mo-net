@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import IO, Callable, Final, Self, cast
+from typing import IO, Callable, Final, Self
 
 import numpy as np
 from more_itertools import one
@@ -297,10 +297,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
                 self._bias_max_norm * np.sqrt(dB.size) / (np.linalg.norm(dB) + EPSILON),
             )
 
-        self._cache["dP"] = cast(
-            D[Parameters],
-            self.Parameters.of(W=dW, B=dB),
-        )
+        self._cache["dP"] = d(self.Parameters(weights=dW, biases=dB))
         return dZ @ self._parameters.weights.T
 
     def empty_gradient(self) -> D[ParametersType]:
