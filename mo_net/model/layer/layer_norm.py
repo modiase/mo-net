@@ -274,7 +274,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
                 )
             )
 
-        std = np.sqrt(self._cache["var"] + self._EPSILON)
+        std = np.sqrt(self._cache["var"])
         x_centered = self._cache["input_activations"] - self._cache["mean"]
         N = np.prod(x_centered.shape[1:])
 
@@ -285,7 +285,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             * np.sum(
                 dX_norm * x_centered, axis=tuple(range(1, dX_norm.ndim)), keepdims=True
             )
-            / (std * std)
+            / self._cache["var"]
         )
 
         return d(Activations(dX))
