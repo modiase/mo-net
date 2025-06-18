@@ -459,7 +459,7 @@ def train(
         start_epoch=start_epoch,
         training_parameters=training_parameters,
     )
-    training_result: TrainingResult
+    training_result: TrainingResult | None = None
     try:
         while restarts <= training_parameters.max_restarts:
             if restarts > 0:
@@ -494,7 +494,8 @@ def train(
             )
         return training_result
     finally:
-        save_model(training_result.model_checkpoint_path)
+        if training_result is not None:
+            save_model(training_result.model_checkpoint_path)
         trainer.shutdown()
 
 
