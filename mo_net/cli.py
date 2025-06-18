@@ -527,6 +527,7 @@ def infer(
     train_split: float,
     train_split_index: int,
 ):
+    setup_logging(LogLevel.INFO)
     X_train, Y_train, _, __ = load_data(
         dataset_url, split=SplitConfig.of(train_split, train_split_index)
     )
