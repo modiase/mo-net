@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from dataclasses import dataclass
 from typing import IO, Self
 
 import numpy as np
 
-from mo_net.model.layer.batch_norm import BatchNorm
+from mo_net.constants import EPSILON
+from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
 from mo_net.protos import (
     Activations,
     D,
     Dimensions,
     GradCache,
+    GradLayer,
     SupportsGradientOperations,
     d,
 )
@@ -136,15 +140,17 @@ class Cache(GradCache[ParametersType]):
     output_activations: Activations | None
     var: np.ndarray | None
     batch_size: int | None
+    spatial_size: int | None
 
 
 type CacheType = Cache
 
 
-class BatchNorm2D(BatchNorm):
+class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
     """Batch normalization for 2D inputs (e.g. Conv2D outputs)."""
 
     Parameters = Parameters2D
+    Cache = Cache
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
@@ -189,6 +195,7 @@ class BatchNorm2D(BatchNorm):
         super().__init__(
             layer_id=layer_id,
             input_dimensions=input_dimensions,
+            output_dimensions=input_dimensions,
         )
         self._momentum = momentum
         self._running_mean = (
@@ -231,19 +238,17 @@ class BatchNorm2D(BatchNorm):
 
             normalised_activations = (
                 input_activations - batch_mean[:, None, None]
-            ) / np.sqrt(batch_variance[:, None, None] + self._EPSILON)
-            self._cache.update(
-                {
-                    "input_activations": input_activations,
-                    "mean": batch_mean,
-                    "var": batch_variance,
-                    "batch_size": batch_size,
-                }
-            )
+            ) / np.sqrt(batch_variance[:, None, None] + EPSILON)
+            self._cache.update({
+                "input_activations": input_activations,
+                "mean": batch_mean,
+                "var": batch_variance,
+                "batch_size": batch_size,
+            })
         else:
             normalised_activations = (
                 input_activations - self._running_mean[:, None, None]
-            ) / np.sqrt(self._running_variance[:, None, None] + self._EPSILON)
+            ) / np.sqrt(self._running_variance[:, None, None] + EPSILON)
 
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalised_activations
@@ -262,9 +267,13 @@ class BatchNorm2D(BatchNorm):
             raise RuntimeError(
                 "input_activations is not populated during backward pass."
             )
+        if (output_activations := self._cache["output_activations"]) is None:
+            raise RuntimeError(
+                "output_activations is not populated during backward pass."
+            )
 
-        dX_norm = dZ * self._parameters.weights[:, None, None]
-        d_weights = np.sum(dZ * self._cache["output_activations"], axis=(0, 2, 3))
+        dX_norm = dZ * self._parameters.weights[:, None, None]  # type: ignore[operator]
+        d_weights = np.sum(dZ * output_activations, axis=(0, 2, 3))
         d_beta = np.sum(dZ, axis=(0, 2, 3))
 
         if self._training:
@@ -276,18 +285,20 @@ class BatchNorm2D(BatchNorm):
             )
 
         batch_size = self._cache["batch_size"]
+        if batch_size is None:
+            raise RuntimeError("batch size not set during forward pass.")
         spatial_size = input_activations.shape[2] * input_activations.shape[3]
 
         d_batch_variance = -0.5 * np.sum(
             dX_norm.reshape(batch_size, -1, spatial_size)
             * (input_activations.reshape(batch_size, -1, spatial_size) - mean[:, None])
-            * np.power(var[:, None] + self._EPSILON, -1.5),
+            * np.power(var[:, None] + EPSILON, -1.5),
             axis=(0, 2),
         )
 
         d_batch_mean = -np.sum(
             dX_norm.reshape(batch_size, -1, spatial_size)
-            / np.sqrt(var[:, None] + self._EPSILON),
+            / np.sqrt(var[:, None] + EPSILON),
             axis=(0, 2),
         ) + d_batch_variance * np.sum(
             -2
@@ -296,7 +307,7 @@ class BatchNorm2D(BatchNorm):
         ) / (batch_size * spatial_size)
 
         dX = (
-            dX_norm / np.sqrt(var[:, None, None] + self._EPSILON)
+            dX_norm / np.sqrt(var[:, None, None] + EPSILON)
             + d_batch_variance[:, None, None]
             * 2
             * (input_activations - mean[:, None, None])
@@ -311,3 +322,46 @@ class BatchNorm2D(BatchNorm):
             weights=np.ones(self._input_dimensions[0]),
             biases=np.zeros(self._input_dimensions[0]),
         )
+
+    def empty_gradient(self) -> D[ParametersType]:
+        return d(
+            self.Parameters(
+                weights=np.zeros_like(self._parameters.weights),
+                biases=np.zeros_like(self._parameters.biases),
+            )
+        )
+
+    @property
+    def parameters(self) -> ParametersType:
+        return self._parameters
+
+    @property
+    def cache(self) -> CacheType:
+        return self._cache
+
+    def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:
+        f(self)
+
+    @property
+    def parameter_count(self) -> int:
+        return self._parameters.weights.size + self._parameters.biases.size
+
+    @property
+    def parameter_nbytes(self) -> int:
+        return self._parameters.weights.nbytes + self._parameters.biases.nbytes
+
+    def write_serialized_parameters(self, buffer: IO[bytes]) -> None:
+        self._write_header(buffer)
+        if self._cache is None or self._cache["dP"] is None:
+            raise RuntimeError("Cache is not populated during serialization.")
+        buffer.write(memoryview(self._cache["dP"].weights))
+        buffer.write(memoryview(self._cache["dP"].biases))
+
+    def read_serialized_parameters(self, data: IO[bytes]) -> None:
+        if (layer_id := self.get_layer_id(data)) != self._layer_id:
+            raise BadLayerId(f"Layer ID mismatch: {layer_id} != {self._layer_id}")
+        update = self._parameters.from_bytes(data)
+        if self._cache["dP"] is None:
+            self._cache["dP"] = d(update)
+        else:
+            self._cache["dP"] += d(update)

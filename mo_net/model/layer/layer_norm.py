@@ -10,6 +10,7 @@ from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
 )
+from mo_net.constants import EPSILON
 from mo_net.protos import (
     Activations,
     D,
@@ -182,7 +183,6 @@ type CacheType = Cache
 class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
     """https://arxiv.org/pdf/1607.06450"""
 
-    _EPSILON: ClassVar[float] = 1e-8
     Parameters = Parameters
     Cache = Cache
 
@@ -232,23 +232,21 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        self._cache.update(
-            {
-                "input_activations": input_activations,
-                "mean": np.mean(
-                    input_activations,
-                    axis=tuple(range(1, input_activations.ndim)),
-                    keepdims=True,
-                ),
-                "var": np.var(
-                    input_activations,
-                    axis=tuple(range(1, input_activations.ndim)),
-                    keepdims=True,
-                ),
-            }
-        )
+        self._cache.update({
+            "input_activations": input_activations,
+            "mean": np.mean(
+                input_activations,
+                axis=tuple(range(1, input_activations.ndim)),
+                keepdims=True,
+            ),
+            "var": np.var(
+                input_activations,
+                axis=tuple(range(1, input_activations.ndim)),
+                keepdims=True,
+            ),
+        })
         normalized = (input_activations - self._cache["mean"]) / (
-            np.sqrt(self._cache["var"]) + self._EPSILON  # type: ignore[arg-type]
+            np.sqrt(self._cache["var"]) + EPSILON  # type: ignore[arg-type]
         )
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalized

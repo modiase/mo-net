@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, ClassVar, Self
+from typing import IO, Self
 
 import numpy as np
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
@@ -183,7 +184,6 @@ type CacheType = Cache
 class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
     """https://arxiv.org/abs/1502.03167"""
 
-    _EPSILON: ClassVar[float] = 1e-8
     Parameters = Parameters
     Cache = Cache
 
@@ -265,19 +265,17 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             )
 
             normalised_activations = (input_activations - batch_mean) / np.sqrt(
-                batch_variance + self._EPSILON
+                batch_variance + EPSILON
             )
-            self._cache.update(
-                {
-                    "input_activations": input_activations,
-                    "mean": batch_mean,
-                    "var": batch_variance,
-                    "batch_size": input_activations.shape[0],
-                }
-            )
+            self._cache.update({
+                "input_activations": input_activations,
+                "mean": batch_mean,
+                "var": batch_variance,
+                "batch_size": input_activations.shape[0],
+            })
         else:
             normalised_activations = (input_activations - self._running_mean) / np.sqrt(
-                self._running_variance + self._EPSILON
+                self._running_variance + EPSILON
             )
 
         if self._store_output_activations or self._training:
@@ -318,18 +316,18 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         batch_size = self._cache["batch_size"]
 
         d_batch_variance = -0.5 * np.sum(
-            dX_norm * (input_activations - mean) * np.power(var + self._EPSILON, -1.5),
+            dX_norm * (input_activations - mean) * np.power(var + EPSILON, -1.5),
             axis=0,
         )
         d_batch_mean = (
-            -np.sum(dX_norm / np.sqrt(var + self._EPSILON), axis=0)
+            -np.sum(dX_norm / np.sqrt(var + EPSILON), axis=0)
             + d_batch_variance
             * np.sum(-2 * (input_activations - mean), axis=0)
             / batch_size
         )
 
         dX = (
-            dX_norm / np.sqrt(var + self._EPSILON)
+            dX_norm / np.sqrt(var + EPSILON)
             + d_batch_variance * 2 * (input_activations - mean) / batch_size
             + d_batch_mean / batch_size
         )

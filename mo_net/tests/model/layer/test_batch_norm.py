@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from mo_net.model.layer.batch_norm import BatchNorm, ParametersType
+from mo_net.model.layer.batch_norm.batch_norm import BatchNorm, ParametersType
 from mo_net.protos import Activations, Dimensions
 
 

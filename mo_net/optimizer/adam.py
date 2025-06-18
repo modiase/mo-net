@@ -5,6 +5,7 @@ from typing import Final
 from loguru import logger
 import numpy as np
 
+from mo_net.constants import EPSILON
 from mo_net.model.model import Model
 from mo_net.optimizer.base import Base
 from mo_net.optimizer.scheduler import Scheduler
@@ -12,14 +13,13 @@ from mo_net.protos import GradLayer
 
 DEFAULT_BETA_1: Final[float] = 0.9
 DEFAULT_BETA_2: Final[float] = 0.999
-DEFAULT_EPSILON: Final[float] = 1e-8
 
 
 @dataclass(frozen=True, kw_only=True)
 class Config:
     beta_1: float = DEFAULT_BETA_1
     beta_2: float = DEFAULT_BETA_2
-    epsilon: float = DEFAULT_EPSILON
+    epsilon: float = EPSILON
     scheduler: Scheduler
 
 
