@@ -485,7 +485,7 @@ def train(
                 case never_training_result:
                     assert_never(never_training_result)
     except Exception as e:
-        logger.error(f"Training failed: {e}")
+        logger.exception(f"Training failed: {e}")
         raise
     else:
         if not isinstance(training_result, (TrainingSuccessful, TrainingFailed)):
