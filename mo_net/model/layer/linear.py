@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from functools import partial
 from typing import IO, Callable, Final, Self
 
-import numpy as np
+import jax.numpy as jnp
+import jax.random as random
+from jax import jit
 from more_itertools import one
 
 from mo_net.functions import Identity, LeakyReLU, ReLU, Tanh
@@ -21,7 +23,6 @@ from mo_net.protos import (
     GradLayer,
     SupportsGradientOperations,
     d,
-    d_op,
 )
 
 EPSILON: Final[float] = 1e-8
@@ -29,12 +30,12 @@ EPSILON: Final[float] = 1e-8
 
 @dataclass(kw_only=True)
 class Parameters(SupportsGradientOperations):
-    weights: np.ndarray
-    biases: np.ndarray
+    weights: jnp.ndarray
+    biases: jnp.ndarray
 
     def __getitem__(
         self, index: int | tuple[int, ...]
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         return self.weights[index], self.biases[index]
 
     def __add__(self, other: Self | float | int) -> Self:
@@ -96,39 +97,57 @@ class Parameters(SupportsGradientOperations):
         return self.__class__(weights=self.weights**scalar, biases=self.biases**scalar)
 
     @classmethod
-    def random(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+    def random(
+        cls, dim_in: Dimensions, dim_out: Dimensions, key: random.PRNGKey | None = None
+    ) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
+        if key is None:
+            key = random.PRNGKey(0)
+        key_w, key_b = random.split(key)
         return cls(
-            weights=np.random.randn(_dim_in, _dim_out), biases=np.zeros(_dim_out)
+            weights=random.normal(key_w, (_dim_in, _dim_out)),
+            biases=jnp.zeros(_dim_out),
         )
 
     @classmethod
-    def xavier(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+    def xavier(
+        cls, dim_in: Dimensions, dim_out: Dimensions, key: random.PRNGKey | None = None
+    ) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
+        if key is None:
+            key = random.PRNGKey(0)
         return cls(
-            weights=np.random.randn(_dim_in, _dim_out) * np.sqrt(1 / _dim_in),
-            biases=np.zeros(_dim_out),
+            weights=random.normal(key, (_dim_in, _dim_out)) * jnp.sqrt(1 / _dim_in),
+            biases=jnp.zeros(_dim_out),
         )
 
     @classmethod
-    def he(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+    def he(
+        cls, dim_in: Dimensions, dim_out: Dimensions, key: random.PRNGKey | None = None
+    ) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
+        if key is None:
+            key = random.PRNGKey(0)
         return cls(
-            weights=np.random.normal(0, np.sqrt(2 / _dim_in), (_dim_in, _dim_out)),
-            biases=np.zeros(_dim_out),
+            weights=random.normal(key, (_dim_in, _dim_out)) * jnp.sqrt(2 / _dim_in),
+            biases=jnp.zeros(_dim_out),
         )
 
     @classmethod
     def appropriate(
-        cls, dim_in: Dimensions, dim_out: Dimensions, activation_fn: ActivationFn
+        cls,
+        dim_in: Dimensions,
+        dim_out: Dimensions,
+        activation_fn: ActivationFn,
+        key: random.PRNGKey | None = None,
     ) -> Self:
         if activation_fn.name in (ReLU.name, LeakyReLU.name):
-            return cls.he(dim_in, dim_out)
+            return cls.he(dim_in, dim_out, key=key)
         elif activation_fn.name in (Tanh.name, Identity.name):
-            return cls.xavier(dim_in, dim_out)
+            return cls.xavier(dim_in, dim_out, key=key)
         else:
             raise ValueError(
                 f"Cannot choose appropriate initialisation for {activation_fn}"
@@ -137,17 +156,17 @@ class Parameters(SupportsGradientOperations):
     @classmethod
     def eye(cls, dim: Dimensions) -> Self:
         _dim = one(dim)
-        return cls(weights=np.eye(_dim), biases=np.zeros(_dim))
+        return cls(weights=jnp.eye(_dim), biases=jnp.zeros(_dim))
 
     @classmethod
-    def of(cls, W: np.ndarray, B: np.ndarray) -> Self:
-        return cls(weights=np.atleast_2d(W), biases=np.atleast_1d(B))
+    def of(cls, W: jnp.ndarray, B: jnp.ndarray) -> Self:
+        return cls(weights=jnp.atleast_2d(W), biases=jnp.atleast_1d(B))
 
     def from_bytes(self, data: IO[bytes]) -> Self:
-        W = np.frombuffer(
+        W = jnp.frombuffer(
             data.read(self.weights.nbytes), dtype=self.weights.dtype
         ).reshape(self.weights.shape)
-        B = np.frombuffer(
+        B = jnp.frombuffer(
             data.read(self.biases.nbytes), dtype=self.biases.dtype
         ).reshape(self.biases.shape)
         return self.__class__(weights=W, biases=B)
@@ -171,13 +190,13 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
     _cache: CacheType
 
     @classmethod
-    def of_bias(cls, dim: Dimensions, bias: float | np.ndarray) -> Self:
+    def of_bias(cls, dim: Dimensions, bias: float | jnp.ndarray) -> Self:
         return cls(
             input_dimensions=dim,
             output_dimensions=dim,
             parameters=cls.Parameters.of(
-                W=np.zeros((one(dim), one(dim))),
-                B=(np.ones(one(dim)) * bias if isinstance(bias, float) else bias),
+                W=jnp.zeros((one(dim), one(dim))),
+                B=(jnp.ones(one(dim)) * bias if isinstance(bias, float) else bias),
             ),
         )
 
@@ -219,11 +238,11 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         layer_id: str | None = None,
         output_dimensions: Dimensions | None = None,
         parameters: ParametersType | None = None,
-        parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType] = (
-            Parameters.xavier
-        ),
+        parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType]
+        | None = None,
         store_output_activations: bool = False,  # Only used for tracing
         weight_max_norm: float = 1.0,
+        key: random.PRNGKey | None = None,
     ):
         if output_dimensions is None:
             output_dimensions = input_dimensions
@@ -232,6 +251,9 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
         )
+        if parameters_init_fn is None:
+            # Default to xavier initialization with key support
+            parameters_init_fn = partial(Parameters.xavier, key=key)
         self._parameters_init_fn = parameters_init_fn
         self._freeze_parameters = freeze_parameters
         self._clip_gradients = clip_gradients
@@ -267,8 +289,16 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
+
+        # JIT-compile the matmul operation for performance
+        @jit
+        def linear_forward(x, w, b):
+            return x @ w + b
+
         output_activations = Activations(
-            input_activations @ self._parameters.weights + self._parameters.biases
+            linear_forward(
+                input_activations, self._parameters.weights, self._parameters.biases
+            )
         )
         if self._store_output_activations:
             self._cache["output_activations"] = output_activations
@@ -282,29 +312,37 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         if (input_activations := self._cache["input_activations"]) is None:
             raise ValueError("Input activations not set during forward pass.")
 
-        dW = input_activations.T @ dZ
-        dB = d_op(dZ, partial(np.sum, axis=0))
+        # JIT-compile the gradient computations
+        @jit
+        def compute_gradients(x, dz, w):
+            dW = x.T @ dz
+            dB = jnp.sum(dz, axis=0)
+            dX = dz @ w.T
+            return dW, dB, dX
+
+        dW, dB, dX = compute_gradients(input_activations, dZ, self._parameters.weights)
 
         if self._clip_gradients:
-            dW *= min(
-                1.0,
-                self._weight_max_norm
-                * np.sqrt(dW.size)
-                / (np.linalg.norm(dW) + EPSILON),
-            )
-            dB *= min(
-                1.0,
-                self._bias_max_norm * np.sqrt(dB.size) / (np.linalg.norm(dB) + EPSILON),
-            )
+
+            @jit
+            def clip_gradient(grad, max_norm):
+                norm = jnp.linalg.norm(grad)
+                scale = jnp.minimum(
+                    1.0, max_norm * jnp.sqrt(grad.size) / (norm + EPSILON)
+                )
+                return grad * scale
+
+            dW = clip_gradient(dW, self._weight_max_norm)
+            dB = clip_gradient(dB, self._bias_max_norm)
 
         self._cache["dP"] = d(self.Parameters(weights=dW, biases=dB))
-        return dZ @ self._parameters.weights.T
+        return dX
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                weights=np.zeros_like(self._parameters.weights),
-                biases=np.zeros_like(self._parameters.biases),
+                weights=jnp.zeros_like(self._parameters.weights),
+                biases=jnp.zeros_like(self._parameters.biases),
             )
         )
 

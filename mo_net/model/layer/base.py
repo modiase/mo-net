@@ -7,7 +7,7 @@ from collections.abc import MutableSet
 from typing import IO, Final, Optional
 from uuid import uuid4
 
-import numpy as np
+import jax.numpy as jnp
 from loguru import logger
 
 from mo_net.protos import (
@@ -64,7 +64,7 @@ class _Base(ABC):
         # We wish to ensure that all inputs are at least 2D arrays such that the
         # leading dimension is always the 'batch' dimension.
         logger.trace(f"Forward propagating {self} (id: {self._layer_id}).")
-        input_activations = Activations(np.atleast_2d(input_activations))
+        input_activations = Activations(jnp.atleast_2d(input_activations))
         if input_activations.shape[1:] != self.input_dimensions:
             raise ValueError(
                 f"Input activations shape {input_activations.shape[1:]} does not match "

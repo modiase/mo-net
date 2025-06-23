@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict, cast
 
-import numpy as np
-from numpy.lib.stride_tricks import as_strided
+import jax.numpy as jnp
+from jax import lax
 
 from mo_net.model.layer.base import Hidden
 from mo_net.protos import Activations, D, Dimensions, d
@@ -12,7 +12,7 @@ from mo_net.protos import Activations, D, Dimensions, d
 
 class Cache(TypedDict):
     input_activations: Activations | None
-    max_indices: np.ndarray | None
+    max_indices: jnp.ndarray | None
 
 
 class MaxPooling2D(Hidden):
@@ -70,78 +70,73 @@ class MaxPooling2D(Hidden):
         batch_size, channels, _, _ = input_activations.shape
         _, h_out, w_out = self.output_dimensions
 
-        input_windows = as_strided(
-            input_activations,
-            shape=(batch_size, channels, h_out, w_out, self._pool_h, self._pool_w),
-            strides=(
-                input_activations.strides[0],
-                input_activations.strides[1],
-                input_activations.strides[2] * self._stride_h,
-                input_activations.strides[3] * self._stride_w,
-                input_activations.strides[2],
-                input_activations.strides[3],
-            ),
-            writeable=False,
+        # Ensure input is float type for JAX operations
+        input_float = jnp.asarray(input_activations, dtype=jnp.float32)
+
+        # Use JAX's reduce_window for max pooling
+        output = lax.reduce_window(
+            input_float,
+            init_value=jnp.finfo(input_float.dtype).min,
+            computation=lax.max,
+            window_dimensions=(1, 1, self._pool_h, self._pool_w),
+            window_strides=(1, 1, self._stride_h, self._stride_w),
+            padding="VALID",
         )
 
-        h_indices, w_indices = [
-            indices.reshape(batch_size, channels, h_out, w_out)
-            for indices in np.unravel_index(
-                np.argmax(
-                    input_windows.reshape(batch_size, channels, h_out, w_out, -1),
-                    axis=-1,
-                ).flatten(),
-                (self._pool_h, self._pool_w),
-            )
-        ]
+        # For backward pass, we need to track which elements were selected
+        # We'll compute this by comparing the pooled output with the input
+        self._cache["input_activations"] = input_float  # Store float version
+        self._cache["max_indices"] = output  # Store output for backward pass
 
-        self._cache["input_activations"] = input_activations
-        self._cache["max_indices"] = np.stack([h_indices, w_indices], axis=-1)
-
-        return Activations(
-            input_windows[
-                np.arange(batch_size)[:, None, None, None],
-                np.arange(channels)[None, :, None, None],
-                np.arange(h_out)[None, None, :, None],
-                np.arange(w_out)[None, None, None, :],
-                h_indices,
-                w_indices,
-            ]
-        )
+        return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         input_activations = self._cache["input_activations"]
-        max_indices = self._cache["max_indices"]
+        pooled_output = self._cache["max_indices"]  # This is actually the pooled output
         if input_activations is None:
             raise ValueError("Input activations were not set during forward pass.")
-        if max_indices is None:
-            raise ValueError("Max indices were not set during forward pass.")
+        if pooled_output is None:
+            raise ValueError("Pooled output was not set during forward pass.")
 
-        batch_size, channels, _, _ = input_activations.shape
-        _, _, h_out, w_out = cast(np.ndarray, dZ).shape
+        batch_size, channels, in_h, in_w = input_activations.shape
+        _, _, out_h, out_w = pooled_output.shape
 
-        dX = np.zeros_like(input_activations)
+        # Initialize gradient w.r.t input
+        dX = jnp.zeros_like(input_activations)
 
-        h_coords_flat, w_coords_flat = [
-            coords.flatten()
-            for coords in np.meshgrid(np.arange(h_out), np.arange(w_out), indexing="ij")
-        ]
+        # Create a view of the input that matches the pooling windows
+        # We'll iterate over output positions and find max locations
+        for h_out in range(out_h):
+            for w_out in range(out_w):
+                # Determine the window boundaries
+                h_start = h_out * self._stride_h
+                h_end = h_start + self._pool_h
+                w_start = w_out * self._stride_w
+                w_end = w_start + self._pool_w
 
-        h_indices_flat, w_indices_flat = [
-            max_indices.reshape(batch_size, channels, h_out * w_out, 2)[:, :, :, i]
-            for i in [0, 1]
-        ]
+                # Get the window from input for all batches and channels
+                window = input_activations[:, :, h_start:h_end, w_start:w_end]
 
-        np.add.at(
-            dX,
-            (
-                np.arange(batch_size)[:, None, None],
-                np.arange(channels)[None, :, None],
-                h_coords_flat * self._stride_h + h_indices_flat,
-                w_coords_flat * self._stride_w + w_indices_flat,
-            ),
-            cast(np.ndarray, dZ).reshape(batch_size, channels, -1),
-        )
+                # Get the corresponding pooled values
+                pooled_vals = pooled_output[:, :, h_out : h_out + 1, w_out : w_out + 1]
+
+                # Create a mask for positions that equal the max
+                mask = (window == pooled_vals).astype(jnp.float32)
+
+                # Count how many positions have the max value (for handling ties)
+                counts = jnp.sum(mask, axis=(2, 3), keepdims=True)
+                counts = jnp.maximum(counts, 1.0)  # Avoid division by zero
+
+                # Normalize the mask to distribute gradients equally
+                mask = mask / counts
+
+                # Get the gradients for this output position
+                grad_out = cast(jnp.ndarray, dZ)[
+                    :, :, h_out : h_out + 1, w_out : w_out + 1
+                ]
+
+                # Apply gradients to the window
+                dX = dX.at[:, :, h_start:h_end, w_start:w_end].add(mask * grad_out)
 
         return d(Activations(dX))
 

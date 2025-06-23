@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import IO, Self
 
-import numpy as np
+import jax.numpy as jnp
 
 from mo_net.constants import EPSILON
 from mo_net.model.layer.base import (
@@ -25,12 +25,12 @@ from mo_net.protos import (
 
 @dataclass(frozen=True, kw_only=True)
 class Parameters(SupportsGradientOperations):
-    weights: np.ndarray
-    biases: np.ndarray
+    weights: jnp.ndarray
+    biases: jnp.ndarray
 
     def __getitem__(
         self, index: int | tuple[int, ...]
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         return self.weights[index], self.biases[index]
 
     def __pow__(self, other: float | int) -> Self:
@@ -152,16 +152,16 @@ class Parameters(SupportsGradientOperations):
     @classmethod
     def empty(cls, *, input_dimensions: Dimensions) -> Self:
         return cls(
-            weights=np.ones(input_dimensions),
-            biases=np.zeros(input_dimensions),
+            weights=jnp.ones(input_dimensions),
+            biases=jnp.zeros(input_dimensions),
         )
 
     def from_bytes(self, data: IO[bytes]) -> Self:
         return self.__class__(
-            weights=np.frombuffer(
+            weights=jnp.frombuffer(
                 data.read(self.weights.nbytes), dtype=self.weights.dtype
             ).reshape(self.weights.shape),
-            biases=np.frombuffer(
+            biases=jnp.frombuffer(
                 data.read(self.biases.nbytes), dtype=self.biases.dtype
             ).reshape(self.biases.shape),
         )
@@ -172,9 +172,9 @@ type ParametersType = Parameters
 
 class Cache(GradCache[ParametersType]):
     input_activations: Activations | None
-    mean: np.ndarray | None
+    mean: jnp.ndarray | None
     output_activations: Activations | None
-    var: np.ndarray | None
+    var: jnp.ndarray | None
     batch_size: int | None
 
 
@@ -193,8 +193,8 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         input_dimensions: tuple[int, ...]
         momentum: float
         parameters: Parameters
-        running_mean: np.ndarray
-        running_variance: np.ndarray
+        running_mean: jnp.ndarray
+        running_variance: jnp.ndarray
 
         def deserialize(
             self,
@@ -218,8 +218,8 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         momentum: float = 0.9,
         layer_id: str | None = None,
         parameters: ParametersType | None = None,
-        running_mean: np.ndarray | None = None,
-        running_variance: np.ndarray | None = None,
+        running_mean: jnp.ndarray | None = None,
+        running_variance: jnp.ndarray | None = None,
         store_output_activations: bool = False,
         training: bool = True,
     ):
@@ -230,12 +230,12 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         )
         self._momentum = momentum
         self._running_mean = (
-            running_mean if running_mean is not None else np.zeros(input_dimensions)
+            running_mean if running_mean is not None else jnp.zeros(input_dimensions)
         )
         self._running_variance = (
             running_variance
             if running_variance is not None
-            else np.ones(input_dimensions)
+            else jnp.ones(input_dimensions)
         )
         self._training = training
         self._cache: CacheType = {
@@ -252,8 +252,8 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        batch_mean = np.mean(input_activations, axis=0)
-        batch_variance = np.var(input_activations, axis=0)
+        batch_mean = jnp.mean(input_activations, axis=0)
+        batch_variance = jnp.var(input_activations, axis=0)
 
         if self._training:
             self._running_mean = (
@@ -264,19 +264,21 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
                 + (1 - self._momentum) * batch_variance
             )
 
-            normalised_activations = (input_activations - batch_mean) / np.sqrt(
+            normalised_activations = (input_activations - batch_mean) / jnp.sqrt(
                 batch_variance + EPSILON
             )
-            self._cache.update({
-                "input_activations": input_activations,
-                "mean": batch_mean,
-                "var": batch_variance,
-                "batch_size": input_activations.shape[0],
-            })
-        else:
-            normalised_activations = (input_activations - self._running_mean) / np.sqrt(
-                self._running_variance + EPSILON
+            self._cache.update(
+                {
+                    "input_activations": input_activations,
+                    "mean": batch_mean,
+                    "var": batch_variance,
+                    "batch_size": input_activations.shape[0],
+                }
             )
+        else:
+            normalised_activations = (
+                input_activations - self._running_mean
+            ) / jnp.sqrt(self._running_variance + EPSILON)
 
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalised_activations
@@ -304,8 +306,8 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             )
 
         dX_norm = dZ * self._parameters.weights
-        d_weights = np.sum(dZ * output_activations, axis=0)
-        d_beta = np.sum(dZ, axis=0)
+        d_weights = jnp.sum(dZ * output_activations, axis=0)
+        d_beta = jnp.sum(dZ, axis=0)
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
@@ -315,19 +317,19 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             )
         batch_size = self._cache["batch_size"]
 
-        d_batch_variance = -0.5 * np.sum(
-            dX_norm * (input_activations - mean) * np.power(var + EPSILON, -1.5),
+        d_batch_variance = -0.5 * jnp.sum(
+            dX_norm * (input_activations - mean) * jnp.power(var + EPSILON, -1.5),
             axis=0,
         )
         d_batch_mean = (
-            -np.sum(dX_norm / np.sqrt(var + EPSILON), axis=0)
+            -jnp.sum(dX_norm / jnp.sqrt(var + EPSILON), axis=0)
             + d_batch_variance
-            * np.sum(-2 * (input_activations - mean), axis=0)
+            * jnp.sum(-2 * (input_activations - mean), axis=0)
             / batch_size
         )
 
         dX = (
-            dX_norm / np.sqrt(var + EPSILON)
+            dX_norm / jnp.sqrt(var + EPSILON)
             + d_batch_variance * 2 * (input_activations - mean) / batch_size
             + d_batch_mean / batch_size
         )
@@ -337,8 +339,8 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                weights=np.zeros_like(self._parameters.weights),
-                biases=np.zeros_like(self._parameters.biases),
+                weights=jnp.zeros_like(self._parameters.weights),
+                biases=jnp.zeros_like(self._parameters.biases),
             )
         )
 

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, ClassVar, Self
+from typing import IO, Self
 
-import numpy as np
+import jax.numpy as jnp
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
 )
-from mo_net.constants import EPSILON
 from mo_net.protos import (
     Activations,
     D,
@@ -25,12 +25,12 @@ from mo_net.protos import (
 
 @dataclass(frozen=True, kw_only=True)
 class Parameters(SupportsGradientOperations):
-    weights: np.ndarray
-    biases: np.ndarray
+    weights: jnp.ndarray
+    biases: jnp.ndarray
 
     def __getitem__(
         self, index: int | tuple[int, ...]
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         return self.weights[index], self.biases[index]
 
     def __pow__(self, other: float | int) -> Self:
@@ -152,16 +152,16 @@ class Parameters(SupportsGradientOperations):
     @classmethod
     def empty(cls, *, input_dimensions: Dimensions) -> Self:
         return cls(
-            weights=np.ones(input_dimensions),
-            biases=np.zeros(input_dimensions),
+            weights=jnp.ones(input_dimensions),
+            biases=jnp.zeros(input_dimensions),
         )
 
     def from_bytes(self, data: IO[bytes]) -> Self:
         return self.__class__(
-            weights=np.frombuffer(
+            weights=jnp.frombuffer(
                 data.read(self.weights.nbytes), dtype=self.weights.dtype
             ).reshape(self.weights.shape),
-            biases=np.frombuffer(
+            biases=jnp.frombuffer(
                 data.read(self.biases.nbytes), dtype=self.biases.dtype
             ).reshape(self.biases.shape),
         )
@@ -172,9 +172,9 @@ type ParametersType = Parameters
 
 class Cache(GradCache[ParametersType]):
     input_activations: Activations | None
-    mean: np.ndarray | None
+    mean: jnp.ndarray | None
     output_activations: Activations | None
-    var: np.ndarray | None
+    var: jnp.ndarray | None
 
 
 type CacheType = Cache
@@ -232,21 +232,23 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        self._cache.update({
-            "input_activations": input_activations,
-            "mean": np.mean(
-                input_activations,
-                axis=tuple(range(1, input_activations.ndim)),
-                keepdims=True,
-            ),
-            "var": np.var(
-                input_activations,
-                axis=tuple(range(1, input_activations.ndim)),
-                keepdims=True,
-            ),
-        })
+        self._cache.update(
+            {
+                "input_activations": input_activations,
+                "mean": jnp.mean(
+                    input_activations,
+                    axis=tuple(range(1, input_activations.ndim)),
+                    keepdims=True,
+                ),
+                "var": jnp.var(
+                    input_activations,
+                    axis=tuple(range(1, input_activations.ndim)),
+                    keepdims=True,
+                ),
+            }
+        )
         normalized = (input_activations - self._cache["mean"]) / (
-            np.sqrt(self._cache["var"]) + EPSILON  # type: ignore[arg-type]
+            jnp.sqrt(self._cache["var"]) + EPSILON  # type: ignore[arg-type]
         )
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalized
@@ -268,19 +270,19 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
-                    weights=np.sum(dZ * normalized, axis=0), biases=np.sum(dZ, axis=0)
+                    weights=jnp.sum(dZ * normalized, axis=0), biases=jnp.sum(dZ, axis=0)
                 )
             )
 
-        std = np.sqrt(self._cache["var"])
+        std = jnp.sqrt(self._cache["var"])
         x_centered = self._cache["input_activations"] - self._cache["mean"]
-        N = np.prod(x_centered.shape[1:])
+        N = jnp.prod(jnp.array(x_centered.shape[1:]))
 
         dX = dX_norm / std
         dX -= (1 / N) * (
-            np.sum(dX_norm, axis=tuple(range(1, dX_norm.ndim)), keepdims=True)
+            jnp.sum(dX_norm, axis=tuple(range(1, dX_norm.ndim)), keepdims=True)
             + x_centered
-            * np.sum(
+            * jnp.sum(
                 dX_norm * x_centered, axis=tuple(range(1, dX_norm.ndim)), keepdims=True
             )
             / self._cache["var"]
@@ -291,8 +293,8 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                weights=np.zeros_like(self._parameters.weights),
-                biases=np.zeros_like(self._parameters.biases),
+                weights=jnp.zeros_like(self._parameters.weights),
+                biases=jnp.zeros_like(self._parameters.biases),
             )
         )
 

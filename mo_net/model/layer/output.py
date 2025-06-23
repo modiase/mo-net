@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict, TypeVar
 
-import numpy as np
+import jax.numpy as jnp
 from pyparsing import abstractmethod
 
 from mo_net.functions import softmax
@@ -38,14 +38,14 @@ class OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
             "output_activations": None,
         }
 
-    def backward_prop(self, *, Y_true: np.ndarray) -> D[Activations]:
+    def backward_prop(self, *, Y_true: jnp.ndarray) -> D[Activations]:
         return self._backward_prop(Y_true=Y_true)
 
     @abstractmethod
     def _backward_prop(
         self,
         *,
-        Y_true: np.ndarray,
+        Y_true: jnp.ndarray,
     ) -> D[Activations]: ...
 
     @abstractmethod
@@ -78,11 +78,11 @@ class SoftmaxOutputLayer(OutputLayer):
     def _backward_prop(
         self,
         *,
-        Y_true: np.ndarray,
+        Y_true: jnp.ndarray,
     ) -> D[Activations]:
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
-        return np.atleast_1d(output_activations - Y_true)
+        return jnp.atleast_1d(output_activations - Y_true)
 
     @property
     def output_dimensions(self) -> Dimensions:

@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
+import jax.numpy as jnp
 from loguru import logger
-import numpy as np
 
 from mo_net.constants import EPSILON
 from mo_net.model.model import Model
@@ -46,8 +46,8 @@ class AdaM(Base[Config]):
             layer.cache["first_moment"] = layer.empty_gradient()
             layer.cache["second_moment"] = layer.empty_gradient()
 
-        self._snapshot_first_moment: Sequence[np.ndarray] | None = None
-        self._snapshot_second_moment: Sequence[np.ndarray] | None = None
+        self._snapshot_first_moment: Sequence[jnp.ndarray] | None = None
+        self._snapshot_second_moment: Sequence[jnp.ndarray] | None = None
 
     def gradient_operation(self, layer: GradLayer) -> None:
         cache = layer.cache

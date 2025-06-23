@@ -5,7 +5,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypedDict
 
-import numpy as np
+import jax.numpy as jnp
+import jax.random as random
 
 from mo_net.model.layer.base import Hidden
 from mo_net.protos import Activations, D, Dimensions
@@ -32,7 +33,7 @@ class Dropout(Hidden):
             )
 
     class Cache(TypedDict):
-        mask: np.ndarray | None
+        mask: jnp.ndarray | None
         input_activations: Activations | None
 
     def __init__(
@@ -41,12 +42,14 @@ class Dropout(Hidden):
         input_dimensions: Dimensions,
         keep_prob: float,
         training: bool = False,
+        key: random.PRNGKey | None = None,
     ):
         super().__init__(
             input_dimensions=input_dimensions,
             output_dimensions=input_dimensions,
         )
         self._training = training
+        self._key = key if key is not None else random.PRNGKey(0)
 
         if not 0.0 < keep_prob <= 1.0:
             raise ValueError(f"keep_prob must be in (0, 1], got {keep_prob}")
@@ -60,9 +63,18 @@ class Dropout(Hidden):
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         if self._keep_prob == 1.0 or not self._training:
             return input_activations
+
+        # Handle very small keep_prob to avoid NaN
+        if self._keep_prob < 1e-7:
+            return jnp.zeros_like(input_activations)
+
         self._cache["input_activations"] = input_activations
 
-        mask = np.random.binomial(1, self._keep_prob, size=input_activations.shape)
+        # Update key for next use
+        self._key, subkey = random.split(self._key)
+        mask = random.bernoulli(
+            subkey, self._keep_prob, shape=input_activations.shape
+        ).astype(jnp.float32)
         self._cache["mask"] = mask
 
         return input_activations * mask / self._keep_prob
@@ -70,6 +82,10 @@ class Dropout(Hidden):
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if self._keep_prob == 1.0 or not self._training:
             return dZ
+
+        # Handle very small keep_prob to avoid NaN
+        if self._keep_prob < 1e-7:
+            return jnp.zeros_like(dZ)
 
         if self._cache["mask"] is None:
             raise ValueError("Mask not set during forward pass.")
