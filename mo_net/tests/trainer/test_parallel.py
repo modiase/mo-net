@@ -203,10 +203,12 @@ def test_gradient_transfer(
                 ],
             ),
             gradient1=Linear.Parameters(
-                weights=np.array([[1.0], [2.0]]), biases=np.array([3.0])
+                weights=np.array([[1.0], [2.0]], dtype=np.float32),
+                biases=np.array([3.0], dtype=np.float32),
             ),
             gradient2=Linear.Parameters(
-                weights=np.array([[4.0], [5.0]]), biases=np.array([6.0])
+                weights=np.array([[4.0], [5.0]], dtype=np.float32),
+                biases=np.array([6.0], dtype=np.float32),
             ),
         ),
         GradientAggregationTestCase(
@@ -224,10 +226,12 @@ def test_gradient_transfer(
                 ],
             ),
             gradient1=Convolution2D.Parameters(
-                weights=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]), biases=np.array([5.0])
+                weights=np.array([[[[1.0, 2.0], [3.0, 4.0]]]], dtype=np.float32),
+                biases=np.array([5.0], dtype=np.float32),
             ),
             gradient2=Convolution2D.Parameters(
-                weights=np.array([[[[6.0, 7.0], [8.0, 9.0]]]]), biases=np.array([10.0])
+                weights=np.array([[[[6.0, 7.0], [8.0, 9.0]]]], dtype=np.float32),
+                biases=np.array([10.0], dtype=np.float32),
             ),
         ),
         GradientAggregationTestCase(
@@ -237,10 +241,12 @@ def test_gradient_transfer(
                 hidden=[BatchNorm(input_dimensions=(3,), training=True)],
             ),
             gradient1=BatchNorm.Parameters(
-                weights=np.array([1.0, 2.0, 3.0]), biases=np.array([4.0, 5.0, 6.0])
+                weights=np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                biases=np.array([4.0, 5.0, 6.0], dtype=np.float32),
             ),
             gradient2=BatchNorm.Parameters(
-                weights=np.array([7.0, 8.0, 9.0]), biases=np.array([10.0, 11.0, 12.0])
+                weights=np.array([7.0, 8.0, 9.0], dtype=np.float32),
+                biases=np.array([10.0, 11.0, 12.0], dtype=np.float32),
             ),
         ),
     ],
