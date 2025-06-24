@@ -29,11 +29,14 @@ dependencies = [
   "uvicorn>=0.34.2",
   "sqlalchemy>=2.0.41",
   "tabulate>=0.9.0",
-  "jax>=0.6.2",
   "jaxlib>=0.6.2",
+  "jax>=0.6.2",
 ]
 
 [dependency-groups]
+cuda = [
+    "jax[cuda12]>=0.6.2",
+]
 dev = [
   "inquirerpy>=0.3.4",
   "jupyter>=1.1.1",
@@ -44,6 +47,9 @@ dev = [
   "taskipy>=1.14.1",
   "types-tabulate>=0.9.0.20241207",
   "types-tqdm>=4.67.0.20250301",
+]
+mps = [
+    "jax-metal>=0.1.1",
 ]
 
 [uv.tool]
@@ -75,11 +81,12 @@ typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
 
 
 [project.scripts]
+check_device = "mo_net.scripts.check_device:main"
+cross_validate = "mo_net.scripts.validation:main"
 infer = "mo_net.cli:infer"
-term_plot = "mo_net.scripts.term_plot:main"
 resume = "mo_net.cli:resume"
 sample_data = "mo_net.cli:sample_data"
+serve = "mo_net.server.__main__:main"
+term_plot = "mo_net.scripts.term_plot:main"
 trace_statistics = "mo_net.scripts.trace_statistics:main"
 train = "mo_net.cli:cli_train"
-serve = "mo_net.server.__main__:main"
-cross_validate = "mo_net.scripts.validation:main"

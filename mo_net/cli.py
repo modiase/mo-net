@@ -20,6 +20,7 @@ from mo_net.data import (
     infer_dataset_url,
     load_data,
 )
+from mo_net.device import print_device_info, set_default_device
 from mo_net.functions import (
     LeakyReLU,
     ReLU,
@@ -254,6 +255,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=False,
     )
     @click.option(
+        "--device",
+        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
+        help="Device to use for training (auto will select the best available)",
+        default="auto",
+    )
+    @click.option(
         "--logging-backend-connection-string",
         type=str,
         help="Set the connection string for the logging backend",
@@ -364,10 +371,17 @@ def train(
     train_split_index: int,
     warmup_epochs: int,
     workers: int,
+    device: str,
 ) -> TrainingResult:
     dataset_url = infer_dataset_url(quickstart) if dataset_url is None else dataset_url
     if dataset_url is None:
         raise ValueError("No dataset URL provided and no quickstart template used.")
+
+    # Configure JAX device
+    set_default_device(device)  # type: ignore[arg-type]
+    if not quiet:
+        print_device_info()
+
     X_train, Y_train, X_val, Y_val = load_data(
         dataset_url, split=SplitConfig.of(train_split, train_split_index)
     )
@@ -396,6 +410,7 @@ def train(
         train_set_size=train_set_size,
         warmup_epochs=warmup_epochs,
         workers=workers,
+        device=device,
     )
 
     model = get_model(
