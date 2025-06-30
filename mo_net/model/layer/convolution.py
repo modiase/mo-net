@@ -418,10 +418,10 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         return self._parameters
 
     def update_parameters(self) -> None:
-        if self._cache["dP"] is None:
+        if (dP := self._cache["dP"]) is None:
             raise ValueError("Gradient not set during backward pass.")
         if not self._freeze_parameters:
-            self._parameters = self._parameters + self._cache["dP"]
+            self._parameters = self._parameters + dP
         self._cache["dP"] = None
 
     def serialize(self) -> Convolution2D.Serialized:
