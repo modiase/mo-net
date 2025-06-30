@@ -44,8 +44,13 @@ class Flatten(Hidden):
         input_dimensions: tuple[int, ...]
         output_dimensions: tuple[int, ...]
 
-        def deserialize(self, *, training: bool = False) -> Flatten:
-            del training  # unused
+        def deserialize(
+            self,
+            *,
+            training: bool = False,
+            freeze_parameters: bool = False,
+        ) -> Flatten:
+            del training, freeze_parameters  # unused
             return Flatten(input_dimensions=self.input_dimensions)
 
     def __init__(self, *, input_dimensions: Dimensions):

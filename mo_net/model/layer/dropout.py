@@ -24,7 +24,13 @@ class Dropout(Hidden):
         input_dimensions: tuple[int, ...]
         keep_prob: float
 
-        def deserialize(self, *, training: bool) -> Dropout:
+        def deserialize(
+            self,
+            *,
+            training: bool,
+            freeze_parameters: bool = False,
+        ) -> Dropout:
+            del freeze_parameters  # unused
             return Dropout(
                 input_dimensions=self.input_dimensions,
                 keep_prob=self.keep_prob,
