@@ -2,18 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import (
-    Generic,
-    NewType,
-    Protocol,
-    Self,
-    TypedDict,
-    TypeVar,
-    cast,
-    Optional,
-    Type as TypingType,
-    Union,
-)
+from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast
 
 import numpy as np
 from typing_extensions import runtime_checkable
@@ -157,6 +146,7 @@ class SupportsDeserialize(Protocol, Generic[_T_co]):
         self,
         *,
         training: bool = False,
+        freeze_parameters: bool = False,
     ) -> _T_co: ...
 
 

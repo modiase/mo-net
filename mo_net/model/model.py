@@ -291,21 +291,26 @@ class Model(ModelBase):
         )
 
     @classmethod
-    def load(cls, source: IO[bytes] | Path, training: bool = False) -> Self:
-        if isinstance(source, Path):
-            with open(source, "rb") as f:
-                serialized = pickle.load(f)
-        else:
-            serialized = pickle.load(source)
+    def load(
+        cls,
+        source: IO[bytes] | Path,
+        training: bool = False,
+        freeze_parameters: bool = False,
+    ) -> Self:
+        serialized = pickle.load(source)
         if not isinstance(serialized, cls.Serialized):
             raise ValueError(f"Invalid serialized model: {serialized}")
         return cls(
             input_dimensions=serialized.input_dimensions,
             hidden=tuple(
-                module.deserialize(training=training)
+                module.deserialize(
+                    training=training, freeze_parameters=freeze_parameters
+                )
                 for module in serialized.hidden_modules
             ),
-            output=serialized.output_module.deserialize(training=training),
+            output=serialized.output_module.deserialize(
+                training=training, freeze_parameters=freeze_parameters
+            ),
         )
 
     def predict(self, X: np.ndarray) -> np.ndarray:

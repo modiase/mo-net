@@ -22,8 +22,13 @@ class MaxPooling2D(Hidden):
         stride: tuple[int, int]
         input_dimensions: tuple[int, int, int]
 
-        def deserialize(self, *, training: bool = False) -> MaxPooling2D:
-            del training  # unused
+        def deserialize(
+            self,
+            *,
+            training: bool = False,
+            freeze_parameters: bool = False,
+        ) -> MaxPooling2D:
+            del training, freeze_parameters  # unused
             return MaxPooling2D(
                 input_dimensions=self.input_dimensions,
                 pool_size=self.pool_size,

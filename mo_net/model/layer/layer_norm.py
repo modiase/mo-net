@@ -196,13 +196,14 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> LayerNorm:
             return LayerNorm(
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 parameters=self.parameters,
                 training=training,
-                freeze_parameters=not training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(

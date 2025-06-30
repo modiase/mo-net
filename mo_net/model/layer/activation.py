@@ -24,8 +24,9 @@ class Activation(Hidden):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Activation:
-            del training  # unused
+            del training, freeze_parameters  # unused
             return Activation(
                 activation_fn=get_activation_fn(self.activation_fn),
                 input_dimensions=self.input_dimensions,

@@ -205,7 +205,12 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         output_dimensions: tuple[int, int, int]
         parameters: Parameters
 
-        def deserialize(self, *, training: bool = False) -> Convolution2D:
+        def deserialize(
+            self,
+            *,
+            training: bool = False,
+            freeze_parameters: bool = False,
+        ) -> Convolution2D:
             def _kernel_init_fn(
                 *args: object, **kwargs: Mapping[str, object]
             ) -> Parameters:
@@ -219,7 +224,7 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
                 kernel_size=self.kernel_size,
                 stride=self.stride,
                 kernel_init_fn=_kernel_init_fn,
-                freeze_parameters=not training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
