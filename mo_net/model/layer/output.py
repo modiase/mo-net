@@ -105,8 +105,9 @@ class RawOutputLayer(SoftmaxOutputLayer):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> RawOutputLayer:
-            del training  # unused
+            del training, freeze_parameters  # unused
             return RawOutputLayer(input_dimensions=self.input_dimensions)
 
     def _forward_prop(

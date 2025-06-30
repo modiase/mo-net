@@ -200,6 +200,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
                 layer_id=self.layer_id,
@@ -209,7 +210,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
                 running_mean=self.running_mean,
                 running_variance=self.running_variance,
                 training=training,
-                freeze_parameters=not training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(

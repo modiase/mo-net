@@ -94,10 +94,15 @@ class Hidden(Base):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Hidden:
             return Hidden(
                 layers=tuple(
-                    layer.deserialize(training=training) for layer in self.layers
+                    layer.deserialize(
+                        training=training,
+                        freeze_parameters=freeze_parameters,
+                    )
+                    for layer in self.layers
                 ),
             )
 
@@ -128,12 +133,19 @@ class Output(Base):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Output:
             return Output(
                 layers=tuple(
-                    layer.deserialize(training=training) for layer in self.layers
+                    layer.deserialize(
+                        training=training,
+                        freeze_parameters=freeze_parameters,
+                    )
+                    for layer in self.layers
                 ),
-                output_layer=self.output_layer.deserialize(training=training),
+                output_layer=self.output_layer.deserialize(
+                    training=training,
+                ),
             )
 
     def __init__(

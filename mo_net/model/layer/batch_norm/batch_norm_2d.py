@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from dataclasses import dataclass
 from typing import IO, Self
 
@@ -165,6 +164,7 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> BatchNorm2D:
             return BatchNorm2D(
                 layer_id=self.layer_id,
@@ -174,6 +174,7 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
                 running_mean=self.running_mean,
                 running_variance=self.running_variance,
                 training=training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
@@ -239,12 +240,14 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             normalised_activations = (
                 input_activations - batch_mean[:, None, None]
             ) / np.sqrt(batch_variance[:, None, None] + EPSILON)
-            self._cache.update({
-                "input_activations": input_activations,
-                "mean": batch_mean,
-                "var": batch_variance,
-                "batch_size": batch_size,
-            })
+            self._cache.update(
+                {
+                    "input_activations": input_activations,
+                    "mean": batch_mean,
+                    "var": batch_variance,
+                    "batch_size": batch_size,
+                }
+            )
         else:
             normalised_activations = (
                 input_activations - self._running_mean[:, None, None]

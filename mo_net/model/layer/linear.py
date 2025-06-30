@@ -200,13 +200,14 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Linear:
             return Linear(
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
                 parameters=self.parameters,
-                freeze_parameters=not training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
