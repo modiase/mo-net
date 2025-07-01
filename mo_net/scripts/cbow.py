@@ -162,15 +162,14 @@ def train_cbow():
     )
 
     training_parameters = TrainingParameters(
-        batch_size=10,
+        batch_size=1,
         dropout_keep_probs=(),
         history_max_len=100,
         learning_rate_limits=(1e-4, 1e-2),
         log_level="INFO",
         max_restarts=0,
         monotonic=False,
-        no_monitoring=True,
-        no_transform=True,
+        no_monitoring=False,
         normalisation_type=NormalisationType.NONE,
         num_epochs=50,
         quiet=False,

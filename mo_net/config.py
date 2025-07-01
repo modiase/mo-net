@@ -14,7 +14,6 @@ class TrainingParameters(BaseModel):
     max_restarts: int
     monotonic: bool
     no_monitoring: bool
-    no_transform: bool
     normalisation_type: NormalisationType
     num_epochs: int
     quiet: bool
