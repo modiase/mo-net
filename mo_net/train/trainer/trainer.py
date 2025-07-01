@@ -2,7 +2,6 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Any, ContextManager, Final, Literal, assert_never
 
@@ -18,7 +17,6 @@ from mo_net.optimizer.adam import AdaM
 from mo_net.optimizer.base import Null
 from mo_net.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mo_net.protos import SupportsGradientOperations, UpdateGradientType
-from mo_net.train.augment import affine_transform
 from mo_net.train.batcher import Batcher
 from mo_net.train.exceptions import CheckFailed
 from mo_net.train.monitor import Monitor
@@ -81,6 +79,8 @@ type AfterTrainingStepHandler = Callable[
     None | CheckFailed,
 ]
 
+type TransformFn = Callable[[np.ndarray], np.ndarray]
+
 
 class BasicTrainer:
     def __init__(
@@ -91,6 +91,7 @@ class BasicTrainer:
         optimizer: Base[OptimizerConfigT],
         run: TrainingRun,
         training_parameters: TrainingParameters,
+        transform: TransformFn | None = None,
         start_epoch: int | None = None,
         X_train: np.ndarray,
         Y_train: np.ndarray,
@@ -111,13 +112,7 @@ class BasicTrainer:
             X=X_train,
             Y=Y_train,
             batch_size=self._training_parameters.batch_size,
-            transform=None
-            if self._training_parameters.no_transform
-            else partial(
-                affine_transform,
-                x_size=(x_size := int(np.sqrt(X_train.shape[1]))),
-                y_size=x_size,
-            ),
+            transform=transform,
         )
         self._X_val = X_val
         self._Y_val = Y_val
