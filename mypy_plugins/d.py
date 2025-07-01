@@ -26,7 +26,9 @@ class DTypePlugin(Plugin):
             return self._handle_d_attribute
         return None
 
-    def get_method_hook(self, fullname: str) -> Optional[Callable[[MethodContext], Type]]:
+    def get_method_hook(
+        self, fullname: str
+    ) -> Optional[Callable[[MethodContext], Type]]:
         if fullname in ("mo_net.protos.D.__add__", "mo_net.protos.D.__radd__"):
             return self._handle_d_op
         return None

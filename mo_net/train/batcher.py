@@ -19,9 +19,12 @@ class Batcher:
         self.train_set_size = X.shape[0]
         self._transform = transform
         self._shuffle()
+
+        # Fix: Use integer division and handle remainder properly
+        num_batches = (self.train_set_size + self.batch_size - 1) // self.batch_size
         self._internal_iterator = zip(
-            iter(np.array_split(self.X, self.train_set_size / self.batch_size)),
-            iter(np.array_split(self.Y, self.train_set_size / self.batch_size)),
+            iter(np.array_split(self.X, num_batches)),
+            iter(np.array_split(self.Y, num_batches)),
         )
 
     def _shuffle(self) -> None:

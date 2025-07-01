@@ -267,12 +267,14 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             normalised_activations = (input_activations - batch_mean) / np.sqrt(
                 batch_variance + EPSILON
             )
-            self._cache.update({
-                "input_activations": input_activations,
-                "mean": batch_mean,
-                "var": batch_variance,
-                "batch_size": input_activations.shape[0],
-            })
+            self._cache.update(
+                {
+                    "input_activations": input_activations,
+                    "mean": batch_mean,
+                    "var": batch_variance,
+                    "batch_size": input_activations.shape[0],
+                }
+            )
         else:
             normalised_activations = (input_activations - self._running_mean) / np.sqrt(
                 self._running_variance + EPSILON

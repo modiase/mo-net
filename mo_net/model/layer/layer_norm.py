@@ -232,19 +232,21 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        self._cache.update({
-            "input_activations": input_activations,
-            "mean": np.mean(
-                input_activations,
-                axis=tuple(range(1, input_activations.ndim)),
-                keepdims=True,
-            ),
-            "var": np.var(
-                input_activations,
-                axis=tuple(range(1, input_activations.ndim)),
-                keepdims=True,
-            ),
-        })
+        self._cache.update(
+            {
+                "input_activations": input_activations,
+                "mean": np.mean(
+                    input_activations,
+                    axis=tuple(range(1, input_activations.ndim)),
+                    keepdims=True,
+                ),
+                "var": np.var(
+                    input_activations,
+                    axis=tuple(range(1, input_activations.ndim)),
+                    keepdims=True,
+                ),
+            }
+        )
         normalized = (input_activations - self._cache["mean"]) / (
             np.sqrt(self._cache["var"]) + EPSILON  # type: ignore[arg-type]
         )
