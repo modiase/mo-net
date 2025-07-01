@@ -277,6 +277,7 @@ class BasicTrainer:
             for handler in self._after_training_step:
                 match handler(gradient, update):
                     case CheckFailed() as check:
+                        logger.error(f"Check failed: {check.message}")
                         return TrainingFailed(
                             model_checkpoint_path=self._model_checkpoint_path,
                             message=check.message,
