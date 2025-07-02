@@ -20,11 +20,12 @@ class WeightDecayRegulariser(TrainingStepHandler):
         dP = self._layer.cache.get("dP", self._layer.empty_gradient())  # type: ignore[attr-defined]
         if dP is None:
             return
+
         self._layer.cache["dP"] = d(  # type: ignore[index]
             dP
             + Linear.Parameters(
                 weights=self._lambda * learning_rate * self._layer.parameters.weights,
-                biases=np.zeros_like(dP._B),  # type: ignore[attr-defined]
+                biases=np.zeros_like(dP.biases),
             )
         )
 
