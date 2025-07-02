@@ -20,7 +20,6 @@ class Batcher:
         self._transform = transform
         self._shuffle()
 
-        # Fix: Use integer division and handle remainder properly
         num_batches = (self.train_set_size + self.batch_size - 1) // self.batch_size
         self._internal_iterator = zip(
             iter(np.array_split(self.X, num_batches)),

@@ -6,7 +6,7 @@ from mo_net.model.layer.average import Average
 
 def test_average_forward_axis0():
     layer = Average(input_dimensions=(2, 3), axis=0)
-    x = np.array([[[1, 2, 3], [4, 5, 6]]])  # Add batch dimension
+    x = np.array([[[1, 2, 3], [4, 5, 6]]])
     out = layer.forward_prop(x)
     np.testing.assert_array_equal(out, np.mean(x, axis=1))
     assert out.shape == (1, 3)
@@ -14,7 +14,7 @@ def test_average_forward_axis0():
 
 def test_average_forward_axis1():
     layer = Average(input_dimensions=(2, 3), axis=1)
-    x = np.array([[[1, 2, 3], [4, 5, 6]]])  # Add batch dimension
+    x = np.array([[[1, 2, 3], [4, 5, 6]]])
     out = layer.forward_prop(x)
     np.testing.assert_array_equal(out, np.mean(x, axis=2))
     assert out.shape == (1, 2)
@@ -22,7 +22,7 @@ def test_average_forward_axis1():
 
 def test_average_forward_multi_axis():
     layer = Average(input_dimensions=(2, 3, 4), axis=(1, 2))
-    x = np.arange(24).reshape(1, 2, 3, 4)  # Add batch dimension
+    x = np.arange(24).reshape(1, 2, 3, 4)
     out = layer.forward_prop(x)
     np.testing.assert_array_equal(out, np.mean(x, axis=(2, 3)))
     assert out.shape == (1, 2)
@@ -30,7 +30,7 @@ def test_average_forward_multi_axis():
 
 def test_average_backward_axis0():
     layer = Average(input_dimensions=(2, 3), axis=0)
-    x = np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])  # Add batch dimension
+    x = np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])
     out = layer.forward_prop(x)
     grad_out = np.ones_like(out)
     grad_in = layer.backward_prop(grad_out)
@@ -41,7 +41,7 @@ def test_average_backward_axis0():
 
 def test_average_backward_axis1():
     layer = Average(input_dimensions=(2, 3), axis=1)
-    x = np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])  # Add batch dimension
+    x = np.array([[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]])
     out = layer.forward_prop(x)
     grad_out = np.ones_like(out)
     grad_in = layer.backward_prop(grad_out)
@@ -52,7 +52,7 @@ def test_average_backward_axis1():
 
 def test_average_backward_multi_axis():
     layer = Average(input_dimensions=(2, 3, 4), axis=(1, 2))
-    x = np.arange(24.0).reshape(1, 2, 3, 4)  # Add batch dimension
+    x = np.arange(24.0).reshape(1, 2, 3, 4)
     out = layer.forward_prop(x)
     grad_out = np.ones_like(out)
     grad_in = layer.backward_prop(grad_out)
