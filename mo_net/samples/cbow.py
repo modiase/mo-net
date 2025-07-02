@@ -276,7 +276,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--batch-size",
         type=int,
         help="Batch size",
-        default=1000,
+        default=10000,
     )
     @click.option(
         "--model-path",
@@ -440,7 +440,7 @@ def train(
     match result:
         case TrainingSuccessful():
             if model_output_path is None:
-                model_output_path = DATA_DIR / "output" / f"cbow_model_{seed}.pkl"
+                model_output_path = DATA_DIR / "output" / f"{run.name}.pkl"
             result.model_checkpoint_path.rename(model_output_path)
             logger.info(f"Training completed. Model saved to: {model_output_path}")
             vocab_path = model_output_path.with_suffix(".vocab")
