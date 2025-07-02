@@ -205,6 +205,7 @@ async def get_status():
                 else None,
                 "current_batch": current_state.current_run.current_batch,
                 "total_batches": current_state.current_run.total_batches,
+                "run_name": current_state.current_run.name,
             }
         )
 
@@ -253,6 +254,7 @@ async def get_available_runs():
                 "runs": [
                     {
                         "id": run.id,
+                        "name": run.name,
                         "seed": run.seed,
                         "updated_at": run.updated_at.isoformat(),
                     }
@@ -272,6 +274,7 @@ async def get_all_runs():
                 "runs": [
                     {
                         "id": run.id,
+                        "name": run.name,
                         "seed": run.seed,
                         "started_at": run.started_at.isoformat(),
                         "updated_at": run.updated_at.isoformat(),

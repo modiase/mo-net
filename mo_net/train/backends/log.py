@@ -17,7 +17,13 @@ class LoggingBackend(Protocol):
     def create(self) -> None:
         """Create any connections or files."""
 
-    def start_run(self, seed: int, total_batches: int, total_epochs: int) -> str:
+    def start_run(
+        self,
+        name: str,
+        seed: int,
+        total_batches: int,
+        total_epochs: int,
+    ) -> str:
         """Create a new run using backend."""
 
     def end_run(self, run_id: str) -> None:
@@ -61,8 +67,14 @@ class CsvBackend(LoggingBackend):
     def create(self) -> None:
         self._file = open(self._path, "w")
 
-    def start_run(self, seed: int, total_batches: int, total_epochs: int) -> str:
-        del seed, total_batches, total_epochs  # unused
+    def start_run(
+        self,
+        name: str,
+        seed: int,
+        total_batches: int,
+        total_epochs: int,
+    ) -> str:
+        del name, seed, total_batches, total_epochs  # unused
         pd.DataFrame(columns=self._columns).to_csv(self._file, index=False)
         if self._file is not None:
             self._file.flush()
@@ -118,11 +130,18 @@ class SqliteBackend(LoggingBackend):
     def create(self) -> None:
         self._session = self._session_maker()
 
-    def start_run(self, seed: int, total_batches: int, total_epochs: int) -> str:
+    def start_run(
+        self,
+        name: str,
+        seed: int,
+        total_batches: int,
+        total_epochs: int,
+    ) -> str:
         if not self._session:
             raise RuntimeError("Session not created. Call create() first.")
 
         run = DbRun.create(
+            name=name,
             seed=seed,
             total_batches=total_batches,
             total_epochs=total_epochs,
@@ -211,8 +230,14 @@ class NullBackend(LoggingBackend):
     def create(self) -> None:
         pass
 
-    def start_run(self, seed: int, total_batches: int, total_epochs: int) -> str:
-        del seed, total_batches, total_epochs  # unused
+    def start_run(
+        self,
+        name: str,
+        seed: int,
+        total_batches: int,
+        total_epochs: int,
+    ) -> str:
+        del name, seed, total_batches, total_epochs  # unused
         return "-1"
 
     def end_run(self, run_id: str) -> None:
