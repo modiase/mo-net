@@ -70,7 +70,7 @@ class Average(Hidden):
         if s is None:
             raise ValueError("Input shape not cached during forward pass.")
         a = tuple(ax + 1 for ax in self._axis)
-        e = list(dZ.shape)
+        e = list(dZ.shape)  # type: ignore[attr-defined]
         for ax in sorted(a):
             e.insert(ax, 1)
         g = np.broadcast_to(np.reshape(dZ, e), s)

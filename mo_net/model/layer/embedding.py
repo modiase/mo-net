@@ -124,6 +124,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         layer_id: str
         input_dimensions: tuple[int, ...]
         output_dimensions: tuple[int, ...]
+        vocab_size: int
         parameters: Parameters
 
         def deserialize(self, *, training: bool = False) -> Embedding:
@@ -132,19 +133,23 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
+                vocab_size=self.vocab_size,
                 parameters=self.parameters,
             )
 
     def __init__(
         self,
         *,
+        clip_gradients: bool = True,
+        freeze_parameters: bool = False,
         input_dimensions: Dimensions,
-        output_dimensions: Dimensions,
-        vocab_size: int,
         layer_id: str | None = None,
+        output_dimensions: Dimensions,
         parameters: ParametersType | None = None,
         parameters_init_fn: Callable[[int, int], ParametersType] = Parameters.xavier,
         store_output_activations: bool = False,
+        vocab_size: int,
+        weight_max_norm: float = 1.0,
     ):
         super().__init__(
             layer_id=layer_id,
@@ -153,6 +158,9 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         )
         self._parameters_init_fn = parameters_init_fn
         self._store_output_activations = store_output_activations
+        self._clip_gradients = clip_gradients
+        self._freeze_parameters = freeze_parameters
+        self._weight_max_norm = weight_max_norm
 
         embedding_dim = (
             output_dimensions[-1]
@@ -168,6 +176,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 f"Embedding matrix shape {parameters.embeddings.shape} does not match vocab_size {vocab_size} and embedding_dim {embedding_dim}"
             )
 
+        self._vocab_size = vocab_size
         self._parameters = (
             parameters
             if parameters is not None
@@ -194,6 +203,13 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             raise ValueError("Input indices not set during forward pass.")
         dE = np.zeros_like(self._parameters.embeddings)
         np.add.at(dE, indices, dZ)
+        if self._clip_gradients:
+            dE *= min(
+                1.0,
+                self._weight_max_norm
+                * np.sqrt(dE.size)
+                / (np.linalg.norm(dE) + EPSILON),
+            )
         self._cache["dP"] = d(self.Parameters(embeddings=dE))
         return dZ
 
@@ -210,13 +226,15 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             layer_id=self._layer_id,
             input_dimensions=tuple(self._input_dimensions),
             output_dimensions=tuple(self._output_dimensions),
+            vocab_size=self._vocab_size,
             parameters=self._parameters,
         )
 
     def update_parameters(self) -> None:
         if self._cache["dP"] is None:
             raise ValueError("Gradient not set during backward pass.")
-        self._parameters = self._parameters + self._cache["dP"]
+        if not self._freeze_parameters:
+            self._parameters = self._parameters + self._cache["dP"]
         self._cache["dP"] = None
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:

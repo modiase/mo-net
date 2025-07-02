@@ -381,7 +381,6 @@ def train(
         normalisation_type=normalisation_type,
         tracing_enabled=tracing_enabled,
         dropout_keep_probs=dropout_keep_probs,
-        training_parameters=training_parameters,
     )
 
     if model_output_path is None:
