@@ -26,6 +26,7 @@ from mo_net.model.layer.reshape import Reshape
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import NormalisationType
+from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
 from mo_net.resources import get_resource
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import CsvBackend
@@ -231,6 +232,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Log level",
         default=LogLevel.INFO,
     )
+    @click.option(
+        "--lambda",
+        "lambda_",
+        type=float,
+        help="Weight decay regulariser lambda",
+        default=0.005,
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -252,6 +260,7 @@ def train(
     batch_size: int,
     num_epochs: int,
     learning_rate: float,
+    lambda_: float,
     warmup_epochs: int,
     model_output_path: Path | None,
     log_level: LogLevel,
@@ -295,7 +304,7 @@ def train(
         normalisation_type=NormalisationType.NONE,
         num_epochs=num_epochs,
         quiet=False,
-        regulariser_lambda=0.0,
+        regulariser_lambda=lambda_,
         trace_logging=False,
         train_set_size=len(X_train),
         warmup_epochs=warmup_epochs,
@@ -310,6 +319,12 @@ def train(
 
     run = TrainingRun(seed=42, backend=CsvBackend(path=DATA_DIR / "run" / "cbow.csv"))
     optimizer = get_optimizer("adam", model, training_parameters)
+    attach_weight_decay_regulariser(
+        lambda_=lambda_,
+        batch_size=batch_size,
+        optimizer=optimizer,
+        model=model,
+    )
 
     trainer = BasicTrainer(
         X_train=X_train_split,
