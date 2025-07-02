@@ -25,8 +25,8 @@ from mo_net.model.layer.output import SoftmaxOutputLayer
 from mo_net.model.layer.reshape import Reshape
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
-from mo_net.protos import NormalisationType
-from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
+from mo_net.optimizer.base import Base as BaseOptimizer
+from mo_net.protos import NormalisationType, TrainingStepHandler, d
 from mo_net.resources import get_resource
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import CsvBackend
@@ -40,6 +40,50 @@ from mo_net.train.trainer.trainer import (
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
+    def __init__(self, *, lambda_: float, batch_size: int, layer: Embedding):
+        self._lambda = lambda_
+        self._layer = layer
+        self._batch_size = batch_size
+
+    def after_compute_update(self, learning_rate: float) -> None:
+        del learning_rate  # unused
+        dP = self._layer.cache.get("dP", self._layer.empty_gradient())  # type: ignore[attr-defined]
+        if dP is None:
+            return
+        self._layer.cache["dP"] = d(
+            dP
+            + Embedding.Parameters(
+                embeddings=self._lambda * self._layer.parameters.embeddings,
+            )
+        )
+
+    def compute_regularisation_loss(self) -> float:
+        return (
+            0.5
+            * self._lambda
+            * np.sum(self._layer.parameters.embeddings**2)
+            / self._batch_size
+        )
+
+    def __call__(self) -> float:
+        return self.compute_regularisation_loss()
+
+    @staticmethod
+    def attach(
+        *,
+        lambda_: float,
+        batch_size: int,
+        optimizer: BaseOptimizer,
+        model: CBOWModel,
+    ) -> None:
+        optimizer.register_after_compute_update_handler(
+            EmbeddingWeightDecayRegulariser(
+                lambda_=lambda_, batch_size=batch_size, layer=model.embedding_layer
+            ).after_compute_update
+        )
 
 
 @dataclass(slots=True, frozen=True)
@@ -180,8 +224,12 @@ class CBOWModel(Model):
         )
 
     @property
+    def embedding_layer(self) -> Embedding:
+        return cast(Embedding, self.hidden_modules[0].layers[0])
+
+    @property
     def embeddings(self) -> np.ndarray:
-        return self.hidden_modules[0].layers[0].parameters.embeddings  # type: ignore[attr-defined]
+        return self.embedding_layer.parameters.embeddings
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
@@ -320,7 +368,7 @@ def train(
 
     run = TrainingRun(seed=42, backend=CsvBackend(path=DATA_DIR / "run" / "cbow.csv"))
     optimizer = get_optimizer("adam", model, training_parameters)
-    attach_weight_decay_regulariser(
+    EmbeddingWeightDecayRegulariser.attach(
         lambda_=lambda_,
         batch_size=batch_size,
         optimizer=optimizer,

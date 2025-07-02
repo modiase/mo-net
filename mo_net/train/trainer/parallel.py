@@ -19,7 +19,7 @@ from mo_net.log import log_time
 from mo_net.model.layer.base import ParametrisedHidden
 from mo_net.model.model import Model
 from mo_net.protos import EventLike, SupportsGradientOperations, UpdateGradientType
-from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
+from mo_net.regulariser.weight_decay import WeightDecayRegulariser
 from mo_net.train.trainer.trainer import (
     BasicTrainer,
     TrainingResult,
@@ -699,7 +699,7 @@ class ParallelTrainer(BasicTrainer):
                 with log_time(
                     f"Weight decay regulariser attachment (λ={self._training_parameters.regulariser_lambda}): {{time_taken:.4f}}s"
                 ):
-                    attach_weight_decay_regulariser(
+                    WeightDecayRegulariser.attach(
                         lambda_=self._training_parameters.regulariser_lambda,
                         batch_size=self._X_train.shape[0],
                         model=self._model,
