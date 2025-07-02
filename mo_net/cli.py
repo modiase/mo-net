@@ -24,7 +24,6 @@ from mo_net.functions import (
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
 from mo_net.protos import ActivationFn, NormalisationType
-from mo_net.regulariser.weight_decay import attach_weight_decay_regulariser
 from mo_net.train import (
     TrainingParameters,
 )
@@ -390,13 +389,6 @@ def train(
         backend=parse_connection_string(logging_backend_connection_string),
     )
     optimizer = get_optimizer(optimizer_type, model, training_parameters)
-    if regulariser_lambda > 0:
-        attach_weight_decay_regulariser(
-            lambda_=regulariser_lambda,
-            batch_size=batch_size,
-            optimizer=optimizer,
-            model=model,
-        )
 
     if only_misclassified_examples:
         Y_train_pred = model.predict(X_train)
