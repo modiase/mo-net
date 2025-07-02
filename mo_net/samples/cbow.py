@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import random
 import re
+import time
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
@@ -28,7 +29,7 @@ from mo_net.optimizer.base import Base as BaseOptimizer
 from mo_net.protos import NormalisationType, TrainingStepHandler, d
 from mo_net.resources import get_resource
 from mo_net.train import TrainingParameters
-from mo_net.train.backends.log import CsvBackend
+from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
 from mo_net.train.trainer.trainer import (
     BasicTrainer,
@@ -400,7 +401,8 @@ def train(
     X_val = X_train[train_size:]
     Y_val = Y_train[train_size:]
 
-    run = TrainingRun(seed=42, backend=CsvBackend(path=DATA_DIR / "run" / "cbow.csv"))
+    seed = time.time_ns() // 1000
+    run = TrainingRun(seed=seed, name="cbow_run_{seed}", backend=SqliteBackend())
     optimizer = get_optimizer("adam", model, training_parameters)
     EmbeddingWeightDecayRegulariser.attach(
         lambda_=lambda_,
