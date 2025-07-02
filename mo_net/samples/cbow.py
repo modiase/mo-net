@@ -22,7 +22,6 @@ from mo_net.model.layer.dropout import Dropout
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
 from mo_net.model.layer.output import SoftmaxOutputLayer
-from mo_net.model.layer.reshape import Reshape
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.optimizer.base import Base as BaseOptimizer
@@ -192,10 +191,6 @@ class CBOWModel(Model):
                                 vocab_size, embedding_dim
                             ),
                             store_output_activations=tracing_enabled,
-                        ),
-                        Reshape(
-                            input_dimensions=(context_size * 2, embedding_dim),
-                            output_dimensions=(context_size * 2, embedding_dim),
                         ),
                         Average(
                             input_dimensions=(context_size * 2, embedding_dim),
