@@ -237,7 +237,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "lambda_",
         type=float,
         help="Weight decay regulariser lambda",
-        default=0.005,
+        default=0.001,
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -412,9 +412,12 @@ def infer(model_path: Path):
             word1_embedding = embeddings[word1_id]
             word2_embedding = embeddings[word2_id]
 
-            similarity = np.dot(word1_embedding, word2_embedding) / (
-                np.linalg.norm(word1_embedding) * np.linalg.norm(word2_embedding)
-            )
+            if (n1 := np.linalg.norm(word1_embedding)) == 0 or (
+                n2 := np.linalg.norm(word2_embedding)
+            ) == 0:
+                similarity = 0.0
+            else:
+                similarity = np.dot(word1_embedding, word2_embedding) / (n1 * n2)
 
             click.echo(f"Similarity between '{word1}' and '{word2}': {similarity:.4f}")
 
