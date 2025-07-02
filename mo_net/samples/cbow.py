@@ -18,7 +18,6 @@ from more_itertools import windowed
 from mo_net.data import DATA_DIR
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
-from mo_net.model.layer.dropout import Dropout
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
 from mo_net.model.layer.output import SoftmaxOutputLayer
@@ -208,10 +207,6 @@ class CBOWModel(Model):
                             (embedding_dim,), (vocab_size,)
                         ),
                         store_output_activations=tracing_enabled,
-                    ),
-                    Dropout(
-                        input_dimensions=(vocab_size,),
-                        keep_prob=0.5,
                     ),
                 ),
                 output_layer=SoftmaxOutputLayer(input_dimensions=(vocab_size,)),
