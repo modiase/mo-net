@@ -191,7 +191,6 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         indices = input_activations.astype(int)
         self._cache["input_indices"] = indices
-        # This will work: indices shape (batch_size, context_size) -> embeddings shape (batch_size, context_size, embedding_dim)
         embeddings = self._parameters.embeddings[indices]
         output_activations = Activations(embeddings)
         if self._store_output_activations:
