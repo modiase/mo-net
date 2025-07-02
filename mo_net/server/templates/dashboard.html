@@ -343,7 +343,8 @@ async function updateCurrentInfo() {
         const response = await fetch('/api/status');
         if (response.ok) {
             const status = await response.json();
-            document.getElementById('current-run').textContent = status.current_run_id || 'None';
+            const runDisplay = status.run_name ? `${status.run_name} (ID: ${status.current_run_id})` : `Run ${status.current_run_id}`;
+            document.getElementById('current-run').textContent = runDisplay || 'None';
         }
     } catch (error) {
         console.error('Error fetching status:', error);
@@ -360,7 +361,8 @@ async function loadAvailableRuns() {
             data.runs.forEach(run => {
                 const option = document.createElement('option');
                 option.value = run.id;
-                option.textContent = `Run ${run.id} (Seed ${run.seed})`;
+                const displayName = run.name ? `${run.name} (ID: ${run.id})` : `Run ${run.id} (Seed ${run.seed})`;
+                option.textContent = displayName;
                 selector.appendChild(option);
             });
         }

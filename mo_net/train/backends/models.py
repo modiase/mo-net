@@ -76,13 +76,14 @@ class DbRun(Base):
     def create(
         cls,
         *,
+        name: str,
         seed: int,
         total_batches: int,
         total_epochs: int,
         started_at: datetime | None = None,
     ) -> Self:
         return cls(
-            name=str(seed),
+            name=name,
             seed=seed,
             started_at=(
                 _started_at := (

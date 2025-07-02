@@ -54,6 +54,7 @@ class TrainingRun:
     def start_run(self, total_batches: int, total_epochs: int) -> None:
         self._backend.create()
         self._run_id = self._backend.start_run(
+            name=self._name,
             seed=self._seed,
             total_batches=total_batches,
             total_epochs=total_epochs,

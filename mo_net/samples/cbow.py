@@ -311,7 +311,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "lambda_",
         type=float,
         help="Weight decay regulariser lambda",
-        default=0.001,
+        default=1e-5,
     )
     @click.option(
         "--vocab-size",
