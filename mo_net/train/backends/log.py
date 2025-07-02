@@ -117,15 +117,15 @@ class CsvBackend(LoggingBackend):
 
 class SqliteBackend(LoggingBackend):
     def __init__(self, *, path: Path | None = None) -> None:
-        self._path = path if path is not None else DB_PATH
+        self._path = (path if path is not None else DB_PATH).resolve()
         self._session: Session | None = None
         self._current_run: DbRun | None = None
-        self._engine = create_engine(f"sqlite:///{self._path}")
+        self._engine = create_engine(f"sqlite://{self._path}")
         self._session_maker = sessionmaker(bind=self._engine)
 
     @property
     def connection_string(self) -> str:
-        return f"sqlite:///{self._path}"
+        return f"sqlite://{self._path}"
 
     def create(self) -> None:
         self._session = self._session_maker()

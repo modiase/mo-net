@@ -89,7 +89,7 @@ def main(*, refresh: int, width: int, height: int):
         logger.error(f"Database not found: {DB_PATH}")
         sys.exit(1)
 
-    engine = create_engine(f"sqlite:///{DB_PATH}")
+    engine = create_engine(f"sqlite://{DB_PATH}")
     Session = sessionmaker(bind=engine)
     session = Session()
     logger.info(f"Using database: {DB_PATH}")
