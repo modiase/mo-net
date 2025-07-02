@@ -122,13 +122,15 @@ class Vocab:
 
     @classmethod
     def from_sentences(cls, sentences: Collection[str], max_size: int) -> Vocab:
-        token_counts = Counter()
-        for sentence in sentences:
-            if sentence:
-                for token in sentence.split():
-                    token_counts[token] += 1
-
-        most_common_tokens = [token for token, _ in token_counts.most_common(max_size)]
+        most_common_tokens = [
+            token
+            for token, _ in Counter(
+                token
+                for sentence in sentences
+                if sentence
+                for token in sentence.split()
+            ).most_common(max_size)
+        ]
 
         vocab_tuple = tuple(most_common_tokens)
         return cls(
