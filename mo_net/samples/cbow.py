@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import random
 import re
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
@@ -88,17 +89,26 @@ class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
 class Vocab:
     vocab: tuple[str, ...]
     token_to_id: dict[str, int]
+    unknown_token_id: int
 
     def serialize(self) -> bytes:
         return msgpack.packb(
-            {"vocab": list(self.vocab), "token_to_id": self.token_to_id}
+            {
+                "vocab": list(self.vocab),
+                "token_to_id": self.token_to_id,
+                "unknown_token_id": self.unknown_token_id,
+            }
         )
 
     @classmethod
     def deserialize(cls, path: Path) -> Vocab:
         with open(path, "rb") as f:
             data = msgpack.unpackb(f.read())
-            return cls(vocab=tuple(data["vocab"]), token_to_id=data["token_to_id"])
+            return cls(
+                vocab=tuple(data["vocab"]),
+                token_to_id=data["token_to_id"],
+                unknown_token_id=data.get("unknown_token_id", len(data["vocab"])),
+            )
 
     @classmethod
     def from_vocab(cls, vocab: Collection[str]) -> Vocab:
@@ -106,14 +116,38 @@ class Vocab:
         return cls(
             vocab=vocab_tuple,
             token_to_id={token: i for i, token in enumerate(vocab_tuple)},
+            unknown_token_id=len(vocab_tuple),
+        )
+
+    @classmethod
+    def from_sentences(cls, sentences: Collection[str], max_size: int) -> Vocab:
+        token_counts = Counter()
+        for sentence in sentences:
+            if sentence:
+                for token in sentence.split():
+                    token_counts[token] += 1
+
+        most_common_tokens = [token for token, _ in token_counts.most_common(max_size)]
+
+        vocab_tuple = tuple(most_common_tokens)
+        return cls(
+            vocab=vocab_tuple,
+            token_to_id={token: i for i, token in enumerate(vocab_tuple)},
+            unknown_token_id=max_size,
         )
 
     def __len__(self) -> int:
-        return len(self.vocab)
+        return len(self.vocab) + 1
+
+    def __getitem__(self, token: str) -> int:
+        """Get token ID, returning unknown_token_id if token not in vocabulary"""
+        return self.token_to_id.get(token, self.unknown_token_id)
 
     @functools.cached_property
     def id_to_token(self) -> Mapping[int, str]:
-        return {i: token for token, i in self.token_to_id.items()}
+        return defaultdict(
+            lambda: "<unknown>", {i: token for token, i in self.token_to_id.items()}
+        )
 
 
 def clean_token(token: str) -> str:
@@ -127,7 +161,7 @@ def all_windows(
     sentences: Collection[Sequence[int]], window_size: int
 ) -> Iterator[Sequence[int]]:
     return cast(
-        Iterator[Sequence[int]],  # We have filtered None values
+        Iterator[Sequence[int]],
         (
             window
             for sentence in sentences
@@ -239,7 +273,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--batch-size",
         type=int,
         help="Batch size",
-        default=100,
+        default=1000,
     )
     @click.option(
         "--num-epochs",
@@ -278,6 +312,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Weight decay regulariser lambda",
         default=0.001,
     )
+    @click.option(
+        "--vocab-size",
+        type=int,
+        help="Maximum vocabulary size",
+        default=1000,
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -303,20 +343,24 @@ def train(
     warmup_epochs: int,
     model_output_path: Path | None,
     log_level: LogLevel,
+    vocab_size: int,
 ):
     """Train a CBOW model on Shakespeare text"""
     setup_logging(log_level)
 
-    shakespeare = get_resource("s3://mo-net-resources/shakespeare.txt").read_text()
-    sentences = shakespeare.split("\n")[:10000]
-    vocab = Vocab.from_vocab(
-        sorted(set(token for sentence in sentences for token in sentence.split()))
-    )
+    sentences = (
+        get_resource("s3://mo-net-resources/english-sentences.txt")
+        .read_text()
+        .split("\n")
+    )[:100000]
+    vocab = Vocab.from_sentences(sentences, max_size=vocab_size)
+
     tokenized_sentences = [
-        [vocab.token_to_id[token] for token in sentence.split()]
+        [vocab[token] for token in sentence.split()]
         for sentence in sentences
         if sentence
     ]
+
     X_train, Y_train = get_training_set(tokenized_sentences, context_size, len(vocab))
 
     logger.info(f"Vocabulary size: {len(vocab)}")
@@ -432,13 +476,8 @@ def infer(model_path: Path):
 
             word1, word2 = words
 
-            if word1 not in vocab.token_to_id:
-                click.echo(f"'{word1}' not found in vocabulary")
-                continue
-
-            if word2 not in vocab.token_to_id:
-                click.echo(f"'{word2}' not found in vocabulary")
-                continue
+            word1_id = vocab[word1]
+            word2_id = vocab[word2]
 
             if word1 == word2:
                 click.echo(
@@ -446,8 +485,6 @@ def infer(model_path: Path):
                 )
                 continue
 
-            word1_id = vocab.token_to_id[word1]
-            word2_id = vocab.token_to_id[word2]
             word1_embedding = embeddings[word1_id]
             word2_embedding = embeddings[word2_id]
 
@@ -492,41 +529,37 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
-    vocab_path = model_path.with_suffix(".vocab.npy")
+    vocab_path = model_path.with_suffix(".vocab")
     if not vocab_path.exists():
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
 
-    vocab_data = np.load(vocab_path, allow_pickle=True).item()
-    vocab = vocab_data["vocab"]
-    token_to_id = vocab_data["token_to_id"]
-
+    vocab = Vocab.deserialize(vocab_path)
     model = CBOWModel.load(open(model_path, "rb"), training=False)
 
-    random_words = random.sample(vocab, min(num_words, len(vocab)))
+    random_words = random.sample(list(vocab.vocab), min(num_words, len(vocab)))
 
     click.echo(f"Showing similarities for {len(random_words)} random words:")
     click.echo()
 
     for word in random_words:
-        if word in token_to_id:
-            word_id = token_to_id[word]
-            word_embedding = model.embeddings[word_id]
+        word_id = vocab[word]
+        word_embedding = model.embeddings[word_id]
 
-            click.echo(f"'{word}' (ID: {word_id}):")
+        click.echo(f"'{word}' (ID: {word_id}):")
 
-            similarities = []
-            for other_word in vocab:
-                if other_word in token_to_id and other_word != word:
-                    other_id = token_to_id[other_word]
-                    other_embedding = model.embeddings[other_id]
-                    similarity = np.dot(word_embedding, other_embedding) / (
-                        np.linalg.norm(word_embedding) * np.linalg.norm(other_embedding)
-                    )
-                    similarities.append((other_word, similarity))
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            for similar_word, similarity in similarities[:num_similarities]:
-                click.echo(f"    {similar_word}: {similarity:.4f}")
-            click.echo()
+        similarities = []
+        for other_word in vocab.vocab:
+            if other_word != word:
+                other_id = vocab[other_word]
+                other_embedding = model.embeddings[other_id]
+                similarity = np.dot(word_embedding, other_embedding) / (
+                    np.linalg.norm(word_embedding) * np.linalg.norm(other_embedding)
+                )
+                similarities.append((other_word, similarity))
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        for similar_word, similarity in similarities[:num_similarities]:
+            click.echo(f"    {similar_word}: {similarity:.4f}")
+        click.echo()
 
 
 if __name__ == "__main__":
