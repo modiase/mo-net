@@ -280,7 +280,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--num-epochs",
         type=int,
         help="Number of epochs",
-        default=1000,
+        default=100,
     )
     @click.option(
         "--learning-rate",
@@ -402,7 +402,7 @@ def train(
     Y_val = Y_train[train_size:]
 
     seed = time.time_ns() // 1000
-    run = TrainingRun(seed=seed, name="cbow_run_{seed}", backend=SqliteBackend())
+    run = TrainingRun(seed=seed, name=f"cbow_run_{seed}", backend=SqliteBackend())
     optimizer = get_optimizer("adam", model, training_parameters)
     EmbeddingWeightDecayRegulariser.attach(
         lambda_=lambda_,
