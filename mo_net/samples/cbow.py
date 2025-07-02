@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+import functools
+import random
 import re
 from collections.abc import Collection, Iterator, Sequence
+from dataclasses import dataclass
+from itertools import chain
+from pathlib import Path
+from typing import Callable, Mapping, ParamSpec, TypeVar, assert_never, cast
 
+import click
+import msgpack  # type: ignore[import-untyped]
 import numpy as np
 from loguru import logger
 from more_itertools import windowed
 
 from mo_net.data import DATA_DIR
+from mo_net.log import LogLevel, setup_logging
+from mo_net.model.layer.average import Average
+from mo_net.model.layer.dropout import Dropout
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
 from mo_net.model.layer.output import SoftmaxOutputLayer
@@ -19,7 +30,47 @@ from mo_net.resources import get_resource
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import CsvBackend
 from mo_net.train.run import TrainingRun
-from mo_net.train.trainer.trainer import BasicTrainer, get_optimizer
+from mo_net.train.trainer.trainer import (
+    BasicTrainer,
+    TrainingFailed,
+    TrainingSuccessful,
+    get_optimizer,
+)
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+@dataclass(slots=True, frozen=True)
+class Vocab:
+    vocab: tuple[str, ...]
+    token_to_id: dict[str, int]
+
+    def serialize(self) -> bytes:
+        return msgpack.packb(
+            {"vocab": list(self.vocab), "token_to_id": self.token_to_id}
+        )
+
+    @classmethod
+    def deserialize(cls, path: Path) -> Vocab:
+        with open(path, "rb") as f:
+            data = msgpack.unpackb(f.read())
+            return cls(vocab=tuple(data["vocab"]), token_to_id=data["token_to_id"])
+
+    @classmethod
+    def from_vocab(cls, vocab: Collection[str]) -> Vocab:
+        vocab_tuple = tuple(vocab)
+        return cls(
+            vocab=vocab_tuple,
+            token_to_id={token: i for i, token in enumerate(vocab_tuple)},
+        )
+
+    def __len__(self) -> int:
+        return len(self.vocab)
+
+    @functools.cached_property
+    def id_to_token(self) -> Mapping[int, str]:
+        return {i: token for token, i in self.token_to_id.items()}
 
 
 def clean_token(token: str) -> str:
@@ -32,32 +83,36 @@ def clean_token(token: str) -> str:
 def all_windows(
     sentences: Collection[Sequence[int]], window_size: int
 ) -> Iterator[Sequence[int]]:
-    return (
-        window
-        for sentence in sentences
-        for window in windowed(sentence, window_size)
-        if window is not None
+    return cast(
+        Iterator[Sequence[int]],  # We have filtered None values
+        (
+            window
+            for sentence in sentences
+            for window in windowed(sentence, window_size)
+            if all(item is not None for item in window)
+        ),
     )
 
 
 def get_training_set(
-    sentences: Collection[Sequence[int]], context_size: int, vocab_size: int
+    tokenized_sentences: Collection[Sequence[int]], context_size: int, vocab_size: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    contexts = []
-    targets = []
-
-    for sentence in sentences:
-        for i in range(context_size, len(sentence) - context_size):
-            # Get context words (before and after the target word)
-            context = (
-                sentence[i - context_size : i] + sentence[i + 1 : i + context_size + 1]
+    context, target = zip(
+        *[
+            (
+                tuple(
+                    chain(
+                        sentence[i - context_size : i],
+                        sentence[i + 1 : i + context_size + 1],
+                    )
+                ),
+                sentence[i],
             )
-            target = sentence[i]
-
-            contexts.append(context)
-            targets.append(target)
-
-    return np.array(contexts), np.eye(vocab_size)[targets]
+            for sentence in tokenized_sentences
+            for i in range(context_size, len(sentence) - context_size)
+        ]
+    )
+    return np.array(context), np.eye(vocab_size)[list(target)]
 
 
 class CBOWModel(Model):
@@ -78,105 +133,172 @@ class CBOWModel(Model):
         context_size: int,
         tracing_enabled: bool = False,
     ) -> CBOWModel:
-        embedding_layer = Embedding(
-            input_dimensions=(context_size * 2,),
-            output_dimensions=(context_size * 2, embedding_dim),
-            vocab_size=vocab_size,
-            parameters=Embedding.Parameters.xavier(vocab_size, embedding_dim),
-            store_output_activations=tracing_enabled,
-        )
-
-        # Reshape to flatten the context dimension
-        reshape_layer = Reshape(
-            input_dimensions=(context_size * 2, embedding_dim),
-            output_dimensions=(context_size * 2 * embedding_dim,),
-        )
-
-        # Linear layer to average across context words
-        average_layer = Linear(
-            input_dimensions=(context_size * 2 * embedding_dim,),
-            output_dimensions=(embedding_dim,),
-            parameters=Linear.Parameters.of(
-                W=np.ones((context_size * 2 * embedding_dim, embedding_dim))
-                / (context_size * 2),
-                B=np.zeros(embedding_dim),
-            ),
-            store_output_activations=tracing_enabled,
-            freeze_parameters=True,
-        )
-
-        hidden_module = Hidden(layers=(embedding_layer, reshape_layer, average_layer))
-
-        output_module = Output(
-            layers=(
-                Linear(
-                    input_dimensions=(embedding_dim,),
-                    output_dimensions=(vocab_size,),
-                    parameters=Linear.Parameters.xavier(
-                        (embedding_dim,), (vocab_size,)
-                    ),
-                    store_output_activations=tracing_enabled,
-                ),
-            ),
-            output_layer=SoftmaxOutputLayer(input_dimensions=(vocab_size,)),
-        )
-
         return cls(
             input_dimensions=(context_size * 2,),
-            hidden=(hidden_module,),
-            output=output_module,
+            hidden=(
+                Hidden(
+                    layers=(
+                        Embedding(
+                            input_dimensions=(context_size * 2,),
+                            output_dimensions=(context_size * 2, embedding_dim),
+                            vocab_size=vocab_size,
+                            parameters=Embedding.Parameters.xavier(
+                                vocab_size, embedding_dim
+                            ),
+                            store_output_activations=tracing_enabled,
+                        ),
+                        Reshape(
+                            input_dimensions=(context_size * 2, embedding_dim),
+                            output_dimensions=(context_size * 2, embedding_dim),
+                        ),
+                        Average(
+                            input_dimensions=(context_size * 2, embedding_dim),
+                            axis=0,
+                        ),
+                    )
+                ),
+            ),
+            output=Output(
+                layers=(
+                    Linear(
+                        input_dimensions=(embedding_dim,),
+                        output_dimensions=(vocab_size,),
+                        parameters=Linear.Parameters.xavier(
+                            (embedding_dim,), (vocab_size,)
+                        ),
+                        store_output_activations=tracing_enabled,
+                    ),
+                    Dropout(
+                        input_dimensions=(vocab_size,),
+                        keep_prob=0.5,
+                    ),
+                ),
+                output_layer=SoftmaxOutputLayer(input_dimensions=(vocab_size,)),
+            ),
         )
 
+    @property
+    def embeddings(self) -> np.ndarray:
+        return self.hidden_modules[0].layers[0].parameters.embeddings  # type: ignore[attr-defined]
 
-def train_cbow():
+
+def training_options(f: Callable[P, R]) -> Callable[P, R]:
+    @click.option(
+        "--embedding-dim",
+        type=int,
+        help="Embedding dimension",
+        default=128,
+    )
+    @click.option(
+        "--context-size",
+        type=int,
+        help="Context size",
+        default=4,
+    )
+    @click.option(
+        "--batch-size",
+        type=int,
+        help="Batch size",
+        default=100,
+    )
+    @click.option(
+        "--num-epochs",
+        type=int,
+        help="Number of epochs",
+        default=1000,
+    )
+    @click.option(
+        "--learning-rate",
+        type=float,
+        help="Learning rate",
+        default=1e-4,
+    )
+    @click.option(
+        "--warmup-epochs",
+        type=int,
+        help="Warmup epochs",
+        default=5,
+    )
+    @click.option(
+        "--model-output-path",
+        type=Path,
+        help="Path to save the trained model",
+        default=None,
+    )
+    @click.option(
+        "--log-level",
+        type=LogLevel,
+        help="Log level",
+        default=LogLevel.INFO,
+    )
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+@click.group()
+def cli():
+    """CBOW (Continuous Bag of Words) model CLI"""
+    pass
+
+
+@cli.command("train", help="Train a CBOW model")
+@training_options
+def train(
+    embedding_dim: int,
+    context_size: int,
+    batch_size: int,
+    num_epochs: int,
+    learning_rate: float,
+    warmup_epochs: int,
+    model_output_path: Path | None,
+    log_level: LogLevel,
+):
+    """Train a CBOW model on Shakespeare text"""
+    setup_logging(log_level)
+
     shakespeare = get_resource("s3://mo-net-resources/shakespeare.txt").read_text()
-    sentences = shakespeare.split("\n")[:1000]
-    vocab = sorted(set(token for sentence in sentences for token in sentence.split()))
-    token_to_id = {token: i for i, token in enumerate(vocab)}
-    token_ids = [
-        [token_to_id[token] for token in sentence.split()]
+    sentences = shakespeare.split("\n")[:10000]
+    vocab = Vocab.from_vocab(
+        sorted(set(token for sentence in sentences for token in sentence.split()))
+    )
+    tokenized_sentences = [
+        [vocab.token_to_id[token] for token in sentence.split()]
         for sentence in sentences
         if sentence
     ]
+    X_train, Y_train = get_training_set(tokenized_sentences, context_size, len(vocab))
 
-    vocab_size = len(vocab)
-    embedding_dim = 128
-    context_size = 4
-
-    X_train, Y_train = get_training_set(token_ids, context_size, vocab_size)
-
-    logger.info(f"Vocabulary size: {vocab_size}")
+    logger.info(f"Vocabulary size: {len(vocab)}")
     logger.info(f"Embedding dimension: {embedding_dim}")
     logger.info(f"Context size: {context_size}")
-    logger.info(f"X_train.shape: {X_train.shape}")
-    logger.info(f"Y_train.shape: {Y_train.shape}")
-
-    logger.info(f"X_train: {X_train[:5]}")
-    logger.info(f"Y_train: {Y_train[:5]}")
+    logger.info(f"Training samples: {len(X_train)}")
 
     model = CBOWModel.create(
-        vocab_size=vocab_size,
+        vocab_size=len(vocab),
         embedding_dim=embedding_dim,
         context_size=context_size,
         tracing_enabled=False,
     )
 
     training_parameters = TrainingParameters(
-        batch_size=1,
+        batch_size=batch_size,
         dropout_keep_probs=(),
         history_max_len=100,
-        learning_rate_limits=(1e-4, 1e-2),
-        log_level="INFO",
+        learning_rate_limits=(learning_rate, learning_rate),
+        log_level=log_level,
         max_restarts=0,
         monotonic=False,
-        no_monitoring=False,
+        no_monitoring=True,
         normalisation_type=NormalisationType.NONE,
-        num_epochs=50,
+        num_epochs=num_epochs,
         quiet=False,
         regulariser_lambda=0.0,
         trace_logging=False,
         train_set_size=len(X_train),
-        warmup_epochs=5,
+        warmup_epochs=warmup_epochs,
         workers=0,
     )
 
@@ -186,7 +308,7 @@ def train_cbow():
     X_val = X_train[train_size:]
     Y_val = Y_train[train_size:]
 
-    run = TrainingRun(seed=42, backend=CsvBackend(path=DATA_DIR / "cbow.csv"))
+    run = TrainingRun(seed=42, backend=CsvBackend(path=DATA_DIR / "run" / "cbow.csv"))
     optimizer = get_optimizer("adam", model, training_parameters)
 
     trainer = BasicTrainer(
@@ -201,55 +323,154 @@ def train_cbow():
     )
 
     logger.info(f"Starting CBOW training with {len(X_train_split)} training samples")
-    logger.info(f"Model architecture: {model.print()}")
-
     result = trainer.train()
 
-    if hasattr(result, "model_checkpoint_path"):
-        logger.info(
-            f"Training completed. Model saved to: {result.model_checkpoint_path}"
-        )
+    match result:
+        case TrainingSuccessful():
+            if model_output_path is None:
+                model_output_path = DATA_DIR / "output" / "cbow_model.pkl"
+            result.model_checkpoint_path.rename(model_output_path)
+            logger.info(f"Training completed. Model saved to: {model_output_path}")
+            vocab_path = model_output_path.with_suffix(".vocab")
+            vocab_path.write_bytes(vocab.serialize())
+            logger.info(f"Vocabulary saved to: {vocab_path}")
+        case TrainingFailed():
+            logger.error(f"Training failed: {result.message}")
+        case never:
+            assert_never(never)
 
-        embeddings = model.hidden_modules[0].layers[0].parameters.embeddings
-        logger.info(f"Learned embeddings shape: {embeddings.shape}")
 
-        id_to_token = {i: token for token, i in token_to_id.items()}
+@cli.command("infer", help="Start interactive REPL for word similarity")
+@click.option(
+    "--model-path",
+    type=Path,
+    required=True,
+    help="Path to the trained model",
+)
+def infer(model_path: Path):
+    """Start interactive REPL for word similarity queries"""
+    if not model_path.exists():
+        raise click.ClickException(f"Model file not found: {model_path}")
 
-        logger.info("Sample word similarities:")
-        for word in ["the", "and", "to", "of", "a", "queen", "king"]:
-            if word in token_to_id:
-                word_id = token_to_id[word]
-                word_embedding = embeddings[word_id]
+    vocab_path = model_path.with_suffix(".vocab")
+    if not vocab_path.exists():
+        raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
+    vocab = Vocab.deserialize(vocab_path)
 
-                similarities = []
-                for other_word in [
-                    "the",
-                    "and",
-                    "to",
-                    "of",
-                    "a",
-                    "in",
-                    "is",
-                    "it",
-                    "you",
-                    "that",
-                    "queen",
-                    "king",
-                ]:
-                    if other_word in token_to_id and other_word != word:
-                        other_id = token_to_id[other_word]
-                        other_embedding = embeddings[other_id]
-                        similarity = np.dot(word_embedding, other_embedding) / (
-                            np.linalg.norm(word_embedding)
-                            * np.linalg.norm(other_embedding)
-                        )
-                        similarities.append((other_word, similarity))
+    model = CBOWModel.load(open(model_path, "rb"), training=False)
+    embeddings = model.embeddings
 
-                similarities.sort(key=lambda x: x[1], reverse=True)
-                logger.info(f"'{word}' similar to: {similarities[:3]}")
-    else:
-        logger.error(f"Training failed: {result}")
+    click.echo(f"Loaded vocabulary with {len(vocab)} words")
+    click.echo(f"Model loaded from: {model_path}")
+    click.echo("Enter two words to compare similarity (or 'quit' to exit):")
+    click.echo()
+
+    while True:
+        try:
+            user_input = input("> ").strip()
+            if user_input.lower() in ["quit", "exit", "q"]:
+                break
+
+            words = user_input.split()
+            if len(words) != 2:
+                click.echo("Please enter exactly two words separated by space")
+                continue
+
+            word1, word2 = words
+
+            if word1 not in vocab.token_to_id:
+                click.echo(f"'{word1}' not found in vocabulary")
+                continue
+
+            if word2 not in vocab.token_to_id:
+                click.echo(f"'{word2}' not found in vocabulary")
+                continue
+
+            if word1 == word2:
+                click.echo(
+                    f"Similarity between '{word1}' and '{word2}': 1.0000 (same word)"
+                )
+                continue
+
+            word1_id = vocab.token_to_id[word1]
+            word2_id = vocab.token_to_id[word2]
+            word1_embedding = embeddings[word1_id]
+            word2_embedding = embeddings[word2_id]
+
+            similarity = np.dot(word1_embedding, word2_embedding) / (
+                np.linalg.norm(word1_embedding) * np.linalg.norm(word2_embedding)
+            )
+
+            click.echo(f"Similarity between '{word1}' and '{word2}': {similarity:.4f}")
+
+        except KeyboardInterrupt:
+            click.echo("\nExiting...")
+            break
+        except EOFError:
+            click.echo("\nExiting...")
+            break
+
+
+@cli.command("sample", help="Show word similarities for random words")
+@click.option(
+    "--model-path",
+    type=Path,
+    required=True,
+    help="Path to the trained model",
+)
+@click.option(
+    "--num-words",
+    type=int,
+    default=10,
+    help="Number of random words to check",
+)
+@click.option(
+    "--num-similarities",
+    type=int,
+    default=5,
+    help="Number of similar words to show per word",
+)
+def sample(model_path: Path, num_words: int, num_similarities: int):
+    """Show word similarities for random words from the corpus"""
+    if not model_path.exists():
+        raise click.ClickException(f"Model file not found: {model_path}")
+
+    vocab_path = model_path.with_suffix(".vocab.npy")
+    if not vocab_path.exists():
+        raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
+
+    vocab_data = np.load(vocab_path, allow_pickle=True).item()
+    vocab = vocab_data["vocab"]
+    token_to_id = vocab_data["token_to_id"]
+
+    model = CBOWModel.load(open(model_path, "rb"), training=False)
+
+    random_words = random.sample(vocab, min(num_words, len(vocab)))
+
+    click.echo(f"Showing similarities for {len(random_words)} random words:")
+    click.echo()
+
+    for word in random_words:
+        if word in token_to_id:
+            word_id = token_to_id[word]
+            word_embedding = model.embeddings[word_id]
+
+            click.echo(f"'{word}' (ID: {word_id}):")
+
+            similarities = []
+            for other_word in vocab:
+                if other_word in token_to_id and other_word != word:
+                    other_id = token_to_id[other_word]
+                    other_embedding = model.embeddings[other_id]
+                    similarity = np.dot(word_embedding, other_embedding) / (
+                        np.linalg.norm(word_embedding) * np.linalg.norm(other_embedding)
+                    )
+                    similarities.append((other_word, similarity))
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            for similar_word, similarity in similarities[:num_similarities]:
+                click.echo(f"    {similar_word}: {similarity:.4f}")
+            click.echo()
 
 
 if __name__ == "__main__":
-    train_cbow()
+    cli()
