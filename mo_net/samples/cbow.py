@@ -111,7 +111,8 @@ def get_training_set(
             )
             for sentence in tokenized_sentences
             for i in range(context_size, len(sentence) - context_size)
-        ]
+        ],
+        strict=True,
     )
     return np.array(context), np.eye(vocab_size)[list(target)]
 
