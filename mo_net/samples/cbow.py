@@ -279,6 +279,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=1000,
     )
     @click.option(
+        "--model-path",
+        type=Path,
+        help="Path to the trained model",
+        default=None,
+    )
+    @click.option(
         "--num-epochs",
         type=int,
         help="Number of epochs",
@@ -344,6 +350,7 @@ def train(
     learning_rate: float,
     lambda_: float,
     warmup_epochs: int,
+    model_path: Path | None,
     model_output_path: Path | None,
     log_level: LogLevel,
     vocab_size: int,
@@ -371,12 +378,15 @@ def train(
     logger.info(f"Context size: {context_size}")
     logger.info(f"Training samples: {len(X_train)}")
 
-    model = CBOWModel.create(
-        vocab_size=len(vocab),
-        embedding_dim=embedding_dim,
-        context_size=context_size,
-        tracing_enabled=False,
-    )
+    if model_path is None:
+        model = CBOWModel.create(
+            vocab_size=len(vocab),
+            embedding_dim=embedding_dim,
+            context_size=context_size,
+            tracing_enabled=False,
+        )
+    else:
+        model = CBOWModel.load(open(model_path, "rb"), training=True)
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -430,7 +440,7 @@ def train(
     match result:
         case TrainingSuccessful():
             if model_output_path is None:
-                model_output_path = DATA_DIR / "output" / "cbow_model.pkl"
+                model_output_path = DATA_DIR / "output" / f"cbow_model_{seed}.pkl"
             result.model_checkpoint_path.rename(model_output_path)
             logger.info(f"Training completed. Model saved to: {model_output_path}")
             vocab_path = model_output_path.with_suffix(".vocab")
