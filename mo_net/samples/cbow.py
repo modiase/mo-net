@@ -558,7 +558,7 @@ def infer(
     )
     predicted_tokens = []
 
-    for i in range(predict_tokens):
+    for _ in range(predict_tokens):
         logits = (predict_model.forward_prop(np.array(context)) / temperature).squeeze()
         logits[vocab.unknown_token_id] = float("-inf")
         probs = np.exp(logits - np.max(logits)) / np.sum(
