@@ -36,6 +36,7 @@ from mo_net.model.module.norm import BatchNormOptions, LayerNormOptions, Norm
 from mo_net.protos import (
     ActivationFn,
     Activations,
+    D,
     Dimensions,
     HasDimensions,
     LossContributor,
@@ -266,8 +267,8 @@ class Model(ModelBase):
             Activations(X),
         )
 
-    def backward_prop(self, Y_true: np.ndarray) -> None:
-        reduce(
+    def backward_prop(self, Y_true: np.ndarray) -> D[Activations]:
+        return reduce(
             lambda dZ, module: module.backward_prop(dZ=dZ),
             reversed(self.hidden_modules),
             self.output_module.backward_prop(Y_true=Y_true),
