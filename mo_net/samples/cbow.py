@@ -9,7 +9,7 @@ from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Callable, Mapping, ParamSpec, TypeVar, assert_never, cast
+from typing import Callable, ParamSpec, TypeVar, assert_never, cast
 
 import click
 import msgpack  # type: ignore[import-untyped]
@@ -90,6 +90,7 @@ class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
 class Vocab:
     vocab: tuple[str, ...]
     token_to_id: dict[str, int]
+    id_to_token: dict[int, str]
     unknown_token_id: int
 
     def serialize(self) -> bytes:
@@ -108,6 +109,9 @@ class Vocab:
             return cls(
                 vocab=tuple(data["vocab"]),
                 token_to_id=data["token_to_id"],
+                id_to_token=defaultdict(
+                    lambda: "<unknown>", {v: k for k, v in data["token_to_id"].items()}
+                ),
                 unknown_token_id=data.get("unknown_token_id", len(data["vocab"])),
             )
 
@@ -117,6 +121,9 @@ class Vocab:
         return cls(
             vocab=vocab_tuple,
             token_to_id={token: i for i, token in enumerate(vocab_tuple)},
+            id_to_token=defaultdict(
+                lambda: "<unknown>", {i: token for token, i in enumerate(vocab_tuple)}
+            ),
             unknown_token_id=len(vocab_tuple),
         )
 
@@ -136,6 +143,9 @@ class Vocab:
         return cls(
             vocab=vocab_tuple,
             token_to_id={token: i for i, token in enumerate(vocab_tuple)},
+            id_to_token=defaultdict(
+                lambda: "<unknown>", {i: token for token, i in enumerate(vocab_tuple)}
+            ),
             unknown_token_id=max_size,
         )
 
@@ -145,12 +155,6 @@ class Vocab:
     def __getitem__(self, token: str) -> int:
         """Get token ID, returning unknown_token_id if token not in vocabulary"""
         return self.token_to_id.get(token, self.unknown_token_id)
-
-    @functools.cached_property
-    def id_to_token(self) -> Mapping[int, str]:
-        return defaultdict(
-            lambda: "<unknown>", {i: token for token, i in self.token_to_id.items()}
-        )
 
 
 def clean_token(token: str) -> str:
@@ -257,6 +261,47 @@ class CBOWModel(Model):
     @property
     def embeddings(self) -> np.ndarray:
         return self.embedding_layer.parameters.embeddings
+
+
+class PredictModel(CBOWModel):
+    @classmethod
+    def get_name(cls) -> str:
+        return "predict"
+
+    @classmethod
+    def get_description(cls) -> str:
+        return "Autoregressive Prediction Model based on CBOW"
+
+    @classmethod
+    def create(cls, *, cbow_model: CBOWModel, context_width: int) -> PredictModel:
+        """Create a PredictModel from a trained CBOW model for autoregressive generation"""
+        embedding_layer = cbow_model.embedding_layer
+        vocab_size = embedding_layer.vocab_size
+        embedding_dim = embedding_layer.output_dimensions[1]
+
+        new_embedding_layer = Embedding(
+            input_dimensions=(context_width,),
+            output_dimensions=(context_width, embedding_dim),
+            vocab_size=vocab_size,
+            parameters=embedding_layer.parameters,
+            store_output_activations=False,
+        )
+
+        return cls(
+            input_dimensions=(context_width,),
+            hidden=(
+                Hidden(
+                    layers=(
+                        new_embedding_layer,
+                        Average(
+                            input_dimensions=(context_width, embedding_dim),
+                            axis=0,
+                        ),
+                    )
+                ),
+            ),
+            output=cbow_model.output,
+        )
 
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
@@ -452,15 +497,38 @@ def train(
             assert_never(never)
 
 
-@cli.command("infer", help="Start interactive REPL for word similarity")
+@cli.command("infer", help="Generate text autoregressively from a prompt")
+@click.argument("prompt", type=str, required=True)
 @click.option(
-    "--model-path",
-    type=Path,
-    required=True,
-    help="Path to the trained model",
+    "--model-path", type=Path, required=True, help="Path to the trained model"
 )
-def infer(model_path: Path):
-    """Start interactive REPL for word similarity queries"""
+@click.option(
+    "--context-width",
+    type=int,
+    default=4,
+    help="Number of context tokens to use for prediction",
+)
+@click.option(
+    "--predict-tokens", type=int, default=4, help="Number of tokens to predict"
+)
+@click.option(
+    "--temperature",
+    type=float,
+    default=1.0,
+    help="Temperature for sampling (higher = more random)",
+)
+@click.option(
+    "--top-p", type=float, default=0.9, help="Top-p (nucleus) sampling parameter"
+)
+def infer(
+    prompt: str,
+    model_path: Path,
+    context_width: int,
+    predict_tokens: int,
+    temperature: float,
+    top_p: float,
+):
+    """Generate text autoregressively from a prompt using CBOW model"""
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
@@ -469,54 +537,44 @@ def infer(model_path: Path):
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
     vocab = Vocab.deserialize(vocab_path)
 
-    model = CBOWModel.load(open(model_path, "rb"), training=False)
-    embeddings = model.embeddings
+    cbow_model = CBOWModel.load(open(model_path, "rb"), training=False)
+    predict_model = PredictModel.create(
+        cbow_model=cbow_model, context_width=context_width
+    )
 
-    click.echo(f"Loaded vocabulary with {len(vocab)} words")
-    click.echo(f"Model loaded from: {model_path}")
-    click.echo("Enter two words to compare similarity (or 'quit' to exit):")
-    click.echo()
+    tokens = [clean_token(token) for token in prompt.split() if clean_token(token)]
+    if not tokens:
+        raise click.ClickException("No valid tokens found in prompt")
 
-    while True:
-        try:
-            user_input = input("> ").strip()
-            if user_input.lower() in ["quit", "exit", "q"]:
-                break
+    token_ids = [vocab[token] for token in tokens]
+    context = (
+        [vocab.unknown_token_id] * (context_width - len(token_ids)) + token_ids
+        if len(token_ids) < context_width
+        else token_ids[-context_width:]
+    )
+    predicted_tokens = []
 
-            words = user_input.split()
-            if len(words) != 2:
-                click.echo("Please enter exactly two words separated by space")
-                continue
+    for i in range(predict_tokens):
+        logits = (predict_model.forward_prop(np.array(context)) / temperature).squeeze()
+        logits[vocab.unknown_token_id] = float("-inf")
+        probs = np.exp(logits - np.max(logits)) / np.sum(
+            np.exp(logits - np.max(logits))
+        )
+        sorted_indices = np.argsort(probs)[::-1]
+        cumulative_probs = np.cumsum(probs[sorted_indices])
+        cutoff_idx = (
+            np.where(cumulative_probs >= top_p)[0][0]
+            if len(np.where(cumulative_probs >= top_p)[0]) > 0
+            else len(sorted_indices) - 1
+        )
+        valid_indices = sorted_indices[: cutoff_idx + 1]
+        valid_probs = probs[valid_indices] / np.sum(probs[valid_indices])
+        predicted_token_id = np.random.choice(valid_indices, p=valid_probs)
+        predicted_tokens.append(vocab.id_to_token[predicted_token_id])
+        context = context[1:] + [predicted_token_id]
 
-            word1, word2 = words
-
-            word1_id = vocab[word1]
-            word2_id = vocab[word2]
-
-            if word1 == word2:
-                click.echo(
-                    f"Similarity between '{word1}' and '{word2}': 1.0000 (same word)"
-                )
-                continue
-
-            word1_embedding = embeddings[word1_id]
-            word2_embedding = embeddings[word2_id]
-
-            if (n1 := np.linalg.norm(word1_embedding)) == 0 or (
-                n2 := np.linalg.norm(word2_embedding)
-            ) == 0:
-                similarity = 0.0
-            else:
-                similarity = np.dot(word1_embedding, word2_embedding) / (n1 * n2)
-
-            click.echo(f"Similarity between '{word1}' and '{word2}': {similarity:.4f}")
-
-        except KeyboardInterrupt:
-            click.echo("\nExiting...")
-            break
-        except EOFError:
-            click.echo("\nExiting...")
-            break
+    click.echo(click.style(f"> {prompt}", fg="green"))
+    click.echo(f"{' '.join(predicted_tokens)}")
 
 
 @cli.command("sample", help="Show word similarities for random words")

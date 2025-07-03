@@ -380,5 +380,9 @@ class Model(ModelBase):
     def print(self) -> str:
         return ", ".join(f"{layer}" for layer in self.layers)
 
+    @property
+    def output(self) -> Output:
+        return self._output_module
+
 
 type Regulariser = Callable[[Model], None]
