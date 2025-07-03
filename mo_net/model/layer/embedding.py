@@ -269,3 +269,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     @property
     def parameter_nbytes(self) -> int:
         return self._parameters.embeddings.nbytes
+
+    @property
+    def vocab_size(self) -> int:
+        return self._vocab_size

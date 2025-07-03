@@ -64,3 +64,7 @@ class TrainingRun:
         if self._run_id is None:
             raise ValueError("Cannot end run. Call start_run() first.")
         self._backend.end_run(run_id=self._run_id)
+
+    @property
+    def name(self) -> str:
+        return self._name
