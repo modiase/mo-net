@@ -120,7 +120,7 @@ class SqliteBackend(LoggingBackend):
         self._path = (path if path is not None else DB_PATH).resolve()
         self._session: Session | None = None
         self._current_run: DbRun | None = None
-        self._engine = create_engine(f"sqlite://{self._path}")
+        self._engine = create_engine(f"sqlite:///{self._path}")
         self._session_maker = sessionmaker(bind=self._engine)
 
     @property

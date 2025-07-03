@@ -103,6 +103,6 @@ class DbRun(Base):
 
 
 if __name__ == "__main__":
-    engine = create_engine(f"sqlite://{DB_PATH}")
+    engine = create_engine(f"sqlite:///{DB_PATH}")
     logger.info(f"Creating database at {DB_PATH}.")
     Base.metadata.create_all(engine)

@@ -17,7 +17,7 @@ class _SessionMaker:
     def __call__(self):
         if self._session_maker is None:
             self._session_maker = sessionmaker(
-                bind=create_engine(f"sqlite://{DB_PATH}")
+                bind=create_engine(f"sqlite:///{DB_PATH}")
             )
         return self._session_maker()
 
