@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from functools import partial, reduce
 from itertools import chain
 from operator import itemgetter
+from pathlib import Path
 from typing import (
     IO,
     Literal,
@@ -290,8 +291,12 @@ class Model(ModelBase):
         )
 
     @classmethod
-    def load(cls, source: IO[bytes], training: bool = False) -> Self:
-        serialized = pickle.load(source)
+    def load(cls, source: IO[bytes] | Path, training: bool = False) -> Self:
+        if isinstance(source, Path):
+            with open(source, "rb") as f:
+                serialized = pickle.load(f)
+        else:
+            serialized = pickle.load(source)
         if not isinstance(serialized, cls.Serialized):
             raise ValueError(f"Invalid serialized model: {serialized}")
         return cls(

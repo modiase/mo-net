@@ -180,7 +180,7 @@ class BasicTrainer:
         self._logger.info(f"Resuming training from epoch {start_epoch}.")
 
         self._start_epoch = start_epoch
-        self._model = Model.load(open(model_checkpoint_path, "rb"), training=True)
+        self._model = Model.load(model_checkpoint_path, training=True)
         if self._monitor is not None:
             self._monitor.reset(restore_history=True)
         self._optimizer.set_model(self._model)

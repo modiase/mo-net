@@ -435,7 +435,7 @@ def train(
             tracing_enabled=False,
         )
     else:
-        model = CBOWModel.load(open(model_path, "rb"), training=True)
+        model = CBOWModel.load(model_path, training=True)
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -541,7 +541,7 @@ def infer(
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
     vocab = Vocab.deserialize(vocab_path)
 
-    cbow_model = CBOWModel.load(open(model_path, "rb"), training=False)
+    cbow_model = CBOWModel.load(model_path, training=False)
     predict_model = PredictModel.from_cbow(
         cbow_model=cbow_model, context_width=context_width
     )
@@ -610,7 +610,7 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
 
     vocab = Vocab.deserialize(vocab_path)
-    model = CBOWModel.load(open(model_path, "rb"), training=False)
+    model = CBOWModel.load(model_path, training=False)
 
     random_words = random.sample(list(vocab.vocab), min(num_words, len(vocab)))
 

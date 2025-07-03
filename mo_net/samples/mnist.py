@@ -94,7 +94,7 @@ def infer(
         logger.error(f"File not found: {model_path}")
         sys.exit(1)
 
-    model = Model.load(open(model_path, "rb"))
+    model = Model.load(model_path)
 
     Y_train_pred = model.predict(X_train)
     Y_train_true = np.argmax(Y_train, axis=1)
