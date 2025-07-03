@@ -200,13 +200,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=False,
     )
     @click.option(
-        "--no-transform",
-        type=bool,
-        is_flag=True,
-        help="Disable transform",
-        default=False,
-    )
-    @click.option(
         "-y",
         "--history-max-len",
         type=int,
