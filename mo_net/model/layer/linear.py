@@ -200,6 +200,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Linear:
             del training  # unused
             return Linear(
@@ -207,6 +208,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
                 parameters=self.parameters,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
@@ -322,10 +324,10 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def update_parameters(self) -> None:
-        if self._cache["dP"] is None:
+        if (dP := self._cache["dP"]) is None:
             raise ValueError("Gradient not set during backward pass.")
         if not self._freeze_parameters:
-            self._parameters = self._parameters + self._cache["dP"]
+            self._parameters = self._parameters + dP
         self._cache["dP"] = None
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:

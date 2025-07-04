@@ -205,7 +205,12 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         output_dimensions: tuple[int, int, int]
         parameters: Parameters
 
-        def deserialize(self, *, training: bool = False) -> Convolution2D:
+        def deserialize(
+            self,
+            *,
+            training: bool = False,
+            freeze_parameters: bool = False,
+        ) -> Convolution2D:
             def _kernel_init_fn(
                 *args: object, **kwargs: Mapping[str, object]
             ) -> Parameters:
@@ -219,7 +224,7 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
                 kernel_size=self.kernel_size,
                 stride=self.stride,
                 kernel_init_fn=_kernel_init_fn,
-                freeze_parameters=not training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
@@ -418,10 +423,10 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         return self._parameters
 
     def update_parameters(self) -> None:
-        if self._cache["dP"] is None:
+        if (dP := self._cache["dP"]) is None:
             raise ValueError("Gradient not set during backward pass.")
         if not self._freeze_parameters:
-            self._parameters = self._parameters + self._cache["dP"]
+            self._parameters = self._parameters + dP
         self._cache["dP"] = None
 
     def serialize(self) -> Convolution2D.Serialized:

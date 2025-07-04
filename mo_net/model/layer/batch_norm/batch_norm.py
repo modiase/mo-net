@@ -200,6 +200,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> BatchNorm:
             return BatchNorm(
                 layer_id=self.layer_id,
@@ -209,6 +210,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
                 running_mean=self.running_mean,
                 running_variance=self.running_variance,
                 training=training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
@@ -222,6 +224,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         running_variance: np.ndarray | None = None,
         store_output_activations: bool = False,
         training: bool = True,
+        freeze_parameters: bool = False,
     ):
         super().__init__(
             layer_id=layer_id,
@@ -238,6 +241,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             else np.ones(input_dimensions)
         )
         self._training = training
+        self._freeze_parameters = freeze_parameters
         self._cache: CacheType = {
             "dP": None,
             "input_activations": None,
@@ -350,7 +354,8 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
     def update_parameters(self) -> None:
         if (dP := self._cache["dP"]) is None:
             raise RuntimeError("Gradient is not populated during update.")
-        self._parameters = self._parameters + dP
+        if not self._freeze_parameters:
+            self._parameters = self._parameters + dP
         self._cache["dP"] = None
 
     def reinitialise(self) -> None:

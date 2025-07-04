@@ -1,5 +1,5 @@
 from mo_net.model.layer.base import _Base
-from mo_net.protos import Activations, Dimensions
+from mo_net.protos import Activations, D, Dimensions
 
 
 class Input(_Base):
@@ -16,6 +16,9 @@ class Input(_Base):
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         return input_activations
+
+    def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
+        return dZ
 
     @property
     def input_dimensions(self) -> Dimensions:

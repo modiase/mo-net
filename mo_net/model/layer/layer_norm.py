@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, ClassVar, Self
+from typing import IO, Self
 
 import numpy as np
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
 )
-from mo_net.constants import EPSILON
 from mo_net.protos import (
     Activations,
     D,
@@ -196,12 +196,14 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> LayerNorm:
             return LayerNorm(
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 parameters=self.parameters,
                 training=training,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
@@ -212,6 +214,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         parameters: ParametersType | None = None,
         store_output_activations: bool = False,
         training: bool = True,
+        freeze_parameters: bool = False,
     ):
         super().__init__(
             layer_id=layer_id,
@@ -219,6 +222,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             output_dimensions=input_dimensions,
         )
         self._training = training
+        self._freeze_parameters = freeze_parameters
         self._cache: CacheType = {
             "dP": None,
             "input_activations": None,
@@ -304,7 +308,8 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
     def update_parameters(self) -> None:
         if (dP := self._cache["dP"]) is None:
             raise RuntimeError("Gradient is not populated during update.")
-        self._parameters = self._parameters + dP
+        if not self._freeze_parameters:
+            self._parameters = self._parameters + dP
         self._cache["dP"] = None
 
     def reinitialise(self) -> None:
