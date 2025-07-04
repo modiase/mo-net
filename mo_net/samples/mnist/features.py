@@ -16,14 +16,10 @@ from loguru import logger
 from mo_net.model.model import Model
 
 
-def create_one_hot_targets(num_classes: int, batch_size: int = 10) -> np.ndarray:
+def create_one_hot_targets(num_classes: int) -> np.ndarray:
     """Create one-hot encoded targets for all classes."""
-    if batch_size < num_classes:
-        raise ValueError(
-            f"Batch size {batch_size} must be greater than or equal to the number of classes {num_classes}."
-        )
-    targets = np.zeros((batch_size, num_classes))
-    for i in range(batch_size):
+    targets = np.zeros((num_classes, num_classes))
+    for i in range(num_classes):
         targets[i, i] = 1.0
     return targets
 
@@ -119,7 +115,6 @@ def visualize_inputs_with_outputs(
 
 def train_input_vector(
     *,
-    batch_size: int,
     learning_rate: float,
     model_path: Path,
     num_iterations: int,
@@ -135,7 +130,6 @@ def train_input_vector(
         model_path: Path to the frozen model file
         num_iterations: Number of training iterations
         learning_rate: Learning rate for training
-        batch_size: Batch size for training (should match number of classes)
         regularization_strength: Strength of L2 regularization on input values
         verbose: Whether to print training progress
 
@@ -155,10 +149,10 @@ def train_input_vector(
     )
     logger.info(f"Number of classes: {num_classes}")
 
-    input_vector = np.random.uniform(0, 0.1, (batch_size, *input_dimensions))
+    input_vector = np.random.uniform(0, 0.1, (num_classes, *input_dimensions))
     logger.info(f"Created trainable input vector with shape: {input_vector.shape}")
 
-    targets = create_one_hot_targets(num_classes, batch_size)
+    targets = create_one_hot_targets(num_classes)
     logger.debug(f"Targets shape: {targets.shape}")
 
     loss_history = []
@@ -177,18 +171,18 @@ def train_input_vector(
         classification_loss = frozen_model.compute_loss(input_vector, targets)
 
         regularization_loss = (
-            regularization_strength * np.sum(input_vector**2) / batch_size
+            regularization_strength * np.sum(input_vector**2) / num_classes
         )
 
-        sparsity_loss = sparsity_strength * np.sum(np.abs(input_vector)) / batch_size
+        sparsity_loss = sparsity_strength * np.sum(np.abs(input_vector)) / num_classes
 
         total_loss = classification_loss + regularization_loss + sparsity_loss
         loss_history.append(total_loss)
 
         input_gradient = frozen_model.backward_prop(Y_true=targets)
 
-        reg_gradient = 2 * regularization_strength * input_vector / batch_size
-        sparsity_gradient = sparsity_strength * np.sign(input_vector) / batch_size
+        reg_gradient = 2 * regularization_strength * input_vector / num_classes
+        sparsity_gradient = sparsity_strength * np.sign(input_vector) / num_classes
         total_gradient = input_gradient + reg_gradient + sparsity_gradient
 
         grad_norm = np.linalg.norm(total_gradient)
@@ -263,12 +257,6 @@ def main():
         help="Early stopping patience (default: 200)",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=10,
-        help="Batch size for training (default: 10)",
-    )
-    parser.add_argument(
         "--output", type=Path, help="Path to save the trained input vector (optional)"
     )
     parser.add_argument(
@@ -296,7 +284,6 @@ def main():
 
     try:
         input_vector, _, final_outputs = train_input_vector(
-            batch_size=args.batch_size,
             learning_rate=args.learning_rate,
             model_path=args.model_path,
             num_iterations=args.iterations,
@@ -320,7 +307,8 @@ def main():
 
         logger.info(f"Final model outputs shape: {final_outputs.shape}")
 
-        for i in range(args.batch_size):
+        num_classes = input_vector.shape[0]
+        for i in range(num_classes):
             target_prob = final_outputs[i, i]
             logger.info(f"Class {i} confidence: {target_prob:.6f}")
 
