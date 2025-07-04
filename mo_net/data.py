@@ -8,10 +8,11 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+from mo_net import PROJECT_ROOT_DIR
 from mo_net.log import LogLevel, log_result
 from mo_net.resources import MNIST_TRAIN_URL, get_resource
 
-DATA_DIR: Final[Path] = Path(__file__).parent.parent / "data"
+DATA_DIR: Final[Path] = PROJECT_ROOT_DIR / "data"
 DEFAULT_TRAIN_SPLIT: Final[float] = 0.8
 MAX_PIXEL_VALUE: Final[int] = 255
 N_DIGITS: Final[int] = 10

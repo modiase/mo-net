@@ -11,10 +11,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from loguru import logger
+from sqlalchemy import text
 
-from mo_net import ROOT_DIR
+from mo_net import PACKAGE_DIR
 from mo_net.db import with_session
-from mo_net.train.backends.models import DbRun, Iteration
+from mo_net.train.backends.models import DbRun
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -54,12 +55,40 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
         if not run:
             raise HTTPException(status_code=404, detail="No runs found")
 
-        iterations = (
-            session.query(Iteration)
-            .filter(Iteration.run_id == run.id)
-            .order_by(Iteration.timestamp)
-            .all()
-        )
+        query = text("""
+            WITH LastIterationPerEpoch AS (
+                SELECT 
+                    id,
+                    run_id,
+                    batch_loss,
+                    val_loss,
+                    batch,
+                    epoch,
+                    learning_rate,
+                    timestamp,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY epoch 
+                        ORDER BY timestamp DESC, batch DESC
+                    ) as rn
+                FROM iterations 
+                WHERE run_id = :run_id
+            )
+            SELECT 
+                id,
+                run_id,
+                batch_loss,
+                val_loss,
+                batch,
+                epoch,
+                learning_rate,
+                timestamp
+            FROM LastIterationPerEpoch 
+            WHERE rn = 1
+            ORDER BY epoch, timestamp
+        """)
+
+        result = session.execute(query, {"run_id": run.id})
+        iterations = result.fetchall()
 
         if not iterations:
             # Return empty DataFrame with correct structure when no iterations found
@@ -79,17 +108,12 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
         data = pd.DataFrame(
             [
                 {
-                    **{
-                        k: getattr(it, k)
-                        for k in [
-                            "batch_loss",
-                            "val_loss",
-                            "batch",
-                            "epoch",
-                            "learning_rate",
-                            "timestamp",
-                        ]
-                    }
+                    "batch_loss": it.batch_loss,
+                    "val_loss": it.val_loss,
+                    "batch": it.batch,
+                    "epoch": it.epoch,
+                    "learning_rate": it.learning_rate,
+                    "timestamp": it.timestamp,
                 }
                 for it in iterations
             ]
@@ -135,7 +159,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-SERVER_DIR: Final[Path] = ROOT_DIR / "server"
+SERVER_DIR: Final[Path] = PACKAGE_DIR / "server"
 templates = Jinja2Templates(directory=SERVER_DIR / "templates")
 app.mount("/static", StaticFiles(directory=SERVER_DIR / "static"), name="static")
 
