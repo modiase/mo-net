@@ -91,5 +91,6 @@ class RMSProp(Base[Config]):
         for layer, snapshot_squared_grad_avg in zip(
             self._model.grad_layers,
             self._snapshot_squared_grad_avg,
+            strict=True,
         ):
             layer.cache["squared_grad_avg"] = snapshot_squared_grad_avg

@@ -24,6 +24,7 @@ class Batcher:
         self._internal_iterator = zip(
             iter(np.array_split(self.X, num_batches)),
             iter(np.array_split(self.Y, num_batches)),
+            strict=True,
         )
 
     def _shuffle(self) -> None:
@@ -45,6 +46,7 @@ class Batcher:
             self._internal_iterator = zip(
                 iter(np.array_split(self.X, self.train_set_size / self.batch_size)),
                 iter(np.array_split(self.Y, self.train_set_size / self.batch_size)),
+                strict=True,
             )
             return next(self._internal_iterator)
 

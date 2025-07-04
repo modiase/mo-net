@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from loguru import logger
 import numpy as np
+from loguru import logger
 
 from mo_net.constants import EPSILON
 from mo_net.model.model import Model
@@ -109,6 +109,7 @@ class AdaM(Base[Config]):
             self._model.grad_layers,
             self._snapshot_first_moment,
             self._snapshot_second_moment,
+            strict=True,
         ):
             layer.cache["first_moment"] = snapshot_first_moment
             layer.cache["second_moment"] = snapshot_second_moment
