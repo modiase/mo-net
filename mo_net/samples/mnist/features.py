@@ -18,6 +18,10 @@ from mo_net.model.model import Model
 
 def create_one_hot_targets(num_classes: int, batch_size: int = 10) -> np.ndarray:
     """Create one-hot encoded targets for all classes."""
+    if batch_size < num_classes:
+        raise ValueError(
+            f"Batch size {batch_size} must be greater than or equal to the number of classes {num_classes}."
+        )
     targets = np.zeros((batch_size, num_classes))
     for i in range(batch_size):
         targets[i, i] = 1.0
@@ -114,11 +118,14 @@ def visualize_inputs_with_outputs(
 
 
 def train_input_vector(
+    *,
+    batch_size: int,
+    learning_rate: float,
     model_path: Path,
     num_iterations: int,
-    learning_rate: float,
-    batch_size: int,
+    patience: int = 200,
     regularization_strength: float = 0.01,
+    sparsity_strength: float = 1e-6,
     verbose: bool = True,
 ) -> tuple[np.ndarray, Sequence[float], np.ndarray]:
     """
@@ -157,7 +164,6 @@ def train_input_vector(
     loss_history = []
     best_loss = float("inf")
     patience_counter = 0
-    patience = 200
 
     logger.info(f"Starting training for {num_iterations} iterations...")
     logger.info(f"Learning rate: {learning_rate}")
@@ -174,7 +180,7 @@ def train_input_vector(
             regularization_strength * np.sum(input_vector**2) / batch_size
         )
 
-        sparsity_loss = np.sum(np.abs(input_vector)) / batch_size
+        sparsity_loss = sparsity_strength * np.sum(np.abs(input_vector)) / batch_size
 
         total_loss = classification_loss + regularization_loss + sparsity_loss
         loss_history.append(total_loss)
@@ -182,7 +188,7 @@ def train_input_vector(
         input_gradient = frozen_model.backward_prop(Y_true=targets)
 
         reg_gradient = 2 * regularization_strength * input_vector / batch_size
-        sparsity_gradient = 100 * np.sign(input_vector) / batch_size
+        sparsity_gradient = sparsity_strength * np.sign(input_vector) / batch_size
         total_gradient = input_gradient + reg_gradient + sparsity_gradient
 
         grad_norm = np.linalg.norm(total_gradient)
@@ -281,7 +287,7 @@ def main():
     args = parser.parse_args()
 
     logger.remove()
-    log_level = "DEBUG" if args.quiet else args.log_level
+    log_level = "ERROR" if args.quiet else args.log_level
     logger.add(sys.stderr, level=log_level)
 
     if not args.model_path.exists():
@@ -289,12 +295,14 @@ def main():
         sys.exit(1)
 
     try:
-        input_vector, loss_history, final_outputs = train_input_vector(
+        input_vector, _, final_outputs = train_input_vector(
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
             model_path=args.model_path,
             num_iterations=args.iterations,
-            learning_rate=args.learning_rate,
-            batch_size=args.batch_size,
+            patience=args.patience,
             regularization_strength=args.regularization,
+            sparsity_strength=args.sparsity,
             verbose=not args.quiet,
         )
 
