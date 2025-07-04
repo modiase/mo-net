@@ -180,6 +180,7 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
     def __init__(
         self,
         *,
+        freeze_parameters: bool = False,
         input_dimensions: Dimensions,
         momentum: float = 0.9,
         layer_id: str | None = None,
@@ -207,6 +208,7 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             if running_variance is not None
             else np.ones(input_dimensions[0])
         )
+        self._freeze_parameters = freeze_parameters
         self._training = training
         self._cache: CacheType = {
             "dP": None,

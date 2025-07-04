@@ -298,7 +298,11 @@ class Model(ModelBase):
         training: bool = False,
         freeze_parameters: bool = False,
     ) -> Self:
-        serialized = pickle.load(source)
+        if isinstance(source, Path):
+            with open(source, "rb") as f:
+                serialized = pickle.load(f)
+        else:
+            serialized = pickle.load(source)
         if not isinstance(serialized, cls.Serialized):
             raise ValueError(f"Invalid serialized model: {serialized}")
         return cls(
