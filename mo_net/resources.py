@@ -5,9 +5,9 @@ from urllib.parse import urlparse
 
 import requests
 
-from mo_net import ROOT_DIR
+from mo_net import PROJECT_ROOT
 
-RESOURCE_CACHE: Final[Path] = ROOT_DIR / ".resource_cache"
+RESOURCE_CACHE: Final[Path] = PROJECT_ROOT / ".resource_cache"
 
 MNIST_TRAIN_URL: Final[str] = "s3://mo-net-resources/mnist_train.csv"
 MNIST_TEST_URL: Final[str] = "s3://mo-net-resources/mnist_test.csv"
