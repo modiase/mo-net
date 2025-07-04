@@ -202,6 +202,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             training: bool = False,
             freeze_parameters: bool = False,
         ) -> Linear:
+            del training  # unused
             return Linear(
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
