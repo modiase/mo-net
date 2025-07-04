@@ -46,7 +46,7 @@ def visualize_inputs_with_outputs(
     batch_size = input_data.shape[0]
     num_classes = model_outputs.shape[1]
 
-    fig, axes = plt.subplots(batch_size, 2, figsize=(12, 3 * batch_size))
+    _, axes = plt.subplots(batch_size, 2, figsize=(12, 3 * batch_size))
     if batch_size == 1:
         axes = axes.reshape(1, -1)
 
@@ -94,7 +94,7 @@ def visualize_inputs_with_outputs(
         axes[i, 1].set_xticks(range(num_classes))
         axes[i, 1].set_ylim(0, 1)
 
-        for j, (bar, prob) in enumerate(zip(bars, sample_output)):
+        for bar, prob in zip(bars, sample_output, strict=True):
             height = bar.get_height()
             axes[i, 1].text(
                 bar.get_x() + bar.get_width() / 2.0,
