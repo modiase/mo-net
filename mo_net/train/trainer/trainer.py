@@ -15,6 +15,7 @@ from mo_net.model.model import Model
 from mo_net.optimizer import Base, OptimizerConfigT
 from mo_net.optimizer.adam import AdaM
 from mo_net.optimizer.base import Null
+from mo_net.optimizer.rmsprop import RMSProp
 from mo_net.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mo_net.protos import SupportsGradientOperations, UpdateGradientType
 from mo_net.train.batcher import Batcher
@@ -68,6 +69,18 @@ def get_optimizer(
                 model=model,
                 config=Null.Config(
                     learning_rate=training_parameters.learning_rate_limits[1]
+                ),
+            )
+        case "rmsprop":
+            return RMSProp(
+                model=model,
+                config=RMSProp.Config(
+                    scheduler=WarmupScheduler.of(
+                        training_parameters=training_parameters,
+                        next_scheduler=CosineScheduler.of(
+                            training_parameters=training_parameters,
+                        ),
+                    ),
                 ),
             )
         case never:

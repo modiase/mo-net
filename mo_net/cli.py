@@ -93,7 +93,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "-o",
         "--optimizer-type",
-        type=click.Choice(["adam", "none"]),
+        type=click.Choice(["adam", "none", "rmsprop"]),
         help="The type of optimizer to use",
         default="adam",
     )
@@ -197,13 +197,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=bool,
         is_flag=True,
         help="Disable monitoring",
-        default=False,
-    )
-    @click.option(
-        "--no-transform",
-        type=bool,
-        is_flag=True,
-        help="Disable transform",
         default=False,
     )
     @click.option(
