@@ -69,8 +69,7 @@ packages = ["mo_net"]
 [tool.taskipy.tasks]
 format = "uv run taplo format pyproject.toml; fd -e py -x uv run ruff format"
 test = "pytest mo_net/tests"
-typecheck-all = "fd -e py -x uv run mypy"
-typecheck = "fd -e py -x uv run mypy | rg -v 'no issues' | head -10"
+typecheck = "uv run python mo_net/scripts/typecheck.py"
 
 
 [project.scripts]
