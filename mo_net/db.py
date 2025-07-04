@@ -5,9 +5,9 @@ from typing import Final
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from mo_net import PROJECT_ROOT
+from mo_net import PROJECT_ROOT_DIR
 
-DB_PATH: Final[Path] = PROJECT_ROOT / "train.db"
+DB_PATH: Final[Path] = PROJECT_ROOT_DIR / "train.db"
 
 
 class _SessionMaker:

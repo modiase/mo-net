@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from loguru import logger
 from sqlalchemy import text
 
-from mo_net import ROOT_DIR
+from mo_net import PACKAGE_DIR
 from mo_net.db import with_session
 from mo_net.train.backends.models import DbRun
 
@@ -159,7 +159,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-SERVER_DIR: Final[Path] = ROOT_DIR / "server"
+SERVER_DIR: Final[Path] = PACKAGE_DIR / "server"
 templates = Jinja2Templates(directory=SERVER_DIR / "templates")
 app.mount("/static", StaticFiles(directory=SERVER_DIR / "static"), name="static")
 
