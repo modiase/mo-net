@@ -218,6 +218,13 @@ async def validate(**kwargs) -> None:
 
 @click.command(help="Run cross-validation")
 @training_options
+@click.option(
+    "-o",
+    "--optimizer-type",
+    type=click.Choice(["adam", "none", "rmsprop"]),
+    help="The type of optimizer to use",
+    default="adam",
+)
 def main(**kwargs) -> None:
     """Synchronous wrapper for the async validate function."""
     asyncio.run(validate(**kwargs))

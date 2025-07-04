@@ -106,6 +106,7 @@ class Monitor:
                     [param.weights for param in linear_layer_gradients],
                     means,
                     variances,
+                    strict=True,
                 )
             ]
         )
