@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
+import jax.nn
 import jax.numpy as jnp
 import pytest
 
-from mo_net.functions import ReLU
 from mo_net.model.layer import Activation
 from mo_net.model.layer.convolution import (
     Convolution2D,
@@ -200,7 +200,7 @@ def test_convolution_2d_forward_prop(test_case: ForwardPropTestCase):
 
     if test_case.use_activation:
         activation_layer = Activation(
-            input_dimensions=conv_layer.output_dimensions, activation_fn=ReLU
+            input_dimensions=conv_layer.output_dimensions, activation_fn=jax.nn.relu
         )
         output = activation_layer.forward_prop(
             input_activations=conv_layer.forward_prop(

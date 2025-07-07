@@ -1,4 +1,5 @@
-from mo_net.functions import ReLU
+import jax.nn
+
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm.batch_norm_2d import BatchNorm2D
 from mo_net.model.layer.convolution import Convolution2D
@@ -18,7 +19,7 @@ class Convolution(Hidden):
         stride: int | tuple[int, int] = 1,
         pool_size: int | tuple[int, int] = 2,
         pool_stride: int | tuple[int, int] = 1,
-        activation_fn: ActivationFn = ReLU,
+        activation_fn: ActivationFn = jax.nn.relu,
         flatten_output: bool = False,
     ):
         super().__init__(

@@ -2,20 +2,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import IO, Callable, Final, Self
+from typing import (
+    IO,
+    Callable,
+    Final,
+    Self,
+)
 
+import jax.nn
 import jax.numpy as jnp
 import jax.random as random
 from jax import jit
 from more_itertools import one
 
-from mo_net.functions import Identity, LeakyReLU, ReLU, Tanh
+from mo_net.functions import identity
 from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
 )
 from mo_net.protos import (
-    ActivationFn,
     Activations,
     D,
     Dimensions,
@@ -141,12 +146,12 @@ class Parameters(SupportsGradientOperations):
         cls,
         dim_in: Dimensions,
         dim_out: Dimensions,
-        activation_fn: ActivationFn,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
         key: random.PRNGKey | None = None,
     ) -> Self:
-        if activation_fn.name in (ReLU.name, LeakyReLU.name):
+        if activation_fn in (jax.nn.relu, jax.nn.leaky_relu):
             return cls.he(dim_in, dim_out, key=key)
-        elif activation_fn.name in (Tanh.name, Identity.name):
+        elif activation_fn in (jax.nn.tanh, identity):
             return cls.xavier(dim_in, dim_out, key=key)
         else:
             raise ValueError(

@@ -9,6 +9,7 @@ from operator import itemgetter
 from pathlib import Path
 from typing import (
     IO,
+    Callable,
     Literal,
     Self,
     Sequence,
@@ -20,8 +21,8 @@ import jax.numpy as jnp
 from more_itertools import first, last, pairwise
 
 from mo_net.functions import (
-    Identity,
     cross_entropy,
+    identity,
 )
 from mo_net.model import ModelBase
 from mo_net.model.layer.base import Hidden as HiddenLayer
@@ -34,7 +35,6 @@ from mo_net.model.module.base import Base, Hidden, Output
 from mo_net.model.module.dense import Dense
 from mo_net.model.module.norm import BatchNormOptions, LayerNormOptions, Norm
 from mo_net.protos import (
-    ActivationFn,
     Activations,
     D,
     Dimensions,
@@ -80,7 +80,7 @@ class Model(ModelBase):
         cls,
         *,
         module_dimensions: Sequence[Dimensions],
-        activation_fn: ActivationFn = Identity,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
         regularisers: Sequence[Regulariser] = (),
         normalisation_type: Literal[NormalisationType.NONE, NormalisationType.LAYER] = (
             NormalisationType.NONE
@@ -95,7 +95,7 @@ class Model(ModelBase):
         cls,
         *,
         module_dimensions: Sequence[Dimensions],
-        activation_fn: ActivationFn = Identity,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
         regularisers: Sequence[Regulariser] = (),
         normalisation_type: Literal[NormalisationType.BATCH],
         batch_size: int,
@@ -107,7 +107,7 @@ class Model(ModelBase):
         cls,
         *,
         module_dimensions: Sequence[Dimensions],
-        activation_fn: ActivationFn = Identity,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
         regularisers: Sequence[Regulariser] = (),
         normalisation_type: NormalisationType = NormalisationType.NONE,
         batch_size: int | None = None,

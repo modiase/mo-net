@@ -3,7 +3,13 @@ import os
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Final, ParamSpec, TypeVar, assert_never
+from typing import (
+    Callable,
+    Final,
+    ParamSpec,
+    TypeVar,
+    assert_never,
+)
 
 import click
 import jax.numpy as jnp
@@ -18,14 +24,11 @@ from mo_net.data import (
 )
 from mo_net.device import DeviceType, print_device_info, set_default_device
 from mo_net.functions import (
-    LeakyReLU,
-    ReLU,
-    Tanh,
     parse_activation_fn,
 )
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
-from mo_net.protos import ActivationFn, NormalisationType
+from mo_net.protos import NormalisationType
 from mo_net.train import (
     TrainingParameters,
 )
@@ -160,9 +163,9 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "-f",
         "--activation-fn",
-        type=click.Choice([ReLU.name, Tanh.name, LeakyReLU.name]),
+        type=click.Choice(["relu", "tanh", "leaky_relu"]),
         help="Set the activation function",
-        default=ReLU.name,
+        default="relu",
         callback=parse_activation_fn,
     )
     @click.option(
@@ -261,7 +264,7 @@ def get_model(
     *,
     X_train: jnp.ndarray,
     Y_train: jnp.ndarray,
-    activation_fn: ActivationFn,
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
     batch_size: int,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
@@ -319,7 +322,7 @@ def cli_train(*args, **kwargs) -> TrainingResult:
 
 def train(
     *,
-    activation_fn: ActivationFn,
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
     batch_size: int | None,
     dataset_url: str | None,
     device: DeviceType,

@@ -1,5 +1,6 @@
+import jax.nn
+
 from mo_net.config import TrainingParameters
-from mo_net.functions import ReLU
 from mo_net.model.layer.output import SoftmaxOutputLayer
 from mo_net.model.layer.reshape import Reshape
 from mo_net.model.model import Model
@@ -11,7 +12,7 @@ from mo_net.protos import NormalisationType
 def mnist_mlp(training_parameters: TrainingParameters) -> Model:
     return Model.mlp_of(
         module_dimensions=((784,), (100,), (100,), (10,)),
-        activation_fn=ReLU,
+        activation_fn=jax.nn.relu,
         normalisation_type=NormalisationType.LAYER,
         tracing_enabled=training_parameters.trace_logging,
     )
@@ -40,7 +41,7 @@ def mnist_cnn(training_parameters: TrainingParameters) -> Model:
             Norm(
                 input_dimensions=c2.output_dimensions,
                 output_dimensions=(10,),
-                activation_fn=ReLU,
+                activation_fn=jax.nn.relu,
                 options=LayerNormOptions(),
                 store_output_activations=training_parameters.trace_logging,
             ),

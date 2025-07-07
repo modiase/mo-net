@@ -1,7 +1,7 @@
+import jax
 import jax.numpy as jnp
 import pytest
 
-from mo_net.functions import ReLU
 from mo_net.model.layer.activation import Activation
 from mo_net.protos import Activations
 
@@ -16,7 +16,7 @@ from mo_net.protos import Activations
 def test_relu_forward_prop(X: Activations, expected: jnp.ndarray):
     activation = Activation(
         input_dimensions=(3,),
-        activation_fn=ReLU,
+        activation_fn=jax.nn.relu,
     )
     assert jnp.allclose(activation.forward_prop(X), expected)
 
@@ -31,7 +31,7 @@ def test_relu_forward_prop(X: Activations, expected: jnp.ndarray):
 def test_relu_backward_prop(X: Activations, expected: jnp.ndarray):
     activation = Activation(
         input_dimensions=(3,),
-        activation_fn=ReLU,
+        activation_fn=jax.nn.relu,
     )
     activation.forward_prop(X)
 

@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict, TypeVar
 
+import jax
 import jax.numpy as jnp
 from pyparsing import abstractmethod
 
-from mo_net.functions import softmax
 from mo_net.model.layer.base import _Base
 from mo_net.protos import (
     Activations,
@@ -74,7 +74,7 @@ class SoftmaxOutputLayer(OutputLayer):
         input_activations: Activations,
     ) -> Activations:
         self._cache["output_activations"] = (
-            output_activations := softmax(input_activations)
+            output_activations := jax.nn.softmax(input_activations)
         )
         return output_activations
 

@@ -15,13 +15,7 @@ _X = TypeVar("_X", bound=jnp.ndarray | float)
 ActivationFnName = NewType("ActivationFnName", str)
 
 
-class ActivationFn(Protocol):
-    def __call__(self, x: _X) -> _X: ...
-
-    def deriv(self, x: _X) -> _X: ...
-
-    @property
-    def name(self) -> ActivationFnName: ...
+type ActivationFn = Callable[[jnp.ndarray], jnp.ndarray]
 
 
 _Quantity = TypeVar("_Quantity")
