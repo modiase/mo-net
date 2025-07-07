@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import IO, Final, Self
 
-import numpy as np
+import jax.numpy as jnp
 from more_itertools import one
 
 from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
@@ -23,7 +23,7 @@ EPSILON: Final[float] = 1e-8
 
 @dataclass(kw_only=True)
 class Parameters(SupportsGradientOperations):
-    embeddings: np.ndarray
+    embeddings: jnp.ndarray
 
     def __add__(self, other: Self | float | int) -> Self:
         match other:
@@ -74,29 +74,29 @@ class Parameters(SupportsGradientOperations):
 
     @classmethod
     def random(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(embeddings=np.random.randn(vocab_size, embedding_dim))
+        return cls(embeddings=jnp.random.randn(vocab_size, embedding_dim))
 
     @classmethod
     def xavier(cls, vocab_size: int, embedding_dim: int) -> Self:
         return cls(
-            embeddings=np.random.randn(vocab_size, embedding_dim)
-            * np.sqrt(1 / vocab_size)
+            embeddings=jnp.random.randn(vocab_size, embedding_dim)
+            * jnp.sqrt(1 / vocab_size)
         )
 
     @classmethod
     def he(cls, vocab_size: int, embedding_dim: int) -> Self:
         return cls(
-            embeddings=np.random.normal(
-                0, np.sqrt(2 / vocab_size), (vocab_size, embedding_dim)
+            embeddings=jnp.random.normal(
+                0, jnp.sqrt(2 / vocab_size), (vocab_size, embedding_dim)
             )
         )
 
     @classmethod
-    def of(cls, embeddings: np.ndarray) -> Self:
-        return cls(embeddings=np.atleast_2d(embeddings))
+    def of(cls, embeddings: jnp.ndarray) -> Self:
+        return cls(embeddings=jnp.atleast_2d(embeddings))
 
     def from_bytes(self, data: IO[bytes]) -> Self:
-        embeddings = np.frombuffer(
+        embeddings = jnp.frombuffer(
             data.read(self.embeddings.nbytes), dtype=self.embeddings.dtype
         ).reshape(self.embeddings.shape)
         return self.__class__(embeddings=embeddings)
@@ -106,7 +106,7 @@ type ParametersType = Parameters
 
 
 class Cache(GradCache[ParametersType]):
-    input_indices: np.ndarray | None
+    input_indices: jnp.ndarray | None
     output_activations: Activations | None
 
 
@@ -200,20 +200,24 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if (indices := self._cache["input_indices"]) is None:
             raise ValueError("Input indices not set during forward pass.")
-        dE = np.zeros_like(self._parameters.embeddings)
-        np.add.at(dE, indices, dZ)
+        dE = jnp.zeros_like(self._parameters.embeddings)
+        import jax.ops as jops
+
+        dE = jops.index_add(dE, indices, dZ)
         if self._clip_gradients:
-            dE *= min(
+            dE *= jnp.minimum(
                 1.0,
                 self._weight_max_norm
-                * np.sqrt(dE.size)
-                / (np.linalg.norm(dE) + EPSILON),
+                * jnp.sqrt(dE.size)
+                / (jnp.linalg.norm(dE) + EPSILON),
             )
         self._cache["dP"] = d(self.Parameters(embeddings=dE))
         return dZ
 
     def empty_gradient(self) -> D[ParametersType]:
-        return d(self.Parameters(embeddings=np.zeros_like(self._parameters.embeddings)))
+        return d(
+            self.Parameters(embeddings=jnp.zeros_like(self._parameters.embeddings))
+        )
 
     def reinitialise(self) -> None:
         vocab_size = one(self.input_dimensions)
