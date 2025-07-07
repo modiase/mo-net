@@ -15,6 +15,7 @@ from typing import Final, ParamSpec, TypeVar, cast
 import numpy as np
 from loguru import logger
 
+from mo_net.model.layer.base import _global_registry
 from mo_net.log import log_time
 from mo_net.model.layer.base import ParametrisedHidden
 from mo_net.model.model import Model
@@ -466,6 +467,7 @@ def worker_process(
     """Worker process that trains on batches and submits updates via barrier synchronization"""
     del log_level  # unused
     del regulariser_lambda  # unused
+    _global_registry._used_names.clear() # prevent ValueError in worker process on loading layers
 
     with log_time(
         f"Worker {worker_id} process startup: {{time_taken:.4f}}s total"
