@@ -203,10 +203,10 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if (indices := self._cache["input_indices"]) is None:
             raise ValueError("Input indices not set during forward pass.")
-        dE = jnp.zeros_like(self._parameters.embeddings)
-        import jax.ops as jops
 
-        dE = jops.index_add(dE, indices, dZ)
+        dE = jnp.zeros_like(self._parameters.embeddings)
+        dE = dE.at[indices].add(dZ)
+
         if self._clip_gradients:
             dE *= jnp.minimum(
                 1.0,
@@ -214,6 +214,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 * jnp.sqrt(dE.size)
                 / (jnp.linalg.norm(dE) + EPSILON),
             )
+
         self._cache["dP"] = d(self.Parameters(embeddings=dE))
         return dZ
 
@@ -223,8 +224,12 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def reinitialise(self) -> None:
-        vocab_size = one(self.input_dimensions)
-        embedding_dim = one(self.output_dimensions)
+        vocab_size = self._vocab_size
+        embedding_dim = (
+            self.output_dimensions[-1]
+            if len(self.output_dimensions) > 1
+            else one(self.output_dimensions)
+        )
         self._parameters = self._parameters_init_fn(vocab_size, embedding_dim)
 
     def serialize(self) -> Embedding.Serialized:

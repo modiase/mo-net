@@ -203,7 +203,7 @@ def get_training_set(
         ],
         strict=True,
     )
-    return jnp.array(context), jnp.eye(vocab_size)[list(target)]
+    return jnp.array(context), jnp.eye(vocab_size)[jnp.array(list(target))]
 
 
 class CBOWModel(Model):
@@ -636,7 +636,7 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
         shape=(min(num_words, len(vocab)),),
         replace=False,
     )
-    random_words = [list(vocab.vocab)[i] for i in word_indices]
+    random_words = [list(vocab.vocab)[int(i)] for i in word_indices]
 
     click.echo(f"Showing similarities for {len(random_words)} random words:")
     click.echo()
