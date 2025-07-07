@@ -16,20 +16,36 @@ DeviceType = Literal["cpu", "gpu", "mps", "auto"]
 @contextlib.contextmanager
 def suppress_native_output():
     """Suppress output from native C/C++ libraries like jax-metal"""
-    og_stdout_fd, og_stderr_fd = os.dup(1), os.dup(2)
-    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    og_stdout_fd = og_stderr_fd = devnull_fd = None
+
+    try:
+        og_stdout_fd, og_stderr_fd = os.dup(1), os.dup(2)
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    except OSError as e:
+        if og_stdout_fd is not None:
+            os.close(og_stdout_fd)
+        if og_stderr_fd is not None:
+            os.close(og_stderr_fd)
+        if devnull_fd is not None:
+            os.close(devnull_fd)
+        raise RuntimeError(f"Failed to set up output suppression: {e}")
 
     try:
         os.dup2(devnull_fd, 1)
         os.dup2(devnull_fd, 2)
         yield
     finally:
-        os.dup2(og_stdout_fd, 1)
-        os.dup2(og_stderr_fd, 2)
-
-        os.close(og_stdout_fd)
-        os.close(og_stderr_fd)
-        os.close(devnull_fd)
+        if og_stdout_fd is not None:
+            with contextlib.suppress(Exception):
+                os.dup2(og_stdout_fd, 1)
+                os.close(og_stdout_fd)
+        if og_stderr_fd is not None:
+            with contextlib.suppress(Exception):
+                os.dup2(og_stderr_fd, 2)
+                os.close(og_stderr_fd)
+        if devnull_fd is not None:
+            with contextlib.suppress(Exception):
+                os.close(devnull_fd)
 
 
 def get_platform_to_device() -> Mapping[str, Collection[jax.Device]]:
