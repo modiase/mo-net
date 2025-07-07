@@ -467,7 +467,7 @@ def worker_process(
     """Worker process that trains on batches and submits updates via barrier synchronization"""
     del log_level  # unused
     del regulariser_lambda  # unused
-    _global_registry._used_names.clear() # prevent ValueError in worker process on loading layers
+    _global_registry._used_names.clear()  # prevent ValueError in worker process on loading layers
 
     with log_time(
         f"Worker {worker_id} process startup: {{time_taken:.4f}}s total"
