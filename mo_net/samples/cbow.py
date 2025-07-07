@@ -18,6 +18,7 @@ from loguru import logger
 from more_itertools import windowed
 
 from mo_net.data import DATA_DIR
+from mo_net.device import print_device_info, set_default_device
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
 from mo_net.model.layer.embedding import Embedding
@@ -376,6 +377,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Maximum vocabulary size",
         default=1000,
     )
+    @click.option(
+        "--device",
+        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
+        help="Device to use for training (auto will select the best available)",
+        default="auto",
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -403,9 +410,14 @@ def train(
     model_output_path: Path | None,
     log_level: LogLevel,
     vocab_size: int,
+    device: str,
 ):
     """Train a CBOW model on Shakespeare text"""
     setup_logging(log_level)
+
+    # Configure JAX device
+    set_default_device(device)  # type: ignore[arg-type]
+    print_device_info()
 
     sentences = (
         get_resource("s3://mo-net-resources/english-sentences.txt")
