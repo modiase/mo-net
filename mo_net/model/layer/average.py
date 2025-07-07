@@ -66,17 +66,17 @@ class Average(Hidden):
         )
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        s = self._cache["input_shape"]
-        if s is None:
+        if self._cache["input_shape"] is None:
             raise ValueError("Input shape not cached during forward pass.")
-        a = tuple(ax + 1 for ax in self._axis)
-        e = list(dZ.shape)  # type: ignore[attr-defined]
-        for ax in sorted(a):
-            e.insert(ax, 1)
-        g = jnp.broadcast_to(jnp.reshape(dZ, e), s)
-        for ax in a:
-            g = g / s[ax]
-        return Activations(g)
+
+        expanded_dZ = dZ
+        for ax, factor in zip(
+            sorted(ax + 1 for ax in self._axis),
+            tuple(self._cache["input_shape"][ax + 1] for ax in self._axis),
+        ):
+            expanded_dZ = jnp.expand_dims(expanded_dZ, ax) / factor
+
+        return Activations(jnp.broadcast_to(expanded_dZ, self._cache["input_shape"]))
 
     @property
     def axis(self) -> tuple[int, ...]:
