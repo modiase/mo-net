@@ -143,7 +143,9 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         vocab_size: int
         parameters: Parameters
 
-        def deserialize(self, *, training: bool = False) -> Embedding:
+        def deserialize(
+            self, *, training: bool = False, freeze_parameters: bool = False
+        ) -> Embedding:
             del training
             return Embedding(
                 layer_id=self.layer_id,
@@ -151,6 +153,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 output_dimensions=self.output_dimensions,
                 vocab_size=self.vocab_size,
                 parameters=self.parameters,
+                freeze_parameters=freeze_parameters,
             )
 
     def __init__(
