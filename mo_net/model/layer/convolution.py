@@ -286,9 +286,7 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             self._kernel_height,
             self._kernel_width,
         )
-        self._cache = self.Cache(
-            input_activations=None, output_activations=None, dP=None
-        )
+        self._cache = Cache(input_activations=None, output_activations=None, dP=None)
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         batch_size = input_activations.shape[0]

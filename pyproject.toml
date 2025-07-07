@@ -32,7 +32,8 @@ dependencies = [
   "msgpack>=1.1.1",
   "jax>=0.6.2",
   "jaxlib>=0.6.2", 
-  "jax-cuda12-plugin>=0.6.2",]
+  "jax-cuda12-plugin>=0.6.2; sys_platform != 'darwin'", 
+]
 
 [dependency-groups]
 dev = [
