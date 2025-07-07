@@ -18,7 +18,7 @@ from mo_net.optimizer.base import Null
 from mo_net.optimizer.rmsprop import RMSProp
 from mo_net.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mo_net.protos import SupportsGradientOperations, UpdateGradientType
-from mo_net.train.batcher import Batcher
+from mo_net.train.batcher import IndexBatcher
 from mo_net.train.exceptions import CheckFailed
 from mo_net.train.monitor import Monitor
 from mo_net.train.run import TrainingRun
@@ -120,12 +120,11 @@ class BasicTrainer:
         self._training_parameters = training_parameters
         self._X_train = X_train
         self._Y_train = Y_train
+        self._transform = transform
         self._logger = logger.bind(name="trainer")
-        self._batcher = Batcher(
-            X=X_train,
-            Y=Y_train,
+        self._batcher = IndexBatcher(
+            train_set_size=X_train.shape[0],
             batch_size=self._training_parameters.batch_size,
-            transform=transform,
         )
         self._X_val = X_val
         self._Y_val = Y_val
@@ -174,7 +173,6 @@ class BasicTrainer:
 
     @contextmanager
     def _monotonic_training_step_context(self) -> Iterator[None]:
-        # TODO: Implement monotonic training.
         raise NotImplementedError("Monotonic training is not implemented.")
 
     def _revert_training_step(self) -> None:
@@ -265,6 +263,7 @@ class BasicTrainer:
 
     def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
+        L_val = None
         for i in tqdm(
             range(
                 (
@@ -282,7 +281,13 @@ class BasicTrainer:
             disable=self._training_parameters.quiet,
         ):
             with self._create_training_step_context():
-                X_train_batch, Y_train_batch = next(self._batcher)
+                batch_indices = next(self._batcher)
+                X_train_batch = self._X_train[batch_indices]
+                Y_train_batch = self._Y_train[batch_indices]
+
+                if self._transform is not None:
+                    X_train_batch = self._transform(X_train_batch)
+
                 gradient, update = self._training_step(
                     X_train_batch=X_train_batch,
                     Y_train_batch=Y_train_batch,
@@ -301,44 +306,36 @@ class BasicTrainer:
                     case never:
                         assert_never(never)
 
-            if i % self._training_parameters.batches_per_epoch == 0:
-                L_batch = self._model.compute_loss(
-                    X=X_train_batch, Y_true=Y_train_batch
-                )
-                L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
+            if self._training_parameters.monotonic:
+                if self._last_update is not None:
+                    self._revert_training_step()
 
+            L_batch = self._model.compute_loss(X=X_train_batch, Y_true=Y_train_batch)
+
+            if self._training_parameters.monotonic:
+                self._last_update = update
+
+            if (i + 1) % self._training_parameters.batches_per_epoch == 0 and i > 0:
+                L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
                 if L_val < self._L_val_min:
-                    self._model.dump(open(self._model_checkpoint_path, "wb"))
-                    if self._monitor is not None:
-                        self._monitor.clear_history()
-                    if self._training_parameters.max_restarts > 0:
-                        self._optimizer.snapshot()
                     self._L_val_min = L_val
                     self._L_val_min_epoch = self._training_parameters.current_epoch(i)
-                match self._post_epoch(L_val):
-                    case CheckFailed() as check:
-                        return TrainingFailed(
-                            model_checkpoint_path=self._model_checkpoint_path,
-                            message=check.message,
-                            model_checkpoint_save_epoch=self._L_val_min_epoch,
-                        )
-                    case None:
-                        pass
-                    case never:
-                        assert_never(never)
+                    self._model.dump(open(self._model_checkpoint_path, "wb"))
 
-            self._run.log_iteration(
-                epoch=self._training_parameters.current_epoch(i),
-                batch=i,
-                batch_loss=L_batch,
-                val_loss=L_val,
-                learning_rate=self._optimizer.learning_rate,
-            )
+                if (check := self._post_epoch(L_val)) is not None:
+                    return TrainingFailed(
+                        model_checkpoint_path=self._model_checkpoint_path,
+                        message=check.message,
+                        model_checkpoint_save_epoch=self._L_val_min_epoch,
+                    )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 if not self._training_parameters.quiet:
+                    val_loss_str = (
+                        f", Validation Loss = {L_val}" if L_val is not None else ""
+                    )
                     tqdm.write(
-                        f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
+                        f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}{val_loss_str}"
                         + (
                             f", {report}"
                             if (report := self._optimizer.report()) != ""
@@ -346,6 +343,9 @@ class BasicTrainer:
                         )
                     )
                 last_log_time = time.time()
+
+        if L_val is None:
+            L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
 
         self._run.log_iteration(
             epoch=self._training_parameters.num_epochs,

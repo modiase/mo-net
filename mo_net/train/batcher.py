@@ -4,6 +4,8 @@ from typing import Self
 import jax.numpy as jnp
 import jax.random as random
 
+from mo_net.functions import identity
+
 
 class Batcher:
     def __init__(
@@ -18,7 +20,7 @@ class Batcher:
         self.Y = Y
         self.batch_size = batch_size
         self.train_set_size = X.shape[0]
-        self._transform = transform
+        self._transform = transform if transform is not None else identity
         self._shuffle()
 
         num_batches = (self.train_set_size + self.batch_size - 1) // self.batch_size
@@ -40,8 +42,7 @@ class Batcher:
     def __next__(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         try:
             X, Y = next(self._internal_iterator)
-            if self._transform is not None:
-                X = self._transform(X)
+            X = self._transform(X)
             return X, Y
         except StopIteration:
             self._shuffle()

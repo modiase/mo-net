@@ -241,12 +241,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=False,
     )
     @click.option(
-        "--device",
-        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
-        help="Device to use for training (auto will select the best available)",
-        default="auto",
-    )
-    @click.option(
         "--logging-backend-connection-string",
         type=str,
         help="Set the connection string for the logging backend",
