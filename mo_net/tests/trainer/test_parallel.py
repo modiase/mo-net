@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Any
 from unittest.mock import Mock
 
-import numpy as np
+import jax.numpy as jnp
 import pytest
 from loguru import logger
 
@@ -77,8 +77,8 @@ class MockedSharedMemoryManager(SharedMemoryManager):
 class GradientTransferTestCase:
     name: str
     model: Model
-    forward_input: np.ndarray
-    backward_input: np.ndarray
+    forward_input: jnp.ndarray
+    backward_input: jnp.ndarray
     expected_w_shape: tuple[int, ...]
     expected_b_shape: tuple[int, ...]
 
@@ -106,8 +106,8 @@ class GradientAggregationTestCase:
                     )
                 ],
             ),
-            forward_input=np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
-            backward_input=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            forward_input=jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
+            backward_input=jnp.array([[1.0, 0.0], [0.0, 1.0]]),
             expected_w_shape=(3, 2),
             expected_b_shape=(2,),
         ),
@@ -125,8 +125,8 @@ class GradientAggregationTestCase:
                     )
                 ],
             ),
-            forward_input=np.random.rand(2, 1, 4, 4),
-            backward_input=np.random.rand(2, 2, 2, 2),
+            forward_input=jnp.random.rand(2, 1, 4, 4),
+            backward_input=jnp.random.rand(2, 2, 2, 2),
             expected_w_shape=(2, 1, 3, 3),
             expected_b_shape=(2,),
         ),
@@ -136,8 +136,8 @@ class GradientAggregationTestCase:
                 input_dimensions=(4,),
                 hidden=[BatchNorm(input_dimensions=(4,), training=True)],
             ),
-            forward_input=np.random.rand(3, 4),
-            backward_input=np.random.rand(3, 4),
+            forward_input=jnp.random.rand(3, 4),
+            backward_input=jnp.random.rand(3, 4),
             expected_w_shape=(4,),
             expected_b_shape=(4,),
         ),
@@ -172,12 +172,12 @@ def test_gradient_transfer(
     final_gradient = test_case.model.grad_layers[0].cache["dP"]
     assert final_gradient is not None
 
-    np.testing.assert_allclose(
+    jnp.testing.assert_allclose(
         final_gradient.weights,
         original_gradient.weights,
         rtol=1e-10,
     )
-    np.testing.assert_allclose(
+    jnp.testing.assert_allclose(
         final_gradient.biases,
         original_gradient.biases,
         rtol=1e-10,
@@ -203,12 +203,12 @@ def test_gradient_transfer(
                 ],
             ),
             gradient1=Linear.Parameters(
-                weights=np.array([[1.0], [2.0]], dtype=np.float32),
-                biases=np.array([3.0], dtype=np.float32),
+                weights=jnp.array([[1.0], [2.0]], dtype=jnp.float32),
+                biases=jnp.array([3.0], dtype=jnp.float32),
             ),
             gradient2=Linear.Parameters(
-                weights=np.array([[4.0], [5.0]], dtype=np.float32),
-                biases=np.array([6.0], dtype=np.float32),
+                weights=jnp.array([[4.0], [5.0]], dtype=jnp.float32),
+                biases=jnp.array([6.0], dtype=jnp.float32),
             ),
         ),
         GradientAggregationTestCase(
@@ -226,12 +226,12 @@ def test_gradient_transfer(
                 ],
             ),
             gradient1=Convolution2D.Parameters(
-                weights=np.array([[[[1.0, 2.0], [3.0, 4.0]]]], dtype=np.float32),
-                biases=np.array([5.0], dtype=np.float32),
+                weights=jnp.array([[[[1.0, 2.0], [3.0, 4.0]]]], dtype=jnp.float32),
+                biases=jnp.array([5.0], dtype=jnp.float32),
             ),
             gradient2=Convolution2D.Parameters(
-                weights=np.array([[[[6.0, 7.0], [8.0, 9.0]]]], dtype=np.float32),
-                biases=np.array([10.0], dtype=np.float32),
+                weights=jnp.array([[[[6.0, 7.0], [8.0, 9.0]]]], dtype=jnp.float32),
+                biases=jnp.array([10.0], dtype=jnp.float32),
             ),
         ),
         GradientAggregationTestCase(
@@ -241,12 +241,12 @@ def test_gradient_transfer(
                 hidden=[BatchNorm(input_dimensions=(3,), training=True)],
             ),
             gradient1=BatchNorm.Parameters(
-                weights=np.array([1.0, 2.0, 3.0], dtype=np.float32),
-                biases=np.array([4.0, 5.0, 6.0], dtype=np.float32),
+                weights=jnp.array([1.0, 2.0, 3.0], dtype=jnp.float32),
+                biases=jnp.array([4.0, 5.0, 6.0], dtype=jnp.float32),
             ),
             gradient2=BatchNorm.Parameters(
-                weights=np.array([7.0, 8.0, 9.0], dtype=np.float32),
-                biases=np.array([10.0, 11.0, 12.0], dtype=np.float32),
+                weights=jnp.array([7.0, 8.0, 9.0], dtype=jnp.float32),
+                biases=jnp.array([10.0, 11.0, 12.0], dtype=jnp.float32),
             ),
         ),
     ],
@@ -268,12 +268,12 @@ def test_gradient_transfer_aggregation(test_case: GradientAggregationTestCase) -
     manager.leader_get_aggregated_results(test_case.model)
 
     final_gradient = test_case.model.grad_layers[0].cache["dP"]
-    np.testing.assert_allclose(
+    jnp.testing.assert_allclose(
         final_gradient.weights,
         (test_case.gradient1.weights + test_case.gradient2.weights) / 2,
         rtol=1e-10,
     )
-    np.testing.assert_allclose(
+    jnp.testing.assert_allclose(
         final_gradient.biases,
         (test_case.gradient1.biases + test_case.gradient2.biases) / 2,
         rtol=1e-10,

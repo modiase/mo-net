@@ -285,7 +285,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
             ) / jnp.sqrt(self._running_variance + EPSILON)
 
         if self._store_output_activations or self._training:
-            self._cache["output_activations"] = normalised_activations
+            self._cache["output_activations"] = Activations(normalised_activations)
 
         return (
             self._parameters.weights * normalised_activations + self._parameters.biases

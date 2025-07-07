@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence, TypedDict
 
-import numpy as np
+import jax.numpy as jnp
 
 from mo_net.model.layer.base import Hidden
 from mo_net.protos import Activations, D, Dimensions
@@ -58,7 +58,7 @@ class Average(Hidden):
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_shape"] = input_activations.shape
         return Activations(
-            np.mean(
+            jnp.mean(
                 input_activations,
                 axis=tuple(ax + 1 for ax in self._axis),
                 keepdims=False,
@@ -73,7 +73,7 @@ class Average(Hidden):
         e = list(dZ.shape)  # type: ignore[attr-defined]
         for ax in sorted(a):
             e.insert(ax, 1)
-        g = np.broadcast_to(np.reshape(dZ, e), s)
+        g = jnp.broadcast_to(jnp.reshape(dZ, e), s)
         for ax in a:
             g = g / s[ax]
         return Activations(g)

@@ -8,7 +8,7 @@ from mo_net.protos import ActivationFn, ActivationFnName
 
 
 def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> float:
-    return -jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15)))
+    return -jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15))).item()
 
 
 _X = TypeVar("_X", bound=jnp.ndarray | float)
