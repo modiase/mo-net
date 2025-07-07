@@ -15,6 +15,7 @@ from mo_net.data import (
     SplitConfig,
     load_data,
 )
+from mo_net.device import print_device_info, set_default_device
 from mo_net.functions import (
     LeakyReLU,
     ReLU,
@@ -110,6 +111,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=str,
         help="Set the url to the dataset",
         default=None,
+    )
+    @click.option(
+        "--device",
+        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
+        help="Device to use for training (auto will select the best available)",
+        default="auto",
     )
     @click.option(
         "-n",
@@ -308,6 +315,7 @@ def train(
     activation_fn: ActivationFn,
     batch_size: int | None,
     dataset_url: str | None,
+    device: str,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
     history_max_len: int,
@@ -332,11 +340,17 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> TrainingResult:
+    # Configure JAX device
+    set_default_device(device)  # type: ignore[arg-type]
+    if not quiet:
+        print_device_info()
+
     if dataset_url is None:
         raise ValueError("No dataset URL provided.")
     X_train, Y_train, X_val, Y_val = load_data(
         dataset_url, split=SplitConfig.of(train_split, train_split_index)
     )
+
 
     train_set_size = X_train.shape[0]
     if batch_size is None:
