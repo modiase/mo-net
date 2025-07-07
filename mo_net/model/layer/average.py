@@ -20,8 +20,9 @@ class Average(Hidden):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Average:
-            del training  # unused
+            del training, freeze_parameters  # unused
             return Average(
                 input_dimensions=self.input_dimensions,
                 axis=self.axis,
