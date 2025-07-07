@@ -142,6 +142,8 @@
             fastapi
             h5py
             loguru
+            jax
+            jaxlib
             matplotlib
             msgpack
             mypy
