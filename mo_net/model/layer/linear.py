@@ -5,7 +5,6 @@ from functools import partial
 from typing import (
     IO,
     Callable,
-    Final,
     Self,
 )
 
@@ -15,6 +14,7 @@ import jax.random as random
 from jax import jit
 from more_itertools import one
 
+from mo_net.constants import EPSILON
 from mo_net.functions import identity
 from mo_net.model.layer.base import (
     BadLayerId,
@@ -29,8 +29,6 @@ from mo_net.protos import (
     SupportsGradientOperations,
     d,
 )
-
-EPSILON: Final[float] = 1e-8
 
 
 @dataclass(kw_only=True)
@@ -194,6 +192,19 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
     _parameters: ParametersType
     _cache: CacheType
 
+    @staticmethod
+    @jit
+    def _clip_gradient_impl(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """JIT-compiled gradient clipping implementation."""
+        norm = jnp.linalg.norm(grad)
+        scale = jnp.minimum(1.0, max_norm * jnp.sqrt(grad.size) / (norm + EPSILON))
+        return grad * scale
+
+    @staticmethod
+    def _no_clip_gradient(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """No-op gradient clipping function."""
+        return grad
+
     @classmethod
     def of_bias(cls, dim: Dimensions, bias: float | jnp.ndarray) -> Self:
         return cls(
@@ -263,9 +274,13 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             parameters_init_fn = partial(Parameters.xavier, key=key)
         self._parameters_init_fn = parameters_init_fn
         self._freeze_parameters = freeze_parameters
-        self._clip_gradients = clip_gradients
         self._weight_max_norm = weight_max_norm
         self._bias_max_norm = bias_max_norm
+
+        self._clip_gradient_fn = (
+            self._clip_gradient_impl if clip_gradients else self._no_clip_gradient
+        )
+
         if parameters is not None:
             if parameters.weights.shape != (
                 one(input_dimensions),
@@ -329,18 +344,8 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
 
         dW, dB, dX = compute_gradients(input_activations, dZ, self._parameters.weights)
 
-        if self._clip_gradients:
-
-            @jit
-            def clip_gradient(grad, max_norm):
-                norm = jnp.linalg.norm(grad)
-                scale = jnp.minimum(
-                    1.0, max_norm * jnp.sqrt(grad.size) / (norm + EPSILON)
-                )
-                return grad * scale
-
-            dW = clip_gradient(dW, self._weight_max_norm)
-            dB = clip_gradient(dB, self._bias_max_norm)
+        dW = self._clip_gradient_fn(dW, self._weight_max_norm)
+        dB = self._clip_gradient_fn(dB, self._bias_max_norm)
 
         self._cache["dP"] = d(self.Parameters(weights=dW, biases=dB))
         return dX

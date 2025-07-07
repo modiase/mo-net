@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from typing import IO, Final, TypedDict, assert_never, cast
 
 import jax.numpy as jnp
-from jax import lax, random
+from jax import jit, lax, random
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
 from mo_net.protos import (
     Activations,
@@ -206,6 +207,19 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
     Cache = Cache
     Parameters = Parameters
 
+    @staticmethod
+    @jit
+    def _clip_gradient_impl(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """JIT-compiled gradient clipping implementation."""
+        return grad * jnp.minimum(
+            1.0, max_norm * jnp.sqrt(grad.size) / (jnp.linalg.norm(grad) + EPSILON)
+        )
+
+    @staticmethod
+    def _no_clip_gradient(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """No-op gradient clipping function."""
+        return grad
+
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         layer_id: str
@@ -368,18 +382,8 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         db = jnp.sum(cast(jnp.ndarray, dZ), axis=(0, 2, 3))
 
         if self._clip_gradients:
-            dK *= jnp.minimum(
-                1.0,
-                self._weight_max_norm
-                * jnp.sqrt(dK.size)
-                / (jnp.linalg.norm(dK) + EPSILON),
-            )
-            db *= jnp.minimum(
-                1.0,
-                self._bias_max_norm
-                * jnp.sqrt(db.size)
-                / (jnp.linalg.norm(db) + EPSILON),
-            )
+            dK = self._clip_gradient_impl(dK, self._weight_max_norm)
+            db = self._clip_gradient_impl(db, self._bias_max_norm)
 
         # Compute gradients with respect to input
         # For multiple kernels, we need to sum contributions from all output channels

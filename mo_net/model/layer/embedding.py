@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, Final, Self
+from typing import IO, Self
 
 import jax.numpy as jnp
 import jax.random as random
+from jax import jit
 from more_itertools import one
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
 from mo_net.protos import (
     Activations,
@@ -18,8 +20,6 @@ from mo_net.protos import (
     SupportsGradientOperations,
     d,
 )
-
-EPSILON: Final[float] = 1e-8
 
 
 @dataclass(kw_only=True)
@@ -122,6 +122,19 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     _parameters: ParametersType
     _cache: CacheType
 
+    @staticmethod
+    @jit
+    def _clip_gradient_impl(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """JIT-compiled gradient clipping implementation."""
+        return grad * jnp.minimum(
+            1.0, max_norm * jnp.sqrt(grad.size) / (jnp.linalg.norm(grad) + EPSILON)
+        )
+
+    @staticmethod
+    def _no_clip_gradient(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """No-op gradient clipping function."""
+        return grad
+
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         layer_id: str
@@ -161,9 +174,13 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         )
         self._parameters_init_fn = parameters_init_fn
         self._store_output_activations = store_output_activations
-        self._clip_gradients = clip_gradients
         self._freeze_parameters = freeze_parameters
         self._weight_max_norm = weight_max_norm
+
+        # Assign the appropriate gradient clipping function
+        self._clip_gradient_fn = (
+            self._clip_gradient_impl if clip_gradients else self._no_clip_gradient
+        )
 
         embedding_dim = (
             output_dimensions[-1]
@@ -207,13 +224,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         dE = jnp.zeros_like(self._parameters.embeddings)
         dE = dE.at[indices].add(dZ)
 
-        if self._clip_gradients:
-            dE *= jnp.minimum(
-                1.0,
-                self._weight_max_norm
-                * jnp.sqrt(dE.size)
-                / (jnp.linalg.norm(dE) + EPSILON),
-            )
+        dE = self._clip_gradient_fn(dE, self._weight_max_norm)
 
         self._cache["dP"] = d(self.Parameters(embeddings=dE))
         return dZ
