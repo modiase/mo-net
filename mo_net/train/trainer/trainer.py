@@ -103,7 +103,7 @@ class BasicTrainer:
         optimizer: Base[OptimizerConfigT],
         run: TrainingRun,
         training_parameters: TrainingParameters,
-        transform: TransformFn | None = None,
+        transform_fn: TransformFn | None = None,
         start_epoch: int | None = None,
         X_train: jnp.ndarray,
         Y_train: jnp.ndarray,
@@ -120,7 +120,7 @@ class BasicTrainer:
         self._training_parameters = training_parameters
         self._X_train = X_train
         self._Y_train = Y_train
-        self._transform = transform
+        self._transform = transform_fn
         self._loss_fn = loss_fn
         self._logger = logger.bind(name="trainer")
         self._batcher = IndexBatcher(
