@@ -113,9 +113,19 @@ def select_device(device_type: DeviceType = "auto") -> jax.Device:
         raise ValueError(f"Unknown device type: {device_type}")
 
 
-def set_default_device(device_type: DeviceType = "auto") -> None:
+def set_default_device(
+    device_type: DeviceType = "auto", enable_metal_fallback: bool = True
+) -> None:
     """
     Set the default JAX device for all operations.
+
+    Args:
+        device_type: One of "cpu", "gpu", "mps", or "auto".
+                    "auto" will select the best available device.
+        enable_metal_fallback: If True and a Metal device fails compatibility test,
+                              automatically restart the process with CPU fallback.
+                              If False, raise an exception instead of restarting.
+                              Default is True for backward compatibility.
     """
     device = select_device(device_type)
 
@@ -129,13 +139,20 @@ def set_default_device(device_type: DeviceType = "auto") -> None:
             _ = jnp.zeros((2, 2))
             _ = test_tensor.sum()
         except Exception as e:
-            logger.info(
-                f"Metal device {device} failed compatibility test: {e}\n"
-                "Falling back to CPU due to Metal backend issues.\n"
-            )
-            env = os.environ.copy()
-            env["JAX_FORCE_CPU"] = "1"
-            os.execve(sys.executable, [sys.executable] + sys.argv, env)
+            if enable_metal_fallback:
+                logger.info(
+                    f"Metal device {device} failed compatibility test: {e}\n"
+                    "Falling back to CPU due to Metal backend issues.\n"
+                )
+                env = os.environ.copy()
+                env["JAX_FORCE_CPU"] = "1"
+                os.execve(sys.executable, [sys.executable] + sys.argv, env)
+            else:
+                raise RuntimeError(
+                    f"Metal device {device} failed compatibility test: {e}. "
+                    "Set enable_metal_fallback=True to automatically fall back to CPU, "
+                    "or handle the error manually."
+                ) from e
     else:
         jax.config.update("jax_default_device", device)
 
