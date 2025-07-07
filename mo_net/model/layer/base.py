@@ -41,6 +41,9 @@ class _LayerRegistry:
             self._used_names.add(auto_name)
             return auto_name
 
+    def reset_for_new_process(self) -> None:
+        self._used_names.clear()
+
 
 _global_registry: Final[_LayerRegistry] = _LayerRegistry()
 
