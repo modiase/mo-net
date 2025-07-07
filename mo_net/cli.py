@@ -360,7 +360,9 @@ def train(
     if dataset_url is None:
         raise ValueError("No dataset URL provided.")
     X_train, Y_train, X_val, Y_val = load_data(
-        dataset_url, split=SplitConfig.of(train_split, train_split_index)
+        dataset_url,
+        split=SplitConfig.of(train_split, train_split_index),
+        one_hot=loss_fn_name == "cross_entropy",
     )
 
     train_set_size = X_train.shape[0]

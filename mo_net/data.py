@@ -68,16 +68,20 @@ class SplitConfig:
         return val_start, val_end
 
 
-def _load_data(data_path: Path) -> tuple[jnp.ndarray, jnp.ndarray]:
+def _load_data(data_path: Path, *, one_hot: bool) -> tuple[jnp.ndarray, jnp.ndarray]:
     df = pd.read_csv(data_path)
     return (
         jnp.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
-        jnp.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()],
+        (
+            jnp.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()]
+            if one_hot
+            else df.iloc[:, 0].to_numpy()
+        ),
     )
 
 
 def _load_data_split(
-    data_path: Path, split: SplitConfig
+    data_path: Path, split: SplitConfig, *, one_hot: bool
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     df = pd.read_csv(data_path)
 
@@ -89,8 +93,16 @@ def _load_data_split(
         [df.iloc[start:end, :] for start, end in train_indices], ignore_index=True
     )
 
-    Y_train = jnp.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
-    Y_val = jnp.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
+    Y_train = (
+        jnp.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
+        if one_hot
+        else training_set.iloc[:, 0].to_numpy()
+    )
+    Y_val = (
+        jnp.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
+        if one_hot
+        else val_set.iloc[:, 0].to_numpy()
+    )
 
     X_train = jnp.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
     X_val = jnp.array(val_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
@@ -99,23 +111,36 @@ def _load_data_split(
 
 @overload
 def load_data(
-    dataset_url: str, split: None = None
+    dataset_url: str,
+    split: None = None,
+    *,
+    one_hot: bool = True,
 ) -> tuple[jnp.ndarray, jnp.ndarray]: ...
 @overload
 def load_data(
-    dataset_url: str, split: SplitConfig
+    dataset_url: str,
+    split: SplitConfig,
+    *,
+    one_hot: bool = True,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]: ...
 
 
 def load_data(
-    dataset_url: str, split: SplitConfig | None = None
+    dataset_url: str,
+    split: SplitConfig | None = None,
+    *,
+    one_hot: bool = True,
 ) -> (
     tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
     | tuple[jnp.ndarray, jnp.ndarray]
 ):
     logger.info(f"Loading data from {dataset_url}.")
     data_path = get_resource(dataset_url)
-    return _load_data_split(data_path, split) if split else _load_data(data_path)
+    return (
+        _load_data_split(data_path, split, one_hot=one_hot)
+        if split
+        else _load_data(data_path, one_hot=one_hot)
+    )
 
 
 def infer_dataset_url(quickstart: str | None) -> str | None:

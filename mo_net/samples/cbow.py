@@ -19,7 +19,7 @@ from loguru import logger
 from more_itertools import windowed
 
 from mo_net.data import DATA_DIR
-from mo_net.device import print_device_info, set_default_device
+from mo_net.device import DeviceType, print_device_info, set_default_device
 from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
@@ -414,13 +414,12 @@ def train(
     model_output_path: Path | None,
     log_level: LogLevel,
     vocab_size: int,
-    device: str,
+    device: DeviceType,
 ):
     """Train a CBOW model on Shakespeare text"""
     setup_logging(log_level)
 
-    # Configure JAX device
-    set_default_device(device)  # type: ignore[arg-type]
+    set_default_device(device)
     print_device_info()
 
     sentences = (
