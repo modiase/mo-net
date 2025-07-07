@@ -76,11 +76,12 @@ typecheck = "uv run python mo_net/scripts/typecheck.py"
 
 
 [project.scripts]
+check_device = "mo_net.scripts.check_device:main"
+cross_validate = "mo_net.scripts.validation:main"
 infer = "mo_net.cli:infer"
-term_plot = "mo_net.scripts.term_plot:main"
 resume = "mo_net.cli:resume"
 sample_data = "mo_net.cli:sample_data"
+serve = "mo_net.server.__main__:main"
+term_plot = "mo_net.scripts.term_plot:main"
 trace_statistics = "mo_net.scripts.trace_statistics:main"
 train = "mo_net.cli:cli_train"
-serve = "mo_net.server.__main__:main"
-cross_validate = "mo_net.scripts.validation:main"
