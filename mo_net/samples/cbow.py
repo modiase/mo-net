@@ -20,6 +20,7 @@ from more_itertools import windowed
 
 from mo_net.data import DATA_DIR
 from mo_net.device import print_device_info, set_default_device
+from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
 from mo_net.model.layer.embedding import Embedding
@@ -496,6 +497,7 @@ def train(
         optimizer=optimizer,
         run=run,
         training_parameters=training_parameters,
+        loss_fn=sparse_cross_entropy,
     )
 
     logger.info(f"Starting CBOW training with {len(X_train_split)} training samples")

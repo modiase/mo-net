@@ -1,15 +1,34 @@
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import jax
 import jax.numpy as jnp
 
 from mo_net.protos import ActivationFnName
 
+type TransformFn = Callable[[jnp.ndarray], jnp.ndarray]
+
+type LossFn = Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+
 
 def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
     return -jnp.mean(
         jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15)), axis=-1)
     )
+
+
+def sparse_cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
+    return -jnp.mean(
+        jnp.log(jnp.clip(Y_pred[jnp.arange(Y_true.shape[0]), Y_true], 1e-15, 1 - 1e-15))
+    )
+
+
+def get_loss_fn(name: Literal["cross_entropy", "sparse_cross_entropy"]) -> LossFn:
+    if name == "cross_entropy":
+        return cross_entropy
+    elif name == "sparse_cross_entropy":
+        return sparse_cross_entropy
+    else:
+        raise ValueError(f"Unknown loss function: {name}")
 
 
 def identity(x: jnp.ndarray) -> jnp.ndarray:

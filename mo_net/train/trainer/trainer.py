@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from mo_net.config import TrainingParameters
 from mo_net.data import RUN_PATH
+from mo_net.functions import LossFn, TransformFn
 from mo_net.model.model import Model
 from mo_net.optimizer import Base, OptimizerConfigT
 from mo_net.optimizer.adam import AdaM
@@ -92,8 +93,6 @@ type AfterTrainingStepHandler = Callable[
     None | CheckFailed,
 ]
 
-type TransformFn = Callable[[jnp.ndarray], jnp.ndarray]
-
 
 class BasicTrainer:
     def __init__(
@@ -110,6 +109,7 @@ class BasicTrainer:
         Y_train: jnp.ndarray,
         X_val: jnp.ndarray,
         Y_val: jnp.ndarray,
+        loss_fn: LossFn,
     ) -> None:
         self._disable_shutdown = disable_shutdown
         self._run = run
@@ -121,6 +121,7 @@ class BasicTrainer:
         self._X_train = X_train
         self._Y_train = Y_train
         self._transform = transform
+        self._loss_fn = loss_fn
         self._logger = logger.bind(name="trainer")
         self._batcher = IndexBatcher(
             train_set_size=X_train.shape[0],
@@ -229,7 +230,9 @@ class BasicTrainer:
         self._logger.info(f"Logging to: {self._run._backend.connection_string}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
-        self._L_val_min = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
+        self._L_val_min = self._model.compute_loss(
+            X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+        )
 
         if self._training_parameters.trace_logging:
             tracer = Tracer(
@@ -310,13 +313,17 @@ class BasicTrainer:
                 if self._last_update is not None:
                     self._revert_training_step()
 
-            L_batch = self._model.compute_loss(X=X_train_batch, Y_true=Y_train_batch)
+            L_batch = self._model.compute_loss(
+                X=X_train_batch, Y_true=Y_train_batch, loss_fn=self._loss_fn
+            )
 
             if self._training_parameters.monotonic:
                 self._last_update = update
 
             if (i + 1) % self._training_parameters.batches_per_epoch == 0 and i > 0:
-                L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
+                L_val = self._model.compute_loss(
+                    X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+                )
                 if L_val < self._L_val_min:
                     self._L_val_min = L_val
                     self._L_val_min_epoch = self._training_parameters.current_epoch(i)
@@ -345,7 +352,7 @@ class BasicTrainer:
                 last_log_time = time.time()
 
         if L_val is None:
-            L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
+            L_val = self._compute_loss(X=self._X_val, Y_true=self._Y_val)
 
         self._run.log_iteration(
             epoch=self._training_parameters.num_epochs,

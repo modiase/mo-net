@@ -21,7 +21,7 @@ import jax.numpy as jnp
 from more_itertools import first, last, pairwise
 
 from mo_net.functions import (
-    cross_entropy,
+    LossFn,
     identity,
 )
 from mo_net.model import ModelBase
@@ -320,9 +320,11 @@ class Model(ModelBase):
     def predict(self, X: jnp.ndarray) -> jnp.ndarray:
         return jnp.argmax(self.forward_prop(X), axis=1)
 
-    def compute_loss(self, X: jnp.ndarray, Y_true: jnp.ndarray) -> float:
+    def compute_loss(
+        self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
+    ) -> float:
         Y_pred = self.forward_prop(X)
-        return cross_entropy(Y_pred, Y_true) + sum(
+        return loss_fn(Y_pred, Y_true) + sum(
             contributor() for contributor in self.loss_contributors
         )
 

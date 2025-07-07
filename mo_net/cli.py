@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import (
     Callable,
     Final,
+    Literal,
     ParamSpec,
     TypeVar,
     assert_never,
@@ -24,6 +25,7 @@ from mo_net.data import (
 )
 from mo_net.device import DeviceType, print_device_info, set_default_device
 from mo_net.functions import (
+    get_loss_fn,
     parse_activation_fn,
 )
 from mo_net.log import LogLevel, setup_logging
@@ -246,6 +248,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the connection string for the logging backend",
         default=None,
     )
+    @click.option(
+        "--loss-fn-name",
+        type=click.Choice(["cross_entropy", "sparse_cross_entropy"]),
+        help="Set the loss function name",
+        default="cross_entropy",
+    )
     @dataset_split_options
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -326,6 +334,7 @@ def train(
     log_level: LogLevel,
     logging_backend_connection_string: str,
     learning_rate_limits: tuple[float, float],
+    loss_fn_name: Literal["cross_entropy", "sparse_cross_entropy"],
     model_path: Path | None,
     max_restarts: int,
     monotonic: bool,
@@ -432,6 +441,7 @@ def train(
         run=run,
         start_epoch=start_epoch,
         training_parameters=training_parameters,
+        loss_fn=get_loss_fn(loss_fn_name),
     )
     training_result: TrainingResult | None = None
     try:
