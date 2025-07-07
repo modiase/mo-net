@@ -2,21 +2,23 @@
 
 import contextlib
 import os
-from collections.abc import Collection, Mapping
 import sys
+from collections.abc import Collection, Mapping
 from typing import Literal
 
 import jax
 from loguru import logger
+from more_itertools import first
 
 DeviceType = Literal["cpu", "gpu", "mps", "auto"]
+
 
 @contextlib.contextmanager
 def suppress_native_output():
     """Suppress output from native C/C++ libraries like jax-metal"""
     og_stdout_fd, og_stderr_fd = os.dup(1), os.dup(2)
     devnull_fd = os.open(os.devnull, os.O_WRONLY)
-    
+
     try:
         os.dup2(devnull_fd, 1)
         os.dup2(devnull_fd, 2)
@@ -24,7 +26,7 @@ def suppress_native_output():
     finally:
         os.dup2(og_stdout_fd, 1)
         os.dup2(og_stderr_fd, 2)
-        
+
         os.close(og_stdout_fd)
         os.close(og_stderr_fd)
         os.close(devnull_fd)
@@ -52,27 +54,27 @@ def select_device(device_type: DeviceType = "auto") -> jax.Device:
     """
     if os.environ.get("JAX_FORCE_CPU"):
         logger.info("JAX_FORCE_CPU is set, using CPU.")
-        return jax.devices("cpu")[0]
+        return first(jax.devices("cpu"))
 
     available = get_platform_to_device()
 
     if device_type == "auto":
         if "gpu" in available:
-            device = available["gpu"][0]
+            device = first(available["gpu"])
             logger.info(f"Auto-selected CUDA GPU: {device}")
             return device
         elif "metal" in available:
-            device = available["metal"][0]
+            device = first(available["metal"])
             logger.info(f"Auto-selected Metal/MPS device: {device}")
             return device
         else:
-            device = available.get("cpu", jax.devices())[0]
+            device = first(available.get("cpu", jax.devices()))
             logger.info(f"Auto-selected CPU: {device}")
             return device
 
     elif device_type == "gpu":
         if "gpu" in available:
-            device = available["gpu"][0]
+            device = first(available["gpu"])
             logger.info(f"Selected CUDA GPU: {device}")
             return device
         else:
@@ -80,14 +82,14 @@ def select_device(device_type: DeviceType = "auto") -> jax.Device:
 
     elif device_type == "mps":
         if "metal" in available:
-            device = available["metal"][0]
+            device = first(available["metal"])
             logger.info(f"Selected Metal/MPS device: {device}")
             return device
         else:
             raise RuntimeError("No Metal/MPS device available")
 
     elif device_type == "cpu":
-        device = available.get("cpu", jax.devices())[0]
+        device = first(available.get("cpu", jax.devices()))
         logger.info(f"Selected CPU: {device}")
         return device
 
@@ -139,5 +141,4 @@ def print_device_info() -> None:
         for device in device_list:
             logger.info(f"  - {platform_name.upper()}: {device}")
 
-    logger.info(f"Default device: {jax.devices()[0]}")
-
+    logger.info(f"Default device: {first(jax.devices())}")

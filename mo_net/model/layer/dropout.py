@@ -71,7 +71,7 @@ class Dropout(Hidden):
         mask = np.random.binomial(1, self._keep_prob, size=input_activations.shape)
         self._cache["mask"] = mask
 
-        return input_activations * mask / self._keep_prob
+        return Activations(input_activations * mask / self._keep_prob)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if self._keep_prob == 1.0 or not self._training:
