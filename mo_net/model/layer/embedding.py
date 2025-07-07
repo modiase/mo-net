@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import IO, Final, Self
 
 import jax.numpy as jnp
+import jax.random as random
 from more_itertools import one
 
 from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
@@ -74,22 +75,24 @@ class Parameters(SupportsGradientOperations):
 
     @classmethod
     def random(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(embeddings=jnp.random.randn(vocab_size, embedding_dim))
+        key = random.PRNGKey(42)
+        return cls(embeddings=random.normal(key, (vocab_size, embedding_dim)))
 
     @classmethod
     def xavier(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(
-            embeddings=jnp.random.randn(vocab_size, embedding_dim)
-            * jnp.sqrt(1 / vocab_size)
+        key = random.PRNGKey(42)
+        embeddings = random.normal(key, (vocab_size, embedding_dim)) * jnp.sqrt(
+            1 / vocab_size
         )
+        return cls(embeddings=embeddings)
 
     @classmethod
     def he(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(
-            embeddings=jnp.random.normal(
-                0, jnp.sqrt(2 / vocab_size), (vocab_size, embedding_dim)
-            )
+        key = random.PRNGKey(42)
+        embeddings = random.normal(key, (vocab_size, embedding_dim)) * jnp.sqrt(
+            2 / vocab_size
         )
+        return cls(embeddings=embeddings)
 
     @classmethod
     def of(cls, embeddings: jnp.ndarray) -> Self:

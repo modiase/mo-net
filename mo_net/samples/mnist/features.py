@@ -9,24 +9,25 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import jax.numpy as jnp
+import jax.random as random
 import matplotlib.pyplot as plt
-import numpy as np
 from loguru import logger
 
 from mo_net.model.model import Model
 
 
-def create_one_hot_targets(num_classes: int) -> np.ndarray:
+def create_one_hot_targets(num_classes: int) -> jnp.ndarray:
     """Create one-hot encoded targets for all classes."""
-    targets = np.zeros((num_classes, num_classes))
+    targets = jnp.zeros((num_classes, num_classes))
     for i in range(num_classes):
-        targets[i, i] = 1.0
+        targets = targets.at[i, i].set(1.0)
     return targets
 
 
 def visualize_inputs_with_outputs(
-    input_data: np.ndarray,
-    model_outputs: np.ndarray,
+    input_data: jnp.ndarray,
+    model_outputs: jnp.ndarray,
     input_dimensions: tuple[int, ...],
     save_path: Path | None = None,
 ) -> None:
@@ -64,7 +65,7 @@ def visualize_inputs_with_outputs(
                 axes[i, 0].imshow(1 - img, cmap="gray_r")
         elif len(input_dimensions) == 1:
             size = input_dimensions[0]
-            sqrt_size = int(np.sqrt(size))
+            sqrt_size = int(jnp.sqrt(size))
             if sqrt_size * sqrt_size == size:
                 img = sample_input.reshape(sqrt_size, sqrt_size)
                 axes[i, 0].imshow(img, cmap="gray_r")
@@ -122,7 +123,7 @@ def train_input_vector(
     regularization_strength: float = 0.01,
     sparsity_strength: float = 1e-6,
     verbose: bool = True,
-) -> tuple[np.ndarray, Sequence[float], np.ndarray]:
+) -> tuple[jnp.ndarray, Sequence[float], jnp.ndarray]:
     """
     Train an input vector to minimize loss for one-hot encodings of all classes.
 
@@ -149,7 +150,8 @@ def train_input_vector(
     )
     logger.info(f"Number of classes: {num_classes}")
 
-    input_vector = np.random.uniform(0, 0.1, (num_classes, *input_dimensions))
+    key = random.PRNGKey(0)
+    input_vector = random.uniform(key, (num_classes, *input_dimensions), 0, 0.1)
     logger.info(f"Created trainable input vector with shape: {input_vector.shape}")
 
     targets = create_one_hot_targets(num_classes)
@@ -171,10 +173,10 @@ def train_input_vector(
         classification_loss = frozen_model.compute_loss(input_vector, targets)
 
         regularization_loss = (
-            regularization_strength * np.sum(input_vector**2) / num_classes
+            regularization_strength * jnp.sum(input_vector**2) / num_classes
         )
 
-        sparsity_loss = sparsity_strength * np.sum(np.abs(input_vector)) / num_classes
+        sparsity_loss = sparsity_strength * jnp.sum(jnp.abs(input_vector)) / num_classes
 
         total_loss = classification_loss + regularization_loss + sparsity_loss
         loss_history.append(total_loss)
@@ -182,16 +184,16 @@ def train_input_vector(
         input_gradient = frozen_model.backward_prop(Y_true=targets)
 
         reg_gradient = 2 * regularization_strength * input_vector / num_classes
-        sparsity_gradient = sparsity_strength * np.sign(input_vector) / num_classes
+        sparsity_gradient = sparsity_strength * jnp.sign(input_vector) / num_classes
         total_gradient = input_gradient + reg_gradient + sparsity_gradient
 
-        grad_norm = np.linalg.norm(total_gradient)
+        grad_norm = jnp.linalg.norm(total_gradient)
         if grad_norm > 1.0:
             total_gradient = total_gradient / grad_norm
 
         input_vector = input_vector - learning_rate * total_gradient
 
-        input_vector = np.clip(input_vector, 0, 1)
+        input_vector = jnp.clip(input_vector, 0, 1)
 
         if total_loss < best_loss:
             best_loss = total_loss
@@ -206,9 +208,9 @@ def train_input_vector(
             break
 
         if verbose and (iteration % 100 == 0 or iteration == num_iterations - 1):
-            input_norm = np.linalg.norm(input_vector)
-            max_input = np.max(input_vector)
-            min_input = np.min(input_vector)
+            input_norm = jnp.linalg.norm(input_vector)
+            max_input = jnp.max(input_vector)
+            min_input = jnp.min(input_vector)
             logger.info(
                 f"Iteration {iteration:4d}: Loss = {total_loss:.6f} (Class: {classification_loss:.6f}, Reg: {regularization_loss:.6f}, Sparsity: {sparsity_loss:.6f}, Input Norm: {input_norm:.6f}, Range: [{min_input:.3f}, {max_input:.3f}])"
             )
@@ -295,7 +297,7 @@ def main():
 
         if args.output:
             logger.info(f"Saving trained input vector to: {args.output}")
-            np.savez(
+            jnp.savez(
                 args.output,
                 values=input_vector,
                 input_dimensions=input_vector.shape[1:],
@@ -303,7 +305,7 @@ def main():
 
         logger.info("Final input vector:")
         logger.info(f"  Shape: {input_vector.shape}")
-        logger.info(f"  Norm: {np.linalg.norm(input_vector):.6f}")
+        logger.info(f"  Norm: {jnp.linalg.norm(input_vector):.6f}")
 
         logger.info(f"Final model outputs shape: {final_outputs.shape}")
 

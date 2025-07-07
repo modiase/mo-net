@@ -7,8 +7,10 @@ import jax.numpy as jnp
 from mo_net.protos import ActivationFn, ActivationFnName
 
 
-def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> float:
-    return -jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15))).item()
+def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
+    return -jnp.mean(
+        jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15)), axis=-1)
+    )
 
 
 _X = TypeVar("_X", bound=jnp.ndarray | float)

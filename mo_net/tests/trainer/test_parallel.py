@@ -6,6 +6,8 @@ from typing import Any
 from unittest.mock import Mock
 
 import jax.numpy as jnp
+import jax.random as random
+import numpy.testing as np_testing
 import pytest
 from loguru import logger
 
@@ -15,6 +17,9 @@ from mo_net.model.layer.convolution import Convolution2D
 from mo_net.model.layer.linear import Linear
 from mo_net.model.model import Model
 from mo_net.train.trainer.parallel import SharedMemoryManager
+
+# Create a random key for testing
+key = random.PRNGKey(42)
 
 
 class MockedSharedMemoryManager(SharedMemoryManager):
@@ -125,8 +130,8 @@ class GradientAggregationTestCase:
                     )
                 ],
             ),
-            forward_input=jnp.random.rand(2, 1, 4, 4),
-            backward_input=jnp.random.rand(2, 2, 2, 2),
+            forward_input=random.uniform(random.split(key)[0], (2, 1, 4, 4)),
+            backward_input=random.uniform(random.split(key)[1], (2, 2, 2, 2)),
             expected_w_shape=(2, 1, 3, 3),
             expected_b_shape=(2,),
         ),
@@ -136,8 +141,8 @@ class GradientAggregationTestCase:
                 input_dimensions=(4,),
                 hidden=[BatchNorm(input_dimensions=(4,), training=True)],
             ),
-            forward_input=jnp.random.rand(3, 4),
-            backward_input=jnp.random.rand(3, 4),
+            forward_input=random.uniform(random.split(key)[0], (3, 4)),
+            backward_input=random.uniform(random.split(key)[1], (3, 4)),
             expected_w_shape=(4,),
             expected_b_shape=(4,),
         ),
@@ -172,12 +177,12 @@ def test_gradient_transfer(
     final_gradient = test_case.model.grad_layers[0].cache["dP"]
     assert final_gradient is not None
 
-    jnp.testing.assert_allclose(
+    np_testing.assert_allclose(
         final_gradient.weights,
         original_gradient.weights,
         rtol=1e-10,
     )
-    jnp.testing.assert_allclose(
+    np_testing.assert_allclose(
         final_gradient.biases,
         original_gradient.biases,
         rtol=1e-10,
@@ -268,12 +273,12 @@ def test_gradient_transfer_aggregation(test_case: GradientAggregationTestCase) -
     manager.leader_get_aggregated_results(test_case.model)
 
     final_gradient = test_case.model.grad_layers[0].cache["dP"]
-    jnp.testing.assert_allclose(
+    np_testing.assert_allclose(
         final_gradient.weights,
         (test_case.gradient1.weights + test_case.gradient2.weights) / 2,
         rtol=1e-10,
     )
-    jnp.testing.assert_allclose(
+    np_testing.assert_allclose(
         final_gradient.biases,
         (test_case.gradient1.biases + test_case.gradient2.biases) / 2,
         rtol=1e-10,

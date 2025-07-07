@@ -20,6 +20,9 @@ class Input(_Base):
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         return dZ
 
+    def backward_prop(self, dZ: D[Activations]) -> D[Activations]:
+        return self._backward_prop(dZ=dZ)
+
     @property
     def input_dimensions(self) -> Dimensions:
         return self._input_dimensions

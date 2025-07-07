@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ContextManager, Final, Literal, assert_never
 
-import numpy as np
+import jax.numpy as jnp
 from loguru import logger
 from tqdm import tqdm
 
@@ -92,7 +92,7 @@ type AfterTrainingStepHandler = Callable[
     None | CheckFailed,
 ]
 
-type TransformFn = Callable[[np.ndarray], np.ndarray]
+type TransformFn = Callable[[jnp.ndarray], jnp.ndarray]
 
 
 class BasicTrainer:
@@ -106,10 +106,10 @@ class BasicTrainer:
         training_parameters: TrainingParameters,
         transform: TransformFn | None = None,
         start_epoch: int | None = None,
-        X_train: np.ndarray,
-        Y_train: np.ndarray,
-        X_val: np.ndarray,
-        Y_val: np.ndarray,
+        X_train: jnp.ndarray,
+        Y_train: jnp.ndarray,
+        X_val: jnp.ndarray,
+        Y_val: jnp.ndarray,
     ) -> None:
         self._disable_shutdown = disable_shutdown
         self._run = run
@@ -360,8 +360,8 @@ class BasicTrainer:
 
     def _training_step(
         self,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
+        X_train_batch: jnp.ndarray,
+        Y_train_batch: jnp.ndarray,
     ) -> tuple[
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],

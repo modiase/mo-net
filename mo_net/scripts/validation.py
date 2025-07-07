@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import click
-import numpy as np
+import jax.numpy as jnp
 import pandas as pd
 from loguru import logger
 from tabulate import tabulate
@@ -194,10 +194,10 @@ async def validate(**kwargs) -> None:
             [
                 [k, f"{v:.6f}"]
                 for k, v in {
-                    "Min": np.min(min_val_losses),
-                    "Max": np.max(min_val_losses),
-                    "Mean": np.mean(min_val_losses),
-                    "Std Dev": np.std(min_val_losses),
+                    "Min": jnp.min(min_val_losses),
+                    "Max": jnp.max(min_val_losses),
+                    "Mean": jnp.mean(min_val_losses),
+                    "Std Dev": jnp.std(min_val_losses),
                 }.items()
             ],
             headers=["Metric", "Value"],

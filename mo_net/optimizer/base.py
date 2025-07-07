@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generic, Literal, Protocol, Sequence, TypeVar, overload
 
-import numpy as np
+import jax.numpy as jnp
 from loguru import logger
 
 from mo_net.model.model import Model
@@ -26,16 +26,16 @@ class Base(ABC, Generic[ConfigT]):
     @overload
     def training_step(
         self,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
+        X_train_batch: jnp.ndarray,
+        Y_train_batch: jnp.ndarray,
         return_gradients: Literal[False] = False,
     ) -> None: ...
 
     @overload
     def training_step(
         self,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
+        X_train_batch: jnp.ndarray,
+        Y_train_batch: jnp.ndarray,
         return_gradients: Literal[True],
     ) -> tuple[
         Sequence[SupportsGradientOperations], Sequence[SupportsGradientOperations]
@@ -43,8 +43,8 @@ class Base(ABC, Generic[ConfigT]):
 
     def training_step(
         self,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
+        X_train_batch: jnp.ndarray,
+        Y_train_batch: jnp.ndarray,
         return_gradients: bool = False,
     ) -> (
         tuple[
@@ -122,3 +122,7 @@ class Null(Base[Config]):
     @property
     def learning_rate(self) -> float:
         return self._config.learning_rate
+
+
+def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
+    return -jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15)))

@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Callable, Final, ParamSpec, TypeVar, assert_never
 
 import click
-import numpy as np
+import jax.numpy as jnp
+import jax.random as random
 from loguru import logger
 
 from mo_net.data import (
@@ -258,8 +259,8 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
 
 def get_model(
     *,
-    X_train: np.ndarray,
-    Y_train: np.ndarray,
+    X_train: jnp.ndarray,
+    Y_train: jnp.ndarray,
     activation_fn: ActivationFn,
     batch_size: int,
     dims: Sequence[int],
@@ -310,7 +311,7 @@ def cli_train(*args, **kwargs) -> TrainingResult:
     log_level = kwargs.get("log_level", LogLevel.INFO)
     seed = int(os.getenv("MO_NET_SEED", time.time()))
     kwargs["seed"] = seed
-    np.random.seed(seed)
+    random.PRNGKey(seed)  # Initialize JAX random state
     setup_logging(log_level)
     logger.info(f"Training model with {seed=}.")
     return train(*args, **kwargs)
@@ -404,8 +405,8 @@ def train(
 
     if only_misclassified_examples:
         Y_train_pred = model.predict(X_train)
-        Y_train_true = np.argmax(Y_train, axis=1)
-        misclassified_indices = np.where(Y_train_pred != Y_train_true)[0]
+        Y_train_true = jnp.argmax(Y_train, axis=1)
+        misclassified_indices = jnp.where(Y_train_pred != Y_train_true)[0]
         X_train = X_train[misclassified_indices]
         Y_train = Y_train[misclassified_indices]
         training_parameters.train_set_size = X_train.shape[0]

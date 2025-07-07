@@ -5,9 +5,9 @@ from pathlib import Path
 
 import click
 import h5py
+import inquirer
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import numpy as np
-from InquirerPy import inquirer
 from loguru import logger
 
 from mo_net.data import DATA_DIR
@@ -111,7 +111,7 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 ax = fig.add_subplot(gs[layer_idx, 0])
                 values = layer["histogram_values"][()]
                 bins = layer["histogram_bins"][()]
-                ax.bar(bins[:-1], values, width=np.diff(bins), alpha=0.7, color="red")
+                ax.bar(bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="red")
                 ax.set_title(f"Weights L{layer_idx}", fontsize=8)
                 ax.set_yscale("log")
                 ax.set_xlabel("Value")
@@ -126,7 +126,7 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 values = layer["histogram_values"][()]
                 bins = layer["histogram_bins"][()]
                 ax.bar(
-                    bins[:-1], values, width=np.diff(bins), alpha=0.7, color="orange"
+                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="orange"
                 )
                 ax.set_title(f"Biases L{layer_idx}", fontsize=8)
                 ax.set_yscale("log")
@@ -145,7 +145,7 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 values = gradient_layer["weights"]["histogram_values"][()]
                 bins = gradient_layer["weights"]["histogram_bins"][()]
                 ax.bar(
-                    bins[:-1], values, width=np.diff(bins), alpha=0.7, color="yellow"
+                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="yellow"
                 )
                 ax.set_title(f"Weight Gradients L{layer_idx}", fontsize=8)
                 ax.set_yscale("log")
@@ -163,7 +163,9 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 ax = fig.add_subplot(gs[layer_idx, 3])
                 values = gradient_layer["biases"]["histogram_values"][()]
                 bins = gradient_layer["biases"]["histogram_bins"][()]
-                ax.bar(bins[:-1], values, width=np.diff(bins), alpha=0.7, color="green")
+                ax.bar(
+                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="green"
+                )
                 ax.set_title(f"Bias Gradients L{layer_idx}", fontsize=8)
                 ax.set_yscale("log")
                 ax.set_xlabel("Value")
@@ -183,7 +185,7 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                     values = update_layer["histogram_values"][()]
                     bins = update_layer["histogram_bins"][()]
                     ax.bar(
-                        bins[:-1], values, width=np.diff(bins), alpha=0.7, color="blue"
+                        bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="blue"
                     )
                     ax.set_title(f"Weight Updates L{layer_idx}", fontsize=8)
                     ax.set_yscale("log")
@@ -206,7 +208,7 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                     ax.bar(
                         bins[:-1],
                         values,
-                        width=np.diff(bins),
+                        width=jnp.diff(bins),
                         alpha=0.7,
                         color="violet",
                     )
@@ -227,7 +229,7 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
                 values = activation_layer["histogram_values"][()]
                 bins = activation_layer["histogram_bins"][()]
                 ax.bar(
-                    bins[:-1], values, width=np.diff(bins), alpha=0.7, color="indigo"
+                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="indigo"
                 )
                 ax.set_title(f"Activations L{layer_idx}", fontsize=8)
                 ax.set_xlabel("Value")

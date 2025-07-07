@@ -3,7 +3,7 @@ from __future__ import annotations
 import pickle
 from collections.abc import Callable, Mapping, MutableSequence
 from dataclasses import dataclass
-from functools import partial, reduce
+from functools import partial
 from itertools import chain
 from operator import itemgetter
 from pathlib import Path
@@ -16,7 +16,7 @@ from typing import (
     overload,
 )
 
-import numpy as np
+import jax.numpy as jnp
 from more_itertools import first, last, pairwise
 
 from mo_net.functions import (
@@ -260,19 +260,18 @@ class Model(ModelBase):
     def output_module(self) -> Output:
         return self._output_module
 
-    def forward_prop(self, X: np.ndarray) -> Activations:
-        return reduce(
-            lambda A, module: module.forward_prop(input_activations=A),
-            [*self.hidden_modules, self.output_module],
-            Activations(X),
-        )
+    def forward_prop(self, X: jnp.ndarray) -> Activations:
+        activations = self.input_layer.forward_prop(X)
+        for module in self.hidden_modules:
+            activations = module.forward_prop(input_activations=activations)
+        activations = self.output_module.forward_prop(input_activations=activations)
+        return self.output_module.output_layer._cache["output_activations"]
 
-    def backward_prop(self, Y_true: np.ndarray) -> D[Activations]:
-        return reduce(
-            lambda dZ, module: module.backward_prop(dZ=dZ),
-            reversed(self.hidden_modules),
-            self.output_module.backward_prop(Y_true=Y_true),
-        )
+    def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
+        dZ = self.output_module.backward_prop(Y_true=Y_true)
+        for module in reversed(self.hidden_modules):
+            dZ = module.backward_prop(dZ=dZ)
+        return self.input_layer.backward_prop(dZ)
 
     def update_parameters(self) -> None:
         for module in self.hidden_modules:
@@ -318,13 +317,13 @@ class Model(ModelBase):
             ),
         )
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        return self.forward_prop(X).argmax(axis=1)
+    def predict(self, X: jnp.ndarray) -> jnp.ndarray:
+        return jnp.argmax(self.forward_prop(X), axis=1)
 
-    def compute_loss(self, X: np.ndarray, Y_true: np.ndarray) -> float:
-        return sum(
-            (loss_contributor() for loss_contributor in self.loss_contributors),
-            start=1 / X.shape[0] * cross_entropy(self.forward_prop(X), Y_true),
+    def compute_loss(self, X: jnp.ndarray, Y_true: jnp.ndarray) -> float:
+        Y_pred = self.forward_prop(X)
+        return cross_entropy(Y_pred, Y_true) + sum(
+            contributor() for contributor in self.loss_contributors
         )
 
     def serialize(self) -> Serialized:

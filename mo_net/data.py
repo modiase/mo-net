@@ -4,7 +4,7 @@ from math import ceil
 from pathlib import Path
 from typing import Final, Self, overload
 
-import numpy as np
+import jax.numpy as jnp
 import pandas as pd
 from loguru import logger
 
@@ -68,17 +68,17 @@ class SplitConfig:
         return val_start, val_end
 
 
-def _load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray]:
+def _load_data(data_path: Path) -> tuple[jnp.ndarray, jnp.ndarray]:
     df = pd.read_csv(data_path)
     return (
-        np.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
-        np.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()],
+        jnp.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
+        jnp.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()],
     )
 
 
 def _load_data_split(
     data_path: Path, split: SplitConfig
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     df = pd.read_csv(data_path)
 
     train_indices = split.get_train_indices(len(df))
@@ -89,29 +89,29 @@ def _load_data_split(
         [df.iloc[start:end, :] for start, end in train_indices], ignore_index=True
     )
 
-    Y_train = np.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
-    Y_val = np.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
+    Y_train = jnp.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
+    Y_val = jnp.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
 
-    X_train = np.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
-    X_val = np.array(val_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
+    X_train = jnp.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
+    X_val = jnp.array(val_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
     return X_train, Y_train, X_val, Y_val
 
 
 @overload
 def load_data(
     dataset_url: str, split: None = None
-) -> tuple[np.ndarray, np.ndarray]: ...
+) -> tuple[jnp.ndarray, jnp.ndarray]: ...
 @overload
 def load_data(
     dataset_url: str, split: SplitConfig
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: ...
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]: ...
 
 
 def load_data(
     dataset_url: str, split: SplitConfig | None = None
 ) -> (
-    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-    | tuple[np.ndarray, np.ndarray]
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
+    | tuple[jnp.ndarray, jnp.ndarray]
 ):
     logger.info(f"Loading data from {dataset_url}.")
     data_path = get_resource(dataset_url)

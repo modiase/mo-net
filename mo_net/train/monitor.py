@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Final, Self, Sequence
 
-import numpy as np
+import jax.numpy as jnp
 
 from mo_net.model.layer.linear import Parameters
 from mo_net.protos import RawGradientType, UpdateGradientType
@@ -22,14 +22,14 @@ MAX_Z_SCORE_LOWER_BOUND: Final[float] = 20.0
 
 @dataclass(frozen=True, kw_only=True)
 class WeightGradientRunningAverages:
-    sums: np.ndarray
-    sums_of_squares: np.ndarray
+    sums: jnp.ndarray
+    sums_of_squares: jnp.ndarray
 
     @classmethod
-    def from_weights(cls, weights_seq: Sequence[np.ndarray]) -> Self:
+    def from_weights(cls, weights_seq: Sequence[jnp.ndarray]) -> Self:
         return cls(
-            sums=np.array([np.sum(weights) for weights in weights_seq]),
-            sums_of_squares=np.array([np.sum(weights**2) for weights in weights_seq]),
+            sums=jnp.array([jnp.sum(weights) for weights in weights_seq]),
+            sums_of_squares=jnp.array([jnp.sum(weights**2) for weights in weights_seq]),
         )
 
     @classmethod
@@ -48,7 +48,7 @@ class WeightGradientRunningAverages:
 
     @classmethod
     def none(cls) -> Self:
-        return cls(sums=np.zeros(1), sums_of_squares=np.zeros(1))
+        return cls(sums=jnp.zeros(1), sums_of_squares=jnp.zeros(1))
 
 
 class Monitor:
@@ -95,13 +95,13 @@ class Monitor:
             ),
             self._running_update_count,
         )
-        ns = np.array([param.weights.size for param in linear_layer_gradients])
+        ns = jnp.array([param.weights.size for param in linear_layer_gradients])
         means = self._running_weights.sums / ns
         variances = self._running_weights.sums_of_squares / ns - means**2
 
-        weight_gradients_max_Z_scores = np.array(
+        weight_gradients_max_Z_scores = jnp.array(
             [
-                np.max((weights - mean) / (np.sqrt(variance) + EPSILON))
+                jnp.max((weights - mean) / (jnp.sqrt(variance) + EPSILON))
                 for (weights, mean, variance) in zip(
                     [param.weights for param in linear_layer_gradients],
                     means,
@@ -115,9 +115,9 @@ class Monitor:
 
         if self._running_update_count > self._warmup_batches:
             if (
-                weight_gradients_max_Z_score := np.max(weight_gradients_max_Z_scores)
+                weight_gradients_max_Z_score := jnp.max(weight_gradients_max_Z_scores)
             ) > max(
-                MAX_Z_SCORE_UPPER_BOUND / np.log(np.log(self._running_update_count)),
+                MAX_Z_SCORE_UPPER_BOUND / jnp.log(jnp.log(self._running_update_count)),
                 MAX_Z_SCORE_LOWER_BOUND,
             ):
                 return CheckFailed(
@@ -129,7 +129,7 @@ class Monitor:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
             return None
-        if np.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
+        if jnp.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
             return CheckFailed(message="Model is not learning.")
         return None
 

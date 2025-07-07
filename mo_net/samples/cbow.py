@@ -13,6 +13,7 @@ from typing import Callable, ParamSpec, TypeVar, assert_never, cast
 
 import click
 import jax.numpy as jnp
+import jax.random as random
 import msgpack  # type: ignore[import-untyped]
 from loguru import logger
 from more_itertools import windowed
@@ -587,7 +588,9 @@ def infer(
         )
         valid_indices = sorted_indices[: cutoff_idx + 1]
         valid_probs = probs[valid_indices] / jnp.sum(probs[valid_indices])
-        predicted_token_id = jnp.random.choice(valid_indices, p=valid_probs)
+        predicted_token_id = random.choice(
+            random.PRNGKey(42), valid_indices, shape=(), p=valid_probs
+        )
         predicted_tokens.append(vocab.id_to_token[predicted_token_id])
         context = context[1:] + [predicted_token_id]
 
@@ -626,7 +629,14 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     vocab = Vocab.deserialize(vocab_path)
     model = CBOWModel.load(model_path, training=False)
 
-    random_words = random.sample(list(vocab.vocab), min(num_words, len(vocab)))
+    # Use random choice to select random words
+    word_indices = random.choice(
+        random.PRNGKey(42),
+        len(vocab.vocab),
+        shape=(min(num_words, len(vocab)),),
+        replace=False,
+    )
+    random_words = [list(vocab.vocab)[i] for i in word_indices]
 
     click.echo(f"Showing similarities for {len(random_words)} random words:")
     click.echo()

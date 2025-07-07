@@ -1,17 +1,18 @@
 from collections.abc import Callable, Iterator
 from typing import Self
 
-import numpy as np
+import jax.numpy as jnp
+import jax.random as random
 
 
 class Batcher:
     def __init__(
         self,
         *,
-        X: np.ndarray,
-        Y: np.ndarray,
+        X: jnp.ndarray,
+        Y: jnp.ndarray,
         batch_size: int,
-        transform: Callable[[np.ndarray], np.ndarray] | None = None,
+        transform: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     ):
         self.X = X
         self.Y = Y
@@ -22,20 +23,21 @@ class Batcher:
 
         num_batches = (self.train_set_size + self.batch_size - 1) // self.batch_size
         self._internal_iterator = zip(
-            iter(np.array_split(self.X, num_batches)),
-            iter(np.array_split(self.Y, num_batches)),
+            iter(jnp.array_split(self.X, num_batches)),
+            iter(jnp.array_split(self.Y, num_batches)),
             strict=True,
         )
 
     def _shuffle(self) -> None:
-        permutation = np.random.permutation(self.train_set_size)
+        key = random.PRNGKey(0)  # You might want to make this configurable
+        permutation = random.permutation(key, self.train_set_size)
         self.X = self.X[permutation]
         self.Y = self.Y[permutation]
 
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> tuple[np.ndarray, np.ndarray]:
+    def __next__(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         try:
             X, Y = next(self._internal_iterator)
             if self._transform is not None:
@@ -44,8 +46,8 @@ class Batcher:
         except StopIteration:
             self._shuffle()
             self._internal_iterator = zip(
-                iter(np.array_split(self.X, self.train_set_size / self.batch_size)),
-                iter(np.array_split(self.Y, self.train_set_size / self.batch_size)),
+                iter(jnp.array_split(self.X, self.train_set_size / self.batch_size)),
+                iter(jnp.array_split(self.Y, self.train_set_size / self.batch_size)),
                 strict=True,
             )
             return next(self._internal_iterator)
@@ -55,17 +57,19 @@ class IndexBatcher:
     def __init__(self, *, train_set_size: int, batch_size: int):
         self.batch_size = batch_size
         self.train_set_size = train_set_size
-        self._internal_iterator: Iterator[np.ndarray] = iter(
-            np.array_split(
-                np.random.permutation(self.train_set_size),
+        key = random.PRNGKey(0)  # You might want to make this configurable
+        self._internal_iterator: Iterator[jnp.ndarray] = iter(
+            jnp.array_split(
+                random.permutation(key, self.train_set_size),
                 self.train_set_size // self.batch_size,
             )
         )
 
     def _shuffle(self) -> None:
+        key = random.PRNGKey(0)  # You might want to make this configurable
         self._internal_iterator = iter(
-            np.array_split(
-                np.random.permutation(self.train_set_size),
+            jnp.array_split(
+                random.permutation(key, self.train_set_size),
                 self.train_set_size // self.batch_size,
             )
         )
@@ -73,14 +77,14 @@ class IndexBatcher:
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> np.ndarray:
+    def __next__(self) -> jnp.ndarray:
         try:
             return next(self._internal_iterator)
         except StopIteration:
             self._shuffle()
             self._internal_iterator = iter(
-                np.array_split(
-                    np.random.permutation(self.train_set_size),
+                jnp.array_split(
+                    random.permutation(random.PRNGKey(0), self.train_set_size),
                     self.train_set_size // self.batch_size,
                 )
             )
