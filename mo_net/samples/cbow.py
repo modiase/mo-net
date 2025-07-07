@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Callable, ParamSpec, TypeVar, assert_never, cast
 
 import click
+import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
-import numpy as np
 from loguru import logger
 from more_itertools import windowed
 
@@ -65,7 +65,7 @@ class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
         return (
             0.5
             * self._lambda
-            * np.sum(self._layer.parameters.embeddings**2)
+            * jnp.sum(self._layer.parameters.embeddings**2)
             / self._batch_size
         )
 
@@ -185,7 +185,7 @@ def all_windows(
 
 def get_training_set(
     tokenized_sentences: Collection[Sequence[int]], context_size: int, vocab_size: int
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     context, target = zip(
         *[
             (
@@ -202,7 +202,7 @@ def get_training_set(
         ],
         strict=True,
     )
-    return np.array(context), np.eye(vocab_size)[list(target)]
+    return jnp.array(context), jnp.eye(vocab_size)[list(target)]
 
 
 class CBOWModel(Model):
@@ -264,7 +264,7 @@ class CBOWModel(Model):
         return cast(Embedding, self.hidden_modules[0].layers[0])
 
     @property
-    def embeddings(self) -> np.ndarray:
+    def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
 
@@ -571,21 +571,23 @@ def infer(
     predicted_tokens = []
 
     for _ in range(predict_tokens):
-        logits = (predict_model.forward_prop(np.array(context)) / temperature).squeeze()
+        logits = (
+            predict_model.forward_prop(jnp.array(context)) / temperature
+        ).squeeze()
         logits[vocab.unknown_token_id] = float("-inf")
-        probs = np.exp(logits - np.max(logits)) / np.sum(
-            np.exp(logits - np.max(logits))
+        probs = jnp.exp(logits - jnp.max(logits)) / jnp.sum(
+            jnp.exp(logits - jnp.max(logits))
         )
-        sorted_indices = np.argsort(probs)[::-1]
-        cumulative_probs = np.cumsum(probs[sorted_indices])
+        sorted_indices = jnp.argsort(probs)[::-1]
+        cumulative_probs = jnp.cumsum(probs[sorted_indices])
         cutoff_idx = (
-            np.where(cumulative_probs >= top_p)[0][0]
-            if len(np.where(cumulative_probs >= top_p)[0]) > 0
+            jnp.where(cumulative_probs >= top_p)[0][0]
+            if len(jnp.where(cumulative_probs >= top_p)[0]) > 0
             else len(sorted_indices) - 1
         )
         valid_indices = sorted_indices[: cutoff_idx + 1]
-        valid_probs = probs[valid_indices] / np.sum(probs[valid_indices])
-        predicted_token_id = np.random.choice(valid_indices, p=valid_probs)
+        valid_probs = probs[valid_indices] / jnp.sum(probs[valid_indices])
+        predicted_token_id = jnp.random.choice(valid_indices, p=valid_probs)
         predicted_tokens.append(vocab.id_to_token[predicted_token_id])
         context = context[1:] + [predicted_token_id]
 
@@ -640,8 +642,8 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
             if other_word != word:
                 other_id = vocab[other_word]
                 other_embedding = model.embeddings[other_id]
-                similarity = np.dot(word_embedding, other_embedding) / (
-                    np.linalg.norm(word_embedding) * np.linalg.norm(other_embedding)
+                similarity = jnp.dot(word_embedding, other_embedding) / (
+                    jnp.linalg.norm(word_embedding) * jnp.linalg.norm(other_embedding)
                 )
                 similarities.append((other_word, similarity))
         similarities.sort(key=lambda x: x[1], reverse=True)
