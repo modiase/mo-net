@@ -595,10 +595,14 @@ def infer(
 
     for _ in range(predict_tokens):
         key, subkey = jax.random.split(key)
-        logits = (
-            predict_model.forward_prop(jnp.array(context)) / temperature
-        ).squeeze()
-        logits[vocab.unknown_token_id] = float("-inf")
+        logits = jnp.array(
+            [
+                *(
+                    predict_model.forward_prop(jnp.array(context)) / temperature
+                ).squeeze(),
+                float("-inf"),  # unknown token
+            ]
+        )
         probs = jnp.exp(logits - jnp.max(logits)) / jnp.sum(
             jnp.exp(logits - jnp.max(logits))
         )
