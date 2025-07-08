@@ -19,6 +19,7 @@ from mo_net.model.layer.base import (
     ParametrisedHidden,
 )
 from mo_net.protos import (
+    ActivationFn,
     Activations,
     D,
     Dimensions,
@@ -135,7 +136,7 @@ class Parameters(SupportsGradientOperations):
         dim_in: Dimensions,
         dim_out: Dimensions,
         *,
-        activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
+        activation_fn: ActivationFn,
         key: jax.Array,
     ) -> Self:
         key1, key2 = jax.random.split(key)
