@@ -343,6 +343,14 @@ class BasicTrainer:
                         model_checkpoint_save_epoch=self._L_val_min_epoch,
                     )
 
+                self._run.log_iteration(
+                    epoch=self._training_parameters.current_epoch(i),
+                    batch=i + 1,
+                    batch_loss=L_batch,
+                    val_loss=L_val,
+                    learning_rate=self._optimizer.learning_rate,
+                )
+
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 if not self._training_parameters.quiet:
                     tqdm.write(
