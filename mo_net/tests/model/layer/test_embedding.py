@@ -607,7 +607,7 @@ def test_embedding_gradient_operation_interface():
 def test_embedding_reinitialise():
     def custom_init(vocab_size: int, embedding_dim: int, key: jax.Array):
         return Embedding.Parameters(
-            embeddings=random.normal(key, (vocab_size, embedding_dim))
+            embeddings=jax.random.normal(key, (vocab_size, embedding_dim))
         )
 
     layer = Embedding(
