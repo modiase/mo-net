@@ -7,8 +7,9 @@ import jax.random as random
 from mo_net.functions import TransformFn
 
 
-def noop_transform(X: jnp.ndarray, key: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    return X, key
+def noop_transform(X: jnp.ndarray, key: jnp.ndarray) -> jnp.ndarray:
+    del key  # unused
+    return X
 
 
 class Batcher:

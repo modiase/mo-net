@@ -143,10 +143,8 @@ def affine_transform2D(
     max_translation_pixels: int = 10,
 ) -> TransformFn:
     @jit
-    def _affine_transform_inner(
-        X: jnp.ndarray, key: jnp.ndarray
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        key1, key2, key3, key4, key5, key6, key7 = random.split(key, 7)
+    def _affine_transform_inner(X: jnp.ndarray, key: jnp.ndarray) -> jnp.ndarray:
+        key1, key2, key3, key4, key5, key6 = random.split(key, 6)
         rotation = jax.random.uniform(
             key1, (), minval=min_rotation_radians, maxval=max_rotation_radians
         ).item()
@@ -172,6 +170,6 @@ def affine_transform2D(
             X, x_offset=x_offset, y_offset=y_offset, x_size=x_size, y_size=y_size
         )
 
-        return X, key7
+        return X
 
     return _affine_transform_inner

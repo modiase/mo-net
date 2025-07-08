@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 from mo_net.protos import ActivationFn
 
-type TransformFn = Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]
+type TransformFn = Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
 
 type LossFn = Callable[[jnp.ndarray, jnp.ndarray], float]
 

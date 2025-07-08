@@ -296,7 +296,8 @@ class BasicTrainer:
                 Y_train_batch = self._Y_train[batch_indices]
 
                 if self._transform is not None:
-                    X_train_batch, self._key = self._transform(X_train_batch, self._key)
+                    self._key, subkey = jax.random.split(self._key)
+                    X_train_batch = self._transform(X_train_batch, subkey)
 
                 gradient, update = self._training_step(
                     X_train_batch=X_train_batch,
