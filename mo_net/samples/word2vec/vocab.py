@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Counter
 
 import jax.numpy as jnp
-import msgpack
+import msgpack  # type: ignore[import-untyped]
 
 from mo_net.resources import get_resource
 
@@ -104,6 +104,7 @@ class Vocab:
         """Get token ID, returning unknown_token_id if token not in vocabulary"""
         return self.token_to_id.get(token, self.unknown_token_id)
 
+    @staticmethod
     def clean_token(token: str) -> str:
         """
         Remove non-printable characters and punctuation

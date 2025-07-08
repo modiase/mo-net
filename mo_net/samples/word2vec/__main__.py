@@ -12,7 +12,6 @@ import jax.numpy as jnp
 from loguru import logger
 from more_itertools import windowed
 
-from build.lib.mnist_numpy.types import Activations, D
 from mo_net.data import DATA_DIR
 from mo_net.device import (
     DEVICE_TYPES,
@@ -28,7 +27,7 @@ from mo_net.model.layer.linear import Linear
 from mo_net.model.layer.output import OutputLayer, SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
-from mo_net.protos import Dimensions, NormalisationType
+from mo_net.protos import Activations, D, Dimensions, NormalisationType
 from mo_net.regulariser.weight_decay import EmbeddingWeightDecayRegulariser
 from mo_net.samples.word2vec.vocab import Vocab, get_training_set
 from mo_net.train import TrainingParameters
@@ -202,11 +201,11 @@ class SkipGramModel(Model):
         self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
     ) -> float:
         Y_pred = self.forward_prop(X)
-        return jnp.mean(loss_fn(Y_pred, Y_true.flatten())) + sum(
+        return jnp.mean(loss_fn(Y_pred, Y_true.flatten())).item() + sum(
             contributor() for contributor in self.loss_contributors
         )
 
-    def backward_prop(self, *, Y_true: jnp.ndarray) -> D[Activations]:
+    def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
         batch_size, context_size = Y_true.shape
         self._key, subkey = jax.random.split(self._key)
 
@@ -477,7 +476,7 @@ def train(
         lambda_=lambda_,
         batch_size=batch_size,
         optimizer=optimizer,
-        model=model,
+        model=cast(CBOWModel | SkipGramModel, model),
     )
 
     trainer = BasicTrainer(
@@ -509,8 +508,8 @@ def train(
             logger.info(f"Vocabulary saved to: {vocab_path}")
         case TrainingFailed():
             logger.error(f"Training failed: {result.message}")
-        case never:
-            assert_never(never)
+        case never_2:
+            assert_never(never_2)
 
 
 @cli.command("infer", help="Generate text autoregressively from a prompt")

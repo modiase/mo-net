@@ -6,7 +6,7 @@ from typing import IO, Self, TypeVar
 import jax.numpy as jnp
 
 from mo_net.functions import LossFn
-from mo_net.protos import Activations
+from mo_net.protos import Activations, D
 
 
 class ModelBase(ABC):
@@ -35,7 +35,7 @@ class ModelBase(ABC):
     def forward_prop(self, X: jnp.ndarray) -> Activations: ...
 
     @abstractmethod
-    def backward_prop(self, *, Y_true: jnp.ndarray) -> None: ...
+    def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]: ...
 
     @abstractmethod
     def compute_loss(
