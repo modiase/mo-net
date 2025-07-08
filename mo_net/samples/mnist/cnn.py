@@ -10,7 +10,12 @@ import jax
 from loguru import logger
 
 from mo_net.data import DATA_DIR
-from mo_net.device import DeviceType, print_device_info, set_default_device
+from mo_net.device import (
+    DEVICE_TYPES,
+    DeviceType,
+    print_device_info,
+    set_default_device,
+)
 from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.activation import Activation
@@ -241,7 +246,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     )
     @click.option(
         "--device",
-        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
+        type=click.Choice(DEVICE_TYPES),
         help="Device to use for training (auto will select the best available)",
         default="auto",
     )

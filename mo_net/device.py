@@ -4,13 +4,14 @@ import contextlib
 import os
 import sys
 from collections.abc import Collection, Mapping
-from typing import Literal
+from typing import Final, Literal
 
 import jax
 from loguru import logger
 from more_itertools import first
 
-DeviceType = Literal["cpu", "gpu", "mps", "auto"]
+DeviceType = Literal["cpu", "gpu", "auto"]
+DEVICE_TYPES: Final = ("cpu", "gpu", "auto")
 
 
 @contextlib.contextmanager
@@ -62,7 +63,7 @@ def select_device(device_type: DeviceType = "auto") -> jax.Device:
     Select a JAX device based on the specified type.
 
     Args:
-        device_type: One of "cpu", "gpu", "mps", or "auto".
+        device_type: One of "cpu", "gpu", or "auto".
                     "auto" will select the best available device.
 
     Returns:
@@ -96,14 +97,6 @@ def select_device(device_type: DeviceType = "auto") -> jax.Device:
         else:
             raise RuntimeError("No CUDA GPU available")
 
-    elif device_type == "mps":
-        if "metal" in available:
-            device = first(available["metal"])
-            logger.info(f"Selected Metal/MPS device: {device}")
-            return device
-        else:
-            raise RuntimeError("No Metal/MPS device available")
-
     elif device_type == "cpu":
         device = first(available.get("cpu", jax.devices()))
         logger.info(f"Selected CPU: {device}")
@@ -120,7 +113,7 @@ def set_default_device(
     Set the default JAX device for all operations.
 
     Args:
-        device_type: One of "cpu", "gpu", "mps", or "auto".
+        device_type: One of "cpu", "gpu", or "auto".
                     "auto" will select the best available device.
         enable_metal_fallback: If True and a Metal device fails compatibility test,
                               automatically restart the process with CPU fallback.

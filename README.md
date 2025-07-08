@@ -49,15 +49,14 @@ far simpler than is the case for proper, production-grade deep learning
 libraries. Attempts have been made to improve performance where possible, and
 this process has been very instructive in its own right.
 
-# GPU/MPS Setup Guide for mo-net
+# GPU Setup Guide for mo-net
 
-This guide explains how to enable GPU acceleration (including Apple Metal/MPS).
+This guide explains how to enable GPU acceleration.
 
 ## Supported Devices
 
 - **CPU**: (Default)
 - **CUDA GPU**: NVIDIA GPUs
-- **Metal/MPS**: Apple Silicon Macs
 
 ## Installation
 
@@ -72,7 +71,6 @@ uv run train --dataset mnist --device auto
 
 # Specify a device
 uv run train --dataset mnist --device gpu    # NVIDIA GPU
-uv run train --dataset mnist --device mps    # Apple Metal
 uv run train --dataset mnist --device cpu    # CPU only
 ```
 
@@ -82,7 +80,7 @@ uv run train --dataset mnist --device cpu    # CPU only
 from mo_net.device import set_default_device, print_device_info
 
 # Set device before creating models or training
-set_default_device("auto")  # or "gpu", "mps", "cpu"
+set_default_device("auto")  # or "gpu", "cpu"
 
 # Check available devices
 print_device_info()
@@ -120,12 +118,6 @@ This will show:
 - Ensure CUDA is installed: `nvidia-smi`
 - Check JAX CUDA version matches your CUDA installation
 - Reinstall JAX with correct CUDA version
-
-### Metal/MPS Not Working
-
-- Ensure you're on macOS 12.0 or later
-- Check that jax-metal is installed: `uv pip show jax-metal`
-- Some operations may fall back to CPU on Metal
 
 ### Performance Issues
 
