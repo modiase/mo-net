@@ -36,6 +36,7 @@ from mo_net.model.module.base import Base, Hidden, Output
 from mo_net.model.module.dense import Dense
 from mo_net.model.module.norm import BatchNormOptions, LayerNormOptions, Norm
 from mo_net.protos import (
+    ActivationFn,
     Activations,
     D,
     Dimensions,
@@ -80,7 +81,7 @@ class Model(ModelBase):
     def mlp_of(
         cls,
         *,
-        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
+        activation_fn: ActivationFn = identity,
         batch_size: None = None,
         dropout_keep_probs: Sequence[float] | None = None,
         key: jax.Array,
@@ -97,7 +98,7 @@ class Model(ModelBase):
     def mlp_of(
         cls,
         *,
-        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
+        activation_fn: ActivationFn = identity,
         batch_size: int,
         dropout_keep_probs: Sequence[float] | None = None,
         key: jax.Array,
@@ -111,7 +112,7 @@ class Model(ModelBase):
     def mlp_of(
         cls,
         *,
-        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
+        activation_fn: ActivationFn = identity,
         batch_size: int | None = None,
         dropout_keep_probs: Sequence[float] | None = None,
         key: jax.Array,

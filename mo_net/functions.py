@@ -52,9 +52,7 @@ def get_activation_fn(name: str) -> ActivationFn:
     return ACTIVATION_FUNCTIONS[name]
 
 
-def parse_activation_fn(
-    ctx: Any, param: Any, value: object
-) -> Callable[[jnp.ndarray], jnp.ndarray]:
+def parse_activation_fn(ctx: Any, param: Any, value: object) -> ActivationFn:
     """Parse activation function from command line."""
     del ctx, param  # unused
     if value is None:
