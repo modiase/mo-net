@@ -336,7 +336,6 @@ def train(
     X_val = X_train[train_size:]
     Y_val = Y_train[train_size:]
 
-    seed = time.time_ns() // 1000
     run = TrainingRun(seed=seed, name=f"cnn_run_{seed}", backend=SqliteBackend())
     optimizer = get_optimizer("adam", model, training_parameters)
 
