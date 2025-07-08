@@ -36,7 +36,6 @@ def identity(x: jnp.ndarray) -> jnp.ndarray:
     return x
 
 
-# Dictionary mapping activation names to JAX functions directly
 ACTIVATION_FUNCTIONS: Mapping[str, ActivationFn] = {
     "relu": jax.nn.relu,
     "tanh": jax.nn.tanh,
