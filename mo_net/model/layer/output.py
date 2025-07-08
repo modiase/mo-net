@@ -148,21 +148,30 @@ class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
         )
         return output_activations
 
+    def backward_prop_with_negative(
+        self,
+        *,
+        Y_true: jnp.ndarray,
+        Y_negative: jnp.ndarray,
+    ) -> D[Activations]:
+        return self._backward_prop(Y_true=Y_true, Y_negative=Y_negative)
+
     def _backward_prop(
         self,
         *,
         Y_true: jnp.ndarray,
+        Y_negative: jnp.ndarray | None = None,
     ) -> D[Activations]:
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
-        return cast(
-            D[Activations],
-            jnp.atleast_1d(
-                output_activations.copy()
-                .at[jnp.arange(Y_true.shape[0]), Y_true]
-                .add(-1.0)
-            ),
-        )
+
+        result = output_activations.copy()
+        result = result.at[jnp.arange(Y_true.shape[0]), Y_true].add(-1.0)
+
+        if Y_negative is not None:
+            result = result.at[jnp.arange(Y_negative.shape[0]), Y_negative].add(1.0)
+
+        return cast(D[Activations], jnp.atleast_1d(result))
 
     @property
     def output_dimensions(self) -> Dimensions:

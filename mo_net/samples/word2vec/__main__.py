@@ -1,35 +1,36 @@
 from __future__ import annotations
 
 import functools
-import re
 import time
-from collections import Counter, defaultdict
 from collections.abc import Collection, Iterator, Sequence
-from dataclasses import dataclass
-from itertools import chain
 from pathlib import Path
-from typing import Callable, ParamSpec, TypeVar, assert_never, cast
+from typing import Callable, Literal, ParamSpec, TypeVar, assert_never, cast
 
 import click
 import jax
 import jax.numpy as jnp
-import msgpack  # type: ignore[import-untyped]
 from loguru import logger
 from more_itertools import windowed
 
-from mo_net import print_device_info
+from build.lib.mnist_numpy.types import Activations, D
 from mo_net.data import DATA_DIR
-from mo_net.functions import sparse_cross_entropy
+from mo_net.device import (
+    DEVICE_TYPES,
+    DeviceType,
+    print_device_info,
+)
+from mo_net.functions import LossFn, sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
+from mo_net.model.layer.base import Hidden as HiddenLayer
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
-from mo_net.model.layer.output import SparseCategoricalSoftmaxOutputLayer
+from mo_net.model.layer.output import OutputLayer, SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
-from mo_net.optimizer.base import Base as BaseOptimizer
-from mo_net.protos import NormalisationType, TrainingStepHandler, d
-from mo_net.resources import get_resource
+from mo_net.protos import Dimensions, NormalisationType
+from mo_net.regulariser.weight_decay import EmbeddingWeightDecayRegulariser
+from mo_net.samples.word2vec.vocab import Vocab, get_training_set
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
@@ -44,132 +45,6 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
-    def __init__(self, *, lambda_: float, batch_size: int, layer: Embedding):
-        self._lambda = lambda_
-        self._layer = layer
-        self._batch_size = batch_size
-
-    def after_compute_update(self, learning_rate: float) -> None:
-        del learning_rate  # unused
-        dP = self._layer.cache.get("dP", self._layer.empty_gradient())  # type: ignore[attr-defined]
-        if dP is None:
-            return
-        self._layer.cache["dP"] = d(
-            dP
-            + Embedding.Parameters(
-                embeddings=self._lambda * self._layer.parameters.embeddings,
-            )
-        )
-
-    def compute_regularisation_loss(self) -> float:
-        return (
-            0.5
-            * self._lambda
-            * jnp.sum(self._layer.parameters.embeddings**2)
-            / self._batch_size
-        ).item()
-
-    def __call__(self) -> float:
-        return self.compute_regularisation_loss()
-
-    @staticmethod
-    def attach(
-        *,
-        lambda_: float,
-        batch_size: int,
-        optimizer: BaseOptimizer,
-        model: CBOWModel,
-    ) -> None:
-        optimizer.register_after_compute_update_handler(
-            EmbeddingWeightDecayRegulariser(
-                lambda_=lambda_, batch_size=batch_size, layer=model.embedding_layer
-            ).after_compute_update
-        )
-
-
-@dataclass(slots=True, frozen=True)
-class Vocab:
-    vocab: tuple[str, ...]
-    token_to_id: dict[str, int]
-    id_to_token: dict[int, str]
-    unknown_token_id: int
-
-    def serialize(self) -> bytes:
-        return msgpack.packb(
-            {
-                "vocab": list(self.vocab),
-                "token_to_id": self.token_to_id,
-                "unknown_token_id": self.unknown_token_id,
-            }
-        )
-
-    @classmethod
-    def deserialize(cls, path: Path) -> Vocab:
-        with open(path, "rb") as f:
-            data = msgpack.unpackb(f.read())
-            return cls(
-                vocab=tuple(data["vocab"]),
-                token_to_id=data["token_to_id"],
-                id_to_token=defaultdict(
-                    lambda: "<unknown>",
-                    {i: token for token, i in data["token_to_id"].items()},
-                ),
-                unknown_token_id=data.get("unknown_token_id", len(data["vocab"])),
-            )
-
-    @classmethod
-    def from_vocab(cls, vocab: Collection[str]) -> Vocab:
-        vocab_tuple = tuple(vocab)
-        return cls(
-            vocab=vocab_tuple,
-            token_to_id={token: i for i, token in enumerate(vocab_tuple)},
-            id_to_token=defaultdict(
-                lambda: "<unknown>",
-                {i: token for i, token in enumerate(vocab_tuple)},
-            ),
-            unknown_token_id=len(vocab_tuple),
-        )
-
-    @classmethod
-    def from_sentences(cls, sentences: Collection[str], max_size: int) -> Vocab:
-        most_common_tokens = [
-            token
-            for token, _ in Counter(
-                token
-                for sentence in sentences
-                if sentence
-                for token in sentence.split()
-            ).most_common(max_size)
-        ]
-
-        vocab_tuple = tuple(most_common_tokens)
-        unknown_token_id = len(vocab_tuple)
-        return cls(
-            vocab=vocab_tuple,
-            token_to_id={token: i for i, token in enumerate(vocab_tuple)},
-            id_to_token=defaultdict(
-                lambda: "<unknown>",
-                {i: token for i, token in enumerate(vocab_tuple)},
-            ),
-            unknown_token_id=unknown_token_id,
-        )
-
-    def __len__(self) -> int:
-        return len(self.vocab) + 1
-
-    def __getitem__(self, token: str) -> int:
-        """Get token ID, returning unknown_token_id if token not in vocabulary"""
-        return self.token_to_id.get(token, self.unknown_token_id)
-
-
-def clean_token(token: str) -> str:
-    """
-    Remove non-printable characters and punctuation
-    """
-    return re.sub(r"[^\w\s]|[^\x20-\x7E]", "", token).lower().strip()
-
-
 def all_windows(
     sentences: Collection[Sequence[int]], window_size: int
 ) -> Iterator[Sequence[int]]:
@@ -182,28 +57,6 @@ def all_windows(
             if all(item is not None for item in window)
         ),
     )
-
-
-def get_training_set(
-    tokenized_sentences: Collection[Sequence[int]], context_size: int, vocab_size: int
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    context, target = zip(
-        *[
-            (
-                tuple(
-                    chain(
-                        sentence[i - context_size : i],
-                        sentence[i + 1 : i + context_size + 1],
-                    )
-                ),
-                sentence[i],
-            )
-            for sentence in tokenized_sentences
-            for i in range(context_size, len(sentence) - context_size)
-        ],
-        strict=True,
-    )
-    return jnp.array(context), jnp.array(list(target))
 
 
 class CBOWModel(Model):
@@ -270,6 +123,120 @@ class CBOWModel(Model):
         return self.embedding_layer.parameters.embeddings
 
 
+class SkipGramModel(Model):
+    def __init__(
+        self,
+        *,
+        hidden: Sequence[Hidden | HiddenLayer],  # noqa: F821
+        input_dimensions: Dimensions,
+        key: jax.Array,
+        negative_samples: int = 5,
+        output: Output | OutputLayer | None = None,
+    ):
+        super().__init__(
+            input_dimensions=input_dimensions, hidden=hidden, output=output
+        )
+        self._key = key
+        self._negative_samples = negative_samples
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "skipgram"
+
+    @classmethod
+    def get_description(cls) -> str:
+        return "Skip-Gram Model"
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        embedding_dim: int,
+        key: jax.Array,
+        negative_samples: int,
+        tracing_enabled: bool = False,
+        vocab_size: int,
+    ) -> SkipGramModel:
+        key1, key2 = jax.random.split(key, 2)
+        return cls(
+            input_dimensions=(1,),
+            hidden=(
+                Hidden(
+                    layers=(
+                        Embedding(
+                            input_dimensions=(1,),
+                            output_dimensions=(
+                                1,
+                                embedding_dim,
+                            ),
+                            vocab_size=vocab_size,
+                            store_output_activations=tracing_enabled,
+                            key=key1,
+                        ),
+                        Average(
+                            input_dimensions=(1, embedding_dim),
+                            axis=0,
+                        ),
+                    )
+                ),
+            ),
+            output=Output(
+                layers=(
+                    Linear(
+                        input_dimensions=(embedding_dim,),
+                        output_dimensions=(vocab_size,),
+                        parameters_init_fn=lambda dim_in,
+                        dim_out: Linear.Parameters.xavier(dim_in, dim_out, key=key2),
+                        store_output_activations=tracing_enabled,
+                    ),
+                ),
+                output_layer=SparseCategoricalSoftmaxOutputLayer(
+                    input_dimensions=(vocab_size,)
+                ),
+            ),
+            key=key,
+            negative_samples=negative_samples,
+        )
+
+    def compute_loss(
+        self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
+    ) -> float:
+        Y_pred = self.forward_prop(X)
+        return jnp.mean(loss_fn(Y_pred, Y_true.flatten())) + sum(
+            contributor() for contributor in self.loss_contributors
+        )
+
+    def backward_prop(self, *, Y_true: jnp.ndarray) -> D[Activations]:
+        batch_size, context_size = Y_true.shape
+        self._key, subkey = jax.random.split(self._key)
+
+        dZ = cast(
+            SparseCategoricalSoftmaxOutputLayer, self.output.output_layer
+        ).backward_prop_with_negative(
+            Y_true=Y_true.flatten(),
+            Y_negative=jax.random.choice(
+                subkey,
+                self.embedding_layer.vocab_size,
+                shape=(batch_size * context_size * self._negative_samples,),
+            ),
+        )
+
+        for layer in reversed(self.output_module.layers):
+            dZ = layer.backward_prop(dZ=dZ)
+
+        for module in reversed(self.hidden_modules):
+            dZ = module.backward_prop(dZ=dZ)
+        return self.input_layer.backward_prop(dZ)
+
+    @property
+    def embedding_layer(self) -> Embedding:
+        return cast(Embedding, self.hidden_modules[0].layers[0])
+
+    @property
+    def embeddings(self) -> jnp.ndarray:
+        return self.embedding_layer.parameters.embeddings
+
+
 class PredictModel(CBOWModel):
     @classmethod
     def get_name(cls) -> str:
@@ -316,10 +283,10 @@ class PredictModel(CBOWModel):
 
 def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
-        "--embedding-dim",
+        "--batch-size",
         type=int,
-        help="Embedding dimension",
-        default=128,
+        help="Batch size",
+        default=10000,
     )
     @click.option(
         "--context-size",
@@ -328,46 +295,16 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=4,
     )
     @click.option(
-        "--batch-size",
+        "--device",
+        type=click.Choice(DEVICE_TYPES),
+        help="Device to use for training (auto will select the best available)",
+        default="auto",
+    )
+    @click.option(
+        "--embedding-dim",
         type=int,
-        help="Batch size",
-        default=10000,
-    )
-    @click.option(
-        "--model-path",
-        type=Path,
-        help="Path to the trained model",
-        default=None,
-    )
-    @click.option(
-        "--num-epochs",
-        type=int,
-        help="Number of epochs",
-        default=100,
-    )
-    @click.option(
-        "--learning-rate",
-        type=float,
-        help="Learning rate",
-        default=1e-4,
-    )
-    @click.option(
-        "--warmup-epochs",
-        type=int,
-        help="Warmup epochs",
-        default=5,
-    )
-    @click.option(
-        "--model-output-path",
-        type=Path,
-        help="Path to save the trained model",
-        default=None,
-    )
-    @click.option(
-        "--log-level",
-        type=LogLevel,
-        help="Log level",
-        default=LogLevel.INFO,
+        help="Embedding dimension",
+        default=128,
     )
     @click.option(
         "--lambda",
@@ -377,10 +314,58 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=1e-5,
     )
     @click.option(
+        "--learning-rate",
+        type=float,
+        help="Learning rate",
+        default=1e-4,
+    )
+    @click.option(
+        "--log-level",
+        type=LogLevel,
+        help="Log level",
+        default=LogLevel.INFO,
+    )
+    @click.option(
+        "--model-output-path",
+        type=Path,
+        help="Path to save the trained model",
+        default=None,
+    )
+    @click.option(
+        "--model-path",
+        type=Path,
+        help="Path to the trained model",
+        default=None,
+    )
+    @click.option(
+        "--model-type",
+        type=click.Choice(["cbow", "skipgram"]),
+        help="Model type",
+        default="cbow",
+    )
+    @click.option(
+        "--negative-samples",
+        type=int,
+        help="Number of negative samples",
+        default=5,
+    )
+    @click.option(
+        "--num-epochs",
+        type=int,
+        help="Number of epochs",
+        default=100,
+    )
+    @click.option(
         "--vocab-size",
         type=int,
         help="Maximum vocabulary size",
         default=1000,
+    )
+    @click.option(
+        "--warmup-epochs",
+        type=int,
+        help="Warmup epochs",
+        default=5,
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -391,44 +376,38 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
 
 @click.group()
 def cli():
-    """CBOW (Continuous Bag of Words) model CLI"""
-    pass
+    """Word2Vec model CLI"""
 
 
-@cli.command("train", help="Train a CBOW model")
+@cli.command("train", help="Train a Word2Vec model")
 @training_options
 def train(
-    embedding_dim: int,
-    context_size: int,
+    *,
     batch_size: int,
-    num_epochs: int,
-    learning_rate: float,
+    context_size: int,
+    device: DeviceType,
+    embedding_dim: int,
     lambda_: float,
-    warmup_epochs: int,
-    model_path: Path | None,
-    model_output_path: Path | None,
+    learning_rate: float,
     log_level: LogLevel,
+    model_output_path: Path | None,
+    model_path: Path | None,
+    model_type: Literal["cbow", "skipgram"],
+    negative_samples: int,
+    num_epochs: int,
     vocab_size: int,
+    warmup_epochs: int,
 ):
-    """Train a CBOW model on Shakespeare text"""
+    """Train a Word2Vec model on English text"""
     setup_logging(log_level)
 
     print_device_info()
 
-    sentences = (
-        get_resource("s3://mo-net-resources/english-sentences.txt")
-        .read_text()
-        .split("\n")
-    )[:100000]
-    vocab = Vocab.from_sentences(sentences, max_size=vocab_size)
+    vocab, tokenized_sentences = Vocab.english_sentences(max_vocab_size=vocab_size)
 
-    tokenized_sentences = [
-        [vocab[token] for token in sentence.split()]
-        for sentence in sentences
-        if sentence
-    ]
-
-    X_train, Y_train = get_training_set(tokenized_sentences, context_size, len(vocab))
+    X_train, Y_train = get_training_set(tokenized_sentences, context_size)
+    if model_type == "skipgram":
+        Y_train, X_train = X_train, Y_train
 
     logger.info(f"Vocabulary size: {len(vocab)}")
     logger.info(f"Embedding dimension: {embedding_dim}")
@@ -439,16 +418,28 @@ def train(
     logger.info(f"Using seed: {seed}")
     key = jax.random.PRNGKey(seed)
 
-    if model_path is None:
-        model = CBOWModel.create(
-            context_size=context_size,
-            embedding_dim=embedding_dim,
-            key=key,
-            tracing_enabled=False,
-            vocab_size=len(vocab),
-        )
+    if model_path is not None:
+        model = Model.load(model_path, training=True)
     else:
-        model = CBOWModel.load(model_path, training=True)
+        match model_type:
+            case "cbow":
+                model = CBOWModel.create(
+                    context_size=context_size,
+                    embedding_dim=embedding_dim,
+                    key=key,
+                    tracing_enabled=False,
+                    vocab_size=len(vocab),
+                )
+            case "skipgram":
+                model = SkipGramModel.create(
+                    embedding_dim=embedding_dim,
+                    key=key,
+                    tracing_enabled=False,
+                    vocab_size=len(vocab),
+                    negative_samples=negative_samples,
+                )
+            case never:
+                assert_never(never)
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -476,8 +467,9 @@ def train(
     X_val = X_train[train_size:]
     Y_val = Y_train[train_size:]
 
-    seed = time.time_ns() // 1000
-    logger.info(f"Using seed: {seed}")
+    if model_type == "skipgram":
+        X_train_split = X_train_split.reshape(-1, 1)
+        X_val = X_val.reshape(-1, 1)
 
     run = TrainingRun(seed=seed, name=f"cbow_run_{seed}", backend=SqliteBackend())
     optimizer = get_optimizer("adam", model, training_parameters)
@@ -501,7 +493,9 @@ def train(
         key=jax.random.PRNGKey(seed),
     )
 
-    logger.info(f"Starting CBOW training with {len(X_train_split)} training samples")
+    logger.info(
+        f"Starting {model_type} training with {len(X_train_split)} training samples"
+    )
     result = trainer.train()
 
     match result:
@@ -568,7 +562,9 @@ def infer(
         cbow_model=cbow_model, context_width=context_width, key=subkey
     )
 
-    tokens = [clean_token(token) for token in prompt.split() if clean_token(token)]
+    tokens = [
+        Vocab.clean_token(token) for token in prompt.split() if Vocab.clean_token(token)
+    ]
     if not tokens:
         raise click.ClickException("No valid tokens found in prompt")
 
