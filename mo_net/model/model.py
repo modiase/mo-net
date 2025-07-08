@@ -10,7 +10,6 @@ from operator import itemgetter
 from pathlib import Path
 from typing import (
     IO,
-    Callable,
     Literal,
     Self,
     Sequence,
