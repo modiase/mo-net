@@ -22,7 +22,7 @@ from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm.batch_norm_2d import BatchNorm2D
 from mo_net.model.layer.convolution import Convolution2D
 from mo_net.model.layer.linear import Linear
-from mo_net.model.layer.output import SparseCategoricalCrossentropyOutputLayer
+from mo_net.model.layer.output import SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.layer.pool import MaxPooling2D
 from mo_net.model.layer.reshape import Flatten
 from mo_net.model.model import Model
@@ -187,7 +187,7 @@ class CNNModel(Model):
                         store_output_activations=tracing_enabled,
                     ),
                 ),
-                output_layer=SparseCategoricalCrossentropyOutputLayer(
+                output_layer=SparseCategoricalSoftmaxOutputLayer(
                     input_dimensions=(N_DIGITS,)
                 ),
             ),

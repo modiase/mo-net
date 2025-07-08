@@ -29,7 +29,7 @@ from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
-from mo_net.model.layer.output import SparseCategoricalCrossentropyOutputLayer
+from mo_net.model.layer.output import SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.optimizer.base import Base as BaseOptimizer
@@ -260,7 +260,7 @@ class CBOWModel(Model):
                         store_output_activations=tracing_enabled,
                     ),
                 ),
-                output_layer=SparseCategoricalCrossentropyOutputLayer(
+                output_layer=SparseCategoricalSoftmaxOutputLayer(
                     input_dimensions=(vocab_size,)
                 ),
             ),

@@ -122,7 +122,7 @@ class RawOutputLayer(SoftmaxOutputLayer):
         return input_activations
 
 
-class SparseCategoricalCrossentropyOutputLayer(OutputLayer):
+class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: tuple[int, ...]
@@ -132,9 +132,9 @@ class SparseCategoricalCrossentropyOutputLayer(OutputLayer):
             *,
             training: bool = False,
             freeze_parameters: bool = False,
-        ) -> SparseCategoricalCrossentropyOutputLayer:
+        ) -> SparseCategoricalSoftmaxOutputLayer:
             del training, freeze_parameters  # unused
-            return SparseCategoricalCrossentropyOutputLayer(
+            return SparseCategoricalSoftmaxOutputLayer(
                 input_dimensions=self.input_dimensions,
             )
 
@@ -168,5 +168,5 @@ class SparseCategoricalCrossentropyOutputLayer(OutputLayer):
     def output_dimensions(self) -> Dimensions:
         return self._input_dimensions
 
-    def serialize(self) -> SparseCategoricalCrossentropyOutputLayer.Serialized:
+    def serialize(self) -> SparseCategoricalSoftmaxOutputLayer.Serialized:
         return self.Serialized(input_dimensions=tuple(self._input_dimensions))
