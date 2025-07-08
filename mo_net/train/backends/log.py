@@ -239,31 +239,34 @@ class SqliteBackend(LoggingBackend):
                 self._pending_entries.clear()
 
     def _flush_batch(self, entries: Sequence[LogEntry], run_id: int) -> None:
-        with self._session_maker() as session:
-            if run := session.get(DbRun, run_id):
-                latest = entries[-1]
-                run.current_batch = latest.batch
-                run.current_batch_loss = latest.batch_loss
-                run.current_epoch = latest.epoch
-                run.current_learning_rate = latest.learning_rate
-                run.current_val_loss = latest.val_loss
-                run.current_timestamp = latest.timestamp
-                run.updated_at = latest.timestamp
+        try:
+            with self._session_maker() as session:
+                if run := session.get(DbRun, run_id):
+                    latest = entries[-1]
+                    run.current_batch = latest.batch
+                    run.current_batch_loss = latest.batch_loss
+                    run.current_epoch = latest.epoch
+                    run.current_learning_rate = latest.learning_rate
+                    run.current_val_loss = latest.val_loss
+                    run.current_timestamp = latest.timestamp
+                    run.updated_at = latest.timestamp
 
-                for entry in entries:
-                    session.add(
-                        Iteration(
-                            run_id=run.id,
-                            batch_loss=entry.batch_loss,
-                            batch=entry.batch,
-                            epoch=entry.epoch,
-                            learning_rate=entry.learning_rate,
-                            timestamp=entry.timestamp,
-                            val_loss=entry.val_loss,
+                    for entry in entries:
+                        session.add(
+                            Iteration(
+                                run_id=run.id,
+                                batch_loss=entry.batch_loss,
+                                batch=entry.batch,
+                                epoch=entry.epoch,
+                                learning_rate=entry.learning_rate,
+                                timestamp=entry.timestamp,
+                                val_loss=entry.val_loss,
+                            )
                         )
-                    )
 
-                session.commit()
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Error flushing batch: {e}")
 
     def get_run(self, run_id: int) -> DbRun | None:
         if not self._session:
