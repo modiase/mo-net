@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import pickle
 from collections.abc import Callable, Mapping, MutableSequence
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from typing import (
     overload,
 )
 
+import jax
 import jax.numpy as jnp
 from more_itertools import first, last, pairwise
 
@@ -79,13 +81,15 @@ class Model(ModelBase):
     def mlp_of(
         cls,
         *,
-        module_dimensions: Sequence[Dimensions],
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
-        regularisers: Sequence[Regulariser] = (),
+        batch_size: None = None,
+        dropout_keep_probs: Sequence[float] | None = None,
+        key: jax.Array,
+        module_dimensions: Sequence[Dimensions],
         normalisation_type: Literal[NormalisationType.NONE, NormalisationType.LAYER] = (
             NormalisationType.NONE
         ),
-        batch_size: None = None,
+        regularisers: Sequence[Regulariser] = (),
         tracing_enabled: bool = False,
     ) -> Self: ...
 
@@ -94,11 +98,13 @@ class Model(ModelBase):
     def mlp_of(
         cls,
         *,
-        module_dimensions: Sequence[Dimensions],
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
-        regularisers: Sequence[Regulariser] = (),
-        normalisation_type: Literal[NormalisationType.BATCH],
         batch_size: int,
+        dropout_keep_probs: Sequence[float] | None = None,
+        key: jax.Array,
+        module_dimensions: Sequence[Dimensions],
+        normalisation_type: Literal[NormalisationType.BATCH],
+        regularisers: Sequence[Regulariser] = (),
         tracing_enabled: bool = False,
     ) -> Self: ...
 
@@ -106,13 +112,14 @@ class Model(ModelBase):
     def mlp_of(
         cls,
         *,
-        module_dimensions: Sequence[Dimensions],
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = identity,
-        regularisers: Sequence[Regulariser] = (),
-        normalisation_type: NormalisationType = NormalisationType.NONE,
         batch_size: int | None = None,
-        tracing_enabled: bool = False,
         dropout_keep_probs: Sequence[float] | None = None,
+        key: jax.Array,
+        module_dimensions: Sequence[Dimensions],
+        normalisation_type: NormalisationType = NormalisationType.NONE,
+        regularisers: Sequence[Regulariser] = (),
+        tracing_enabled: bool = False,
     ) -> Self:
         if len(module_dimensions) < 2:
             raise ValueError(f"{cls.__name__} must have at least 2 layers.")
@@ -123,21 +130,31 @@ class Model(ModelBase):
         model_input_dimension, model_hidden_dimensions, model_output_dimension = (
             itemgetter(0, slice(1, -1), -1)(module_dimensions)
         )
-        Module: Callable[[Dimensions, Dimensions], Hidden]
+        ModuleFactory: Callable[[Dimensions, Dimensions], Hidden]
         match normalisation_type:
             case NormalisationType.LAYER:
-                Module = partial(
-                    Norm,
-                    activation_fn=activation_fn,
-                    store_output_activations=tracing_enabled,
-                    options=LayerNormOptions(),
-                )
+
+                def _factory(
+                    input_dimensions: Dimensions, output_dimensions: Dimensions
+                ) -> Hidden:
+                    nonlocal key
+                    key, subkey = jax.random.split(key)
+                    return Norm(
+                        input_dimensions=input_dimensions,
+                        output_dimensions=output_dimensions,
+                        activation_fn=activation_fn,
+                        store_output_activations=tracing_enabled,
+                        options=LayerNormOptions(),
+                        key=subkey,
+                    )
+
+                ModuleFactory = _factory
             case NormalisationType.BATCH:
                 if batch_size is None:
                     raise ValueError(
                         "Batch size must be provided when using batch normalisation."
                     )
-                Module = partial(
+                ModuleFactory = partial(
                     Norm,
                     activation_fn=activation_fn,
                     store_output_activations=tracing_enabled,
@@ -146,7 +163,7 @@ class Model(ModelBase):
                     ),
                 )
             case NormalisationType.NONE:
-                Module = partial(
+                ModuleFactory = partial(
                     Dense,
                     activation_fn=activation_fn,
                     store_output_activations=tracing_enabled,
@@ -155,7 +172,7 @@ class Model(ModelBase):
                 assert_never(never)
 
         hidden_modules: Sequence[Hidden] = tuple(
-            Module(  # type: ignore[call-arg]
+            ModuleFactory(  # type: ignore[call-arg]
                 input_dimensions=input_dimensions,
                 output_dimensions=output_dimensions,
             )
@@ -164,16 +181,16 @@ class Model(ModelBase):
             )
         )
 
+        key, subkey = jax.random.split(key)
         output_module = Output(
             layers=tuple(
                 [
                     Linear(
-                        input_dimensions=(
-                            input_dimensions := last(model_hidden_dimensions)
-                        ),
+                        input_dimensions=(last(model_hidden_dimensions)),
                         output_dimensions=model_output_dimension,
-                        parameters=Linear.Parameters.xavier(
-                            dim_in=input_dimensions, dim_out=model_output_dimension
+                        parameters=functools.partial(
+                            Linear.Parameters.xavier,
+                            key=subkey,
                         ),
                         store_output_activations=tracing_enabled,
                     ),
@@ -191,10 +208,12 @@ class Model(ModelBase):
         for regulariser in regularisers:
             regulariser(model)
         if dropout_keep_probs:
+            key, subkey = jax.random.split(key)
             Dropout.attach_dropout_layers(  # noqa: F821
                 model=model,
                 keep_probs=dropout_keep_probs,
                 training=True,
+                key=subkey,
             )
         return model
 
@@ -261,11 +280,11 @@ class Model(ModelBase):
         return self._output_module
 
     def forward_prop(self, X: jnp.ndarray) -> Activations:
-        activations = self.input_layer.forward_prop(X)
+        activations = self.input_layer.forward_prop(Activations(X))
         for module in self.hidden_modules:
             activations = module.forward_prop(input_activations=activations)
         activations = self.output_module.forward_prop(input_activations=activations)
-        return self.output_module.output_layer._cache["output_activations"]
+        return activations
 
     def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
         dZ = self.output_module.backward_prop(Y_true=Y_true)
@@ -323,7 +342,7 @@ class Model(ModelBase):
     def compute_loss(
         self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
     ) -> float:
-        Y_pred = self.forward_prop(X)
+        Y_pred = self.forward_prop(Activations(X))
         return loss_fn(Y_pred, Y_true) + sum(
             contributor() for contributor in self.loss_contributors
         )

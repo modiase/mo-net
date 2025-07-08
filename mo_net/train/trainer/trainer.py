@@ -336,10 +336,10 @@ class BasicTrainer:
                     self._L_val_min_epoch = self._training_parameters.current_epoch(i)
                     self._model.dump(open(self._model_checkpoint_path, "wb"))
 
-                if (check := self._post_epoch(L_val)) is not None:
+                if (post_epoch_check := self._post_epoch(L_val)) is not None:
                     return TrainingFailed(
                         model_checkpoint_path=self._model_checkpoint_path,
-                        message=check.message,
+                        message=post_epoch_check.message,
                         model_checkpoint_save_epoch=self._L_val_min_epoch,
                     )
 

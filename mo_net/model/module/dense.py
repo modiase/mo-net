@@ -1,3 +1,5 @@
+import jax
+
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.linear import Linear
 from mo_net.model.module.base import Hidden
@@ -11,6 +13,7 @@ class Dense(Hidden):
         output_dimensions: Dimensions,
         *,
         activation_fn: ActivationFn,
+        key: jax.Array,
         store_output_activations: bool = False,
     ):
         super().__init__(
@@ -20,9 +23,10 @@ class Dense(Hidden):
                         output_dimensions=output_dimensions,
                         input_dimensions=input_dimensions,
                         parameters=Linear.Parameters.appropriate(
+                            activation_fn=activation_fn,
                             dim_in=input_dimensions,
                             dim_out=output_dimensions,
-                            activation_fn=activation_fn,
+                            key=key,
                         ),
                         store_output_activations=store_output_activations,
                     ),

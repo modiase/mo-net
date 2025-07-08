@@ -1,5 +1,5 @@
 import threading
-from collections.abc import Collection, MutableSequence
+from collections.abc import MutableSequence, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -188,9 +188,9 @@ class SqliteBackend(LoggingBackend):
         self._current_run = None
 
     def teardown(self) -> None:
-        if self._pending_entries:
+        if self._current_run is not None and self._pending_entries:
             with self._lock:
-                self._flush_batch(self._pending_entries.copy())
+                self._flush_batch(self._pending_entries, run_id=self._current_run.id)
                 self._pending_entries.clear()
 
         if self._session:
@@ -220,6 +220,7 @@ class SqliteBackend(LoggingBackend):
 
         self._executor.submit(
             self._log_iteration_sync,
+            run_id=self._current_run.id,
             entry=LogEntry(
                 batch_loss=batch_loss,
                 val_loss=val_loss,
@@ -230,16 +231,16 @@ class SqliteBackend(LoggingBackend):
             ),
         )
 
-    def _log_iteration_sync(self, *, entry: LogEntry) -> None:
+    def _log_iteration_sync(self, *, run_id: int, entry: LogEntry) -> None:
         with self._lock:
             self._pending_entries.append(entry)
             if len(self._pending_entries) >= self._batch_size:
-                self._flush_batch(self._pending_entries.copy())
+                self._flush_batch(self._pending_entries, run_id=run_id)
                 self._pending_entries.clear()
 
-    def _flush_batch(self, entries: Collection[LogEntry]) -> None:
+    def _flush_batch(self, entries: Sequence[LogEntry], run_id: int) -> None:
         with self._session_maker() as session:
-            if run := session.get(DbRun, self._current_run.id):
+            if run := session.get(DbRun, run_id):
                 latest = entries[-1]
                 run.current_batch = latest.batch
                 run.current_batch_loss = latest.batch_loss

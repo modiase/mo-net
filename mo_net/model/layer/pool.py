@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from mo_net.model.layer.base import Hidden
-from mo_net.protos import Activations, D, Dimensions, d
+from mo_net.protos import Activations, D, Dimensions
 
 
 class Cache(TypedDict):
@@ -75,10 +75,8 @@ class MaxPooling2D(Hidden):
         batch_size, channels, _, _ = input_activations.shape
         _, h_out, w_out = self.output_dimensions
 
-        # Ensure input is float type for JAX operations
         input_float = jnp.asarray(input_activations, dtype=jnp.float32)
 
-        # Use JAX's reduce_window for max pooling
         output = lax.reduce_window(
             input_float,
             init_value=jnp.finfo(input_float.dtype).min,
@@ -88,62 +86,48 @@ class MaxPooling2D(Hidden):
             padding="VALID",
         )
 
-        # For backward pass, we need to track which elements were selected
-        # We'll compute this by comparing the pooled output with the input
-        self._cache["input_activations"] = input_float  # Store float version
-        self._cache["max_indices"] = output  # Store output for backward pass
+        self._cache["input_activations"] = Activations(input_float)
+        self._cache["max_indices"] = output
 
         return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         input_activations = self._cache["input_activations"]
-        pooled_output = self._cache["max_indices"]  # This is actually the pooled output
+        pooled_output = self._cache["max_indices"]
         if input_activations is None:
             raise ValueError("Input activations were not set during forward pass.")
         if pooled_output is None:
             raise ValueError("Pooled output was not set during forward pass.")
 
-        batch_size, channels, in_h, in_w = input_activations.shape
         _, _, out_h, out_w = pooled_output.shape
 
-        # Initialize gradient w.r.t input
         dX = jnp.zeros_like(input_activations)
 
-        # Create a view of the input that matches the pooling windows
-        # We'll iterate over output positions and find max locations
         for h_out in range(out_h):
             for w_out in range(out_w):
-                # Determine the window boundaries
                 h_start = h_out * self._stride_h
                 h_end = h_start + self._pool_h
                 w_start = w_out * self._stride_w
                 w_end = w_start + self._pool_w
 
-                # Get the window from input for all batches and channels
                 window = input_activations[:, :, h_start:h_end, w_start:w_end]
 
-                # Get the corresponding pooled values
                 pooled_vals = pooled_output[:, :, h_out : h_out + 1, w_out : w_out + 1]
 
-                # Create a mask for positions that equal the max
                 mask = (window == pooled_vals).astype(jnp.float32)
 
-                # Count how many positions have the max value (for handling ties)
                 counts = jnp.sum(mask, axis=(2, 3), keepdims=True)
-                counts = jnp.maximum(counts, 1.0)  # Avoid division by zero
+                counts = jnp.maximum(counts, 1.0)
 
-                # Normalize the mask to distribute gradients equally
                 mask = mask / counts
 
-                # Get the gradients for this output position
                 grad_out = cast(jnp.ndarray, dZ)[
                     :, :, h_out : h_out + 1, w_out : w_out + 1
                 ]
 
-                # Apply gradients to the window
                 dX = dX.at[:, :, h_start:h_end, w_start:w_end].add(mask * grad_out)
 
-        return d(Activations(dX))
+        return cast(D[Activations], dX)
 
     def serialize(self) -> MaxPooling2D.Serialized:
         channels, height, width = self.input_dimensions

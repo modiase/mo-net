@@ -36,7 +36,7 @@ class WeightDecayRegulariser(TrainingStepHandler):
             * self._lambda
             * jnp.sum(self._layer.parameters.weights**2)
             / self._batch_size
-        )
+        ).item()
 
     def __call__(self) -> float:
         return self.compute_regularisation_loss()

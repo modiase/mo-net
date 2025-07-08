@@ -9,11 +9,12 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
-import jax.random as random
 import matplotlib.pyplot as plt
 from loguru import logger
 
+from mo_net.functions import sparse_cross_entropy
 from mo_net.model.model import Model
 
 
@@ -116,6 +117,7 @@ def visualize_inputs_with_outputs(
 
 def train_input_vector(
     *,
+    key: jax.Array,
     learning_rate: float,
     model_path: Path,
     num_iterations: int,
@@ -150,8 +152,10 @@ def train_input_vector(
     )
     logger.info(f"Number of classes: {num_classes}")
 
-    key = random.PRNGKey(0)
-    input_vector = random.uniform(key, (num_classes, *input_dimensions), 0, 0.1)
+    key = jax.random.split(key)[0]
+    input_vector = jax.random.uniform(
+        key, (num_classes, *input_dimensions), jnp.float32, 0, 0.1
+    )
     logger.info(f"Created trainable input vector with shape: {input_vector.shape}")
 
     targets = create_one_hot_targets(num_classes)
@@ -170,13 +174,17 @@ def train_input_vector(
     for iteration in range(num_iterations):
         frozen_model.forward_prop(input_vector)
 
-        classification_loss = frozen_model.compute_loss(input_vector, targets)
+        classification_loss = frozen_model.compute_loss(
+            input_vector, targets, loss_fn=sparse_cross_entropy
+        )
 
         regularization_loss = (
             regularization_strength * jnp.sum(input_vector**2) / num_classes
-        )
+        ).item()
 
-        sparsity_loss = sparsity_strength * jnp.sum(jnp.abs(input_vector)) / num_classes
+        sparsity_loss = (
+            sparsity_strength * jnp.sum(jnp.abs(input_vector)) / num_classes
+        ).item()
 
         total_loss = classification_loss + regularization_loss + sparsity_loss
         loss_history.append(total_loss)

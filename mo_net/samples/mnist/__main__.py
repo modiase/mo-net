@@ -1,8 +1,10 @@
 import sys
+import time
 from pathlib import Path
 from typing import Final
 
 import click
+import jax
 import jax.numpy as jnp
 from loguru import logger
 from matplotlib import pyplot as plt
@@ -167,13 +169,20 @@ def infer(
     default=False,
 )
 def sample_data(*, dataset_url: str, with_transformed: bool):
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+    key = jax.random.PRNGKey(seed)
     X_train = load_data(dataset_url)[0]
     sample_indices = sample(range(len(X_train)), 25)
+    transform = affine_transform2D(
+        x_size=MNIST_IMAGE_SIZE,
+        y_size=MNIST_IMAGE_SIZE,
+    )
+    key = jax.random.split(key)[0]
     if with_transformed:
-        for i in sample_indices:
-            X_train[i] = affine_transform2D(
-                X_train[i], MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE
-            )
+        X_train = X_train.at[sample_indices].set(
+            jax.vmap(transform, in_axes=0, out_axes=0)(X_train[sample_indices], key)
+        )
     X_train = X_train.reshape(-1, MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE)
     for idx, i in enumerate(sample_indices):
         plt.subplot(5, 5, idx + 1)

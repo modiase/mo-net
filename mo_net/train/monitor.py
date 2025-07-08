@@ -116,7 +116,7 @@ class Monitor:
         if self._running_update_count > self._warmup_batches:
             if (
                 weight_gradients_max_Z_score := jnp.max(weight_gradients_max_Z_scores)
-            ) > max(
+            ) > jnp.maximum(
                 MAX_Z_SCORE_UPPER_BOUND / jnp.log(jnp.log(self._running_update_count)),
                 MAX_Z_SCORE_LOWER_BOUND,
             ):

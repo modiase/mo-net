@@ -182,10 +182,12 @@ async def validate(**kwargs) -> None:
                     f"Cross-validation finished. {len([r for r in enumerate(results) if r is not None])}/{n_splits} runs were successful."
                 )
 
-                min_val_losses = [
-                    _get_min_val_loss(split_index, Path(tmp_dir_name))
-                    for split_index in range(n_splits)
-                ]
+                min_val_losses = jnp.array(
+                    [
+                        _get_min_val_loss(split_index, Path(tmp_dir_name))
+                        for split_index in range(n_splits)
+                    ]
+                )
 
     logger.info(
         "\nValidation Loss Statistics:"

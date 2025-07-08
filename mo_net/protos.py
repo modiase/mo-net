@@ -9,12 +9,6 @@ from typing_extensions import runtime_checkable
 
 Activations = NewType("Activations", jnp.ndarray)
 
-_X = TypeVar("_X", bound=jnp.ndarray | float)
-
-
-ActivationFnName = NewType("ActivationFnName", str)
-
-
 type ActivationFn = Callable[[jnp.ndarray], jnp.ndarray]
 
 

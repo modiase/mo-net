@@ -287,7 +287,7 @@ class BatchNorm(ParametrisedHidden[ParametersType, CacheType]):
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = Activations(normalised_activations)
 
-        return (
+        return Activations(
             self._parameters.weights * normalised_activations + self._parameters.biases
         )
 

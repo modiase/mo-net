@@ -10,7 +10,7 @@ from loguru import logger
 
 from mo_net import PROJECT_ROOT_DIR
 from mo_net.log import LogLevel, log_result
-from mo_net.resources import MNIST_TRAIN_URL, get_resource
+from mo_net.resources import get_resource
 
 DATA_DIR: Final[Path] = PROJECT_ROOT_DIR / "data"
 DEFAULT_TRAIN_SPLIT: Final[float] = 0.8
@@ -75,7 +75,7 @@ def _load_data(data_path: Path, *, one_hot: bool) -> tuple[jnp.ndarray, jnp.ndar
         (
             jnp.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()]
             if one_hot
-            else df.iloc[:, 0].to_numpy()
+            else jnp.array(df.iloc[:, 0].to_numpy())
         ),
     )
 
@@ -96,12 +96,12 @@ def _load_data_split(
     Y_train = (
         jnp.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
         if one_hot
-        else training_set.iloc[:, 0].to_numpy()
+        else jnp.array(training_set.iloc[:, 0].to_numpy())
     )
     Y_val = (
         jnp.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
         if one_hot
-        else val_set.iloc[:, 0].to_numpy()
+        else jnp.array(val_set.iloc[:, 0].to_numpy())
     )
 
     X_train = jnp.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
@@ -141,9 +141,3 @@ def load_data(
         if split
         else _load_data(data_path, one_hot=one_hot)
     )
-
-
-def infer_dataset_url(quickstart: str | None) -> str | None:
-    if quickstart == "mnist_mlp" or quickstart == "mnist_cnn":
-        return MNIST_TRAIN_URL
-    return None

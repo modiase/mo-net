@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypedDict, TypeVar
+from typing import TypedDict, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -74,7 +74,7 @@ class SoftmaxOutputLayer(OutputLayer):
         input_activations: Activations,
     ) -> Activations:
         self._cache["output_activations"] = (
-            output_activations := jax.nn.softmax(input_activations)
+            output_activations := Activations(jax.nn.softmax(input_activations))
         )
         return output_activations
 
@@ -143,11 +143,9 @@ class SparseCategoricalCrossentropyOutputLayer(OutputLayer):
         *,
         input_activations: Activations,
     ) -> Activations:
-        # Store both raw logits and softmax outputs for backward pass
         self._cache["output_activations"] = (
-            output_activations := jax.nn.softmax(input_activations)
+            output_activations := Activations(jax.nn.softmax(input_activations))
         )
-        self._cache["logits"] = input_activations
         return output_activations
 
     def _backward_prop(
@@ -157,28 +155,14 @@ class SparseCategoricalCrossentropyOutputLayer(OutputLayer):
     ) -> D[Activations]:
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
-
-        # Y_true contains integer indices
-        # For sparse categorical crossentropy, the gradient is:
-        # ∂L/∂z_i = softmax(z_i) - δ(i, target)
-        # where δ(i, target) = 1 if i == target, 0 otherwise
-
-        # Create a sparse gradient: subtract 1 from the target index position
-        # and keep all other positions as softmax outputs
-        vocab_size = self._input_dimensions[0]
-
-        # Use advanced indexing to efficiently compute the gradient
-        # This avoids creating the full one-hot matrix
-        batch_size = Y_true.shape[0]
-        batch_indices = jnp.arange(batch_size)
-
-        # Start with softmax outputs
-        gradient = output_activations.copy()
-
-        # Subtract 1 from the target positions
-        gradient = gradient.at[batch_indices, Y_true].add(-1.0)
-
-        return jnp.atleast_1d(gradient)
+        return cast(
+            D[Activations],
+            jnp.atleast_1d(
+                output_activations.copy()
+                .at[jnp.arange(Y_true.shape[0]), Y_true]
+                .add(-1.0)
+            ),
+        )
 
     @property
     def output_dimensions(self) -> Dimensions:

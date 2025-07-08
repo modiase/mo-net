@@ -1,25 +1,26 @@
+from collections.abc import Mapping
 from typing import Any, Callable, Literal
 
 import jax
 import jax.numpy as jnp
 
-from mo_net.protos import ActivationFnName
+from mo_net.protos import ActivationFn
 
 type TransformFn = Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]
 
-type LossFn = Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+type LossFn = Callable[[jnp.ndarray, jnp.ndarray], float]
 
 
-def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
+def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> float:
     return -jnp.mean(
         jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15)), axis=-1)
-    )
+    ).item()
 
 
-def sparse_cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
+def sparse_cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> float:
     return -jnp.mean(
         jnp.log(jnp.clip(Y_pred[jnp.arange(Y_true.shape[0]), Y_true], 1e-15, 1 - 1e-15))
-    )
+    ).item()
 
 
 def get_loss_fn(name: Literal["cross_entropy", "sparse_cross_entropy"]) -> LossFn:
@@ -36,7 +37,7 @@ def identity(x: jnp.ndarray) -> jnp.ndarray:
 
 
 # Dictionary mapping activation names to JAX functions directly
-ACTIVATION_FUNCTIONS = {
+ACTIVATION_FUNCTIONS: Mapping[str, ActivationFn] = {
     "relu": jax.nn.relu,
     "tanh": jax.nn.tanh,
     "softmax": jax.nn.softmax,
@@ -45,7 +46,7 @@ ACTIVATION_FUNCTIONS = {
 }
 
 
-def get_activation_fn(name: ActivationFnName) -> Callable[[jnp.ndarray], jnp.ndarray]:
+def get_activation_fn(name: str) -> ActivationFn:
     """Get activation function by name."""
     if name not in ACTIVATION_FUNCTIONS:
         raise ValueError(f"Unknown activation function: {name}")

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 import h5py
-import inquirer
+import inquirer  # type: ignore[import-not-found]
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from loguru import logger

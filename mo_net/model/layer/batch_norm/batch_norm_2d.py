@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, Self
+from typing import IO, Self, cast
 
 import jax.numpy as jnp
 
@@ -224,41 +224,62 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             parameters if parameters is not None else self.empty_parameters()
         )
 
-    def _forward_prop(self, *, input_activations: Activations) -> Activations:
+    def _compute_activations_training(
+        self, *, input_activations: Activations
+    ) -> Activations:
+        """Compute activations in training mode."""
         batch_size, n_channels = input_activations.shape[:2]
         reshaped_input = input_activations.reshape(batch_size, n_channels, -1)
         batch_mean = jnp.mean(reshaped_input, axis=(0, 2))
         batch_variance = jnp.var(reshaped_input, axis=(0, 2))
 
-        if self._training:
-            self._running_mean = (
-                self._momentum * self._running_mean + (1 - self._momentum) * batch_mean
-            )
-            self._running_variance = (
-                self._momentum * self._running_variance
-                + (1 - self._momentum) * batch_variance
-            )
+        self._running_mean = (
+            self._momentum * self._running_mean + (1 - self._momentum) * batch_mean
+        )
+        self._running_variance = (
+            self._momentum * self._running_variance
+            + (1 - self._momentum) * batch_variance
+        )
 
-            normalised_activations = (
-                input_activations - batch_mean[:, None, None]
-            ) / jnp.sqrt(batch_variance[:, None, None] + EPSILON)
-            self._cache.update(
-                {
-                    "input_activations": input_activations,
-                    "mean": batch_mean,
-                    "var": batch_variance,
-                    "batch_size": batch_size,
-                }
+        normalised_activations = (
+            input_activations - batch_mean[:, None, None]
+        ) / jnp.sqrt(batch_variance[:, None, None] + EPSILON)
+
+        self._cache.update(
+            {
+                "input_activations": input_activations,
+                "mean": batch_mean,
+                "var": batch_variance,
+                "batch_size": batch_size,
+            }
+        )
+
+        return Activations(normalised_activations)
+
+    def _compute_activations_non_training(
+        self, *, input_activations: Activations
+    ) -> Activations:
+        """Compute activations in non-training mode."""
+        normalised_activations = Activations(
+            input_activations - self._running_mean[:, None, None]
+        ) / jnp.sqrt(self._running_variance[:, None, None] + EPSILON)
+
+        return Activations(normalised_activations)
+
+    def _forward_prop(self, *, input_activations: Activations) -> Activations:
+        if self._training:
+            normalised_activations = self._compute_activations_training(
+                input_activations=input_activations
             )
         else:
-            normalised_activations = (
-                input_activations - self._running_mean[:, None, None]
-            ) / jnp.sqrt(self._running_variance[:, None, None] + EPSILON)
+            normalised_activations = self._compute_activations_non_training(
+                input_activations=input_activations
+            )
 
         if self._store_output_activations or self._training:
             self._cache["output_activations"] = normalised_activations
 
-        return (
+        return Activations(
             self._parameters.weights[:, None, None] * normalised_activations
             + self._parameters.biases[:, None, None]
         )
@@ -320,7 +341,7 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             + d_batch_mean[:, None, None] / (batch_size * spatial_size)
         )
 
-        return d(Activations(dX))
+        return cast(D[Activations], dX)
 
     def empty_parameters(self) -> Parameters2D:
         return self.Parameters(

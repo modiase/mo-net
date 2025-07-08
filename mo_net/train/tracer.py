@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 
 import h5py
+import jax
 import jax.numpy as jnp
-import jax.random as random
 
 from mo_net.model.layer.linear import Linear, Parameters
 from mo_net.model.model import Model
@@ -29,18 +29,21 @@ class PerEpochTracerStrategy(TracerStrategy):
 
 class PerStepTracerStrategy(TracerStrategy):
     def should_trace(self, iteration: int) -> bool:
+        del iteration  # unused
         return True
 
 
 class SampleTracerStrategy(TracerStrategy):
-    def __init__(self, *, sample_rate: float):
+    def __init__(self, *, sample_rate: float, key: jax.Array):
         if sample_rate < 0 or sample_rate > 1:
             raise ValueError("Sample rate must be between 0 and 1")
         self._sample_rate = sample_rate
+        self._key = key
 
     def should_trace(self, iteration: int) -> bool:
         del iteration  # unused
-        return random.uniform(random.PRNGKey(0), ()) < self._sample_rate
+        self._key = jax.random.split(self._key)[0]
+        return jax.random.uniform(self._key, ()).item() < self._sample_rate
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -62,13 +65,11 @@ class Tracer:
         tracer_config: TracerConfig,
     ):
         self.model = model
-        self._linear_layers: Sequence[Linear] = (
-            tuple(  # TODO: Consider reducing coupling to dense layers.
-                layer
-                for module in model.modules
-                for layer in module.layers
-                if isinstance(layer, Linear)
-            )
+        self._linear_layers: Sequence[Linear] = tuple(
+            layer
+            for module in model.modules
+            for layer in module.layers
+            if isinstance(layer, Linear)
         )
         self._trace_logging_path = Path(f"trace_log_{run_id}.hdf5")
         self._tracer_config = tracer_config

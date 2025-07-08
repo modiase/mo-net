@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import functools
-import random
 import re
 import time
 from collections import Counter, defaultdict
@@ -12,8 +11,8 @@ from pathlib import Path
 from typing import Callable, ParamSpec, TypeVar, assert_never, cast
 
 import click
+import jax
 import jax.numpy as jnp
-import jax.random as random
 import msgpack  # type: ignore[import-untyped]
 from loguru import logger
 from more_itertools import windowed
@@ -69,7 +68,7 @@ class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
             * self._lambda
             * jnp.sum(self._layer.parameters.embeddings**2)
             / self._batch_size
-        )
+        ).item()
 
     def __call__(self) -> float:
         return self.compute_regularisation_loss()
@@ -220,10 +219,11 @@ class CBOWModel(Model):
     def create(
         cls,
         *,
-        vocab_size: int,
-        embedding_dim: int,
         context_size: int,
+        embedding_dim: int,
+        key: jax.Array,
         tracing_enabled: bool = False,
+        vocab_size: int,
     ) -> CBOWModel:
         return cls(
             input_dimensions=(context_size * 2,),
@@ -252,7 +252,7 @@ class CBOWModel(Model):
                         input_dimensions=(embedding_dim,),
                         output_dimensions=(vocab_size,),
                         parameters=Linear.Parameters.xavier(
-                            (embedding_dim,), (vocab_size,)
+                            (embedding_dim,), (vocab_size,), key=key
                         ),
                         store_output_activations=tracing_enabled,
                     ),
@@ -442,12 +442,17 @@ def train(
     logger.info(f"Context size: {context_size}")
     logger.info(f"Training samples: {len(X_train)}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+    key = jax.random.PRNGKey(seed)
+
     if model_path is None:
         model = CBOWModel.create(
-            vocab_size=len(vocab),
-            embedding_dim=embedding_dim,
             context_size=context_size,
+            embedding_dim=embedding_dim,
+            key=key,
             tracing_enabled=False,
+            vocab_size=len(vocab),
         )
     else:
         model = CBOWModel.load(model_path, training=True)
@@ -465,6 +470,7 @@ def train(
         num_epochs=num_epochs,
         quiet=False,
         regulariser_lambda=lambda_,
+        seed=seed,
         trace_logging=False,
         train_set_size=len(X_train),
         warmup_epochs=warmup_epochs,
@@ -499,7 +505,7 @@ def train(
         run=run,
         training_parameters=training_parameters,
         loss_fn=sparse_cross_entropy,
-        key=random.PRNGKey(seed),
+        key=jax.random.PRNGKey(seed),
     )
 
     logger.info(f"Starting CBOW training with {len(X_train_split)} training samples")
@@ -555,6 +561,9 @@ def infer(
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+
     vocab_path = model_path.with_suffix(".vocab")
     if not vocab_path.exists():
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
@@ -577,7 +586,9 @@ def infer(
     )
     predicted_tokens = []
 
+    key, _ = jax.random.split(jax.random.PRNGKey(seed))
     for _ in range(predict_tokens):
+        key, subkey = jax.random.split(key)
         logits = (
             predict_model.forward_prop(jnp.array(context)) / temperature
         ).squeeze()
@@ -594,9 +605,9 @@ def infer(
         )
         valid_indices = sorted_indices[: cutoff_idx + 1]
         valid_probs = probs[valid_indices] / jnp.sum(probs[valid_indices])
-        predicted_token_id = random.choice(
-            random.PRNGKey(42), valid_indices, shape=(), p=valid_probs
-        )
+        predicted_token_id = jax.random.choice(
+            subkey, valid_indices, shape=(), p=valid_probs
+        ).item()
         predicted_tokens.append(vocab.id_to_token[predicted_token_id])
         context = context[1:] + [predicted_token_id]
 
@@ -628,6 +639,9 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+
     vocab_path = model_path.with_suffix(".vocab")
     if not vocab_path.exists():
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
@@ -635,9 +649,8 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     vocab = Vocab.deserialize(vocab_path)
     model = CBOWModel.load(model_path, training=False)
 
-    # Use random choice to select random words
-    word_indices = random.choice(
-        random.PRNGKey(42),
+    word_indices = jax.random.choice(
+        jax.random.PRNGKey(seed),
         len(vocab.vocab),
         shape=(min(num_words, len(vocab)),),
         replace=False,

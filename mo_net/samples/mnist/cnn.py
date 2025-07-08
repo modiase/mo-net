@@ -55,6 +55,7 @@ class CNNModel(Model):
     def create(
         cls,
         *,
+        key: jax.Array,
         tracing_enabled: bool = False,
     ) -> CNNModel:
         """
@@ -69,6 +70,7 @@ class CNNModel(Model):
         - Dense: 512 units, ReLU
         - Output: 10 units (softmax)
         """
+        key1, key2, key3, key4, key5 = jax.random.split(key, 5)
         return cls(
             input_dimensions=(1, MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE),
             hidden=(
@@ -79,6 +81,9 @@ class CNNModel(Model):
                             n_kernels=32,
                             kernel_size=3,
                             stride=1,
+                            kernel_init_fn=functools.partial(
+                                Convolution2D.Parameters.he, key=key1
+                            ),
                         ),
                         bn1 := BatchNorm2D(
                             input_dimensions=conv1.output_dimensions,
@@ -101,6 +106,9 @@ class CNNModel(Model):
                             n_kernels=64,
                             kernel_size=3,
                             stride=1,
+                            kernel_init_fn=functools.partial(
+                                Convolution2D.Parameters.he, key=key2
+                            ),
                         ),
                         bn2 := BatchNorm2D(
                             input_dimensions=conv2.output_dimensions,
@@ -123,6 +131,9 @@ class CNNModel(Model):
                             n_kernels=128,
                             kernel_size=3,
                             stride=1,
+                            kernel_init_fn=functools.partial(
+                                Convolution2D.Parameters.he, key=key3
+                            ),
                         ),
                         bn3 := BatchNorm2D(
                             input_dimensions=conv3.output_dimensions,
@@ -151,8 +162,9 @@ class CNNModel(Model):
                     dense := Linear(
                         input_dimensions=flatten.output_dimensions,
                         output_dimensions=(512,),
-                        parameters=Linear.Parameters.xavier(
-                            flatten.output_dimensions, (512,)
+                        parameters=functools.partial(
+                            Linear.Parameters.xavier,
+                            key=key4,
                         ),
                         store_output_activations=tracing_enabled,
                     ),
@@ -163,7 +175,10 @@ class CNNModel(Model):
                     Linear(
                         input_dimensions=(512,),
                         output_dimensions=(N_DIGITS,),
-                        parameters=Linear.Parameters.xavier((512,), (N_DIGITS,)),
+                        parameters=functools.partial(
+                            Linear.Parameters.xavier,
+                            key=key5,
+                        ),
                         store_output_activations=tracing_enabled,
                     ),
                 ),
@@ -286,9 +301,10 @@ def train(
 
     seed = time.time_ns() // 1000
     logger.info(f"Seed: {seed}")
+    key = jax.random.PRNGKey(seed)
 
     if model_path is None:
-        model = CNNModel.create(tracing_enabled=False)
+        model = CNNModel.create(key=key, tracing_enabled=False)
     else:
         model = CNNModel.load(model_path, training=True)
 
@@ -305,6 +321,7 @@ def train(
         num_epochs=num_epochs,
         quiet=False,
         regulariser_lambda=lambda_,
+        seed=seed,
         trace_logging=False,
         train_set_size=len(X_train),
         warmup_epochs=warmup_epochs,

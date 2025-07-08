@@ -13,6 +13,7 @@ from typing import (
 )
 
 import click
+import jax
 import jax.numpy as jnp
 import jax.random as random
 from loguru import logger
@@ -270,6 +271,7 @@ def get_model(
     batch_size: int,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
+    key: jax.Array,
     model_path: Path | None,
     normalisation_type: NormalisationType,
     tracing_enabled: bool,
@@ -278,6 +280,7 @@ def get_model(
         if len(dims) == 0:
             raise ValueError("Dims must be provided when training a new model.")
         return Model.mlp_of(  # type: ignore[call-overload]
+            key=key,
             module_dimensions=(
                 tuple(
                     map(
@@ -384,13 +387,14 @@ def train(
         num_epochs=num_epochs,
         quiet=quiet,
         regulariser_lambda=regulariser_lambda,
+        seed=seed,
         trace_logging=tracing_enabled,
         train_set_size=train_set_size,
         warmup_epochs=warmup_epochs,
         workers=workers,
-        device=device,
     )
 
+    key1, key2 = jax.random.split(jax.random.PRNGKey(seed))
     model = get_model(
         model_path=model_path,
         dims=dims,
@@ -401,6 +405,7 @@ def train(
         normalisation_type=normalisation_type,
         tracing_enabled=tracing_enabled,
         dropout_keep_probs=dropout_keep_probs,
+        key=key1,
     )
 
     if model_output_path is None:
@@ -444,7 +449,7 @@ def train(
         start_epoch=start_epoch,
         training_parameters=training_parameters,
         loss_fn=get_loss_fn(loss_fn_name),
-        key=random.PRNGKey(seed),
+        key=key2,
     )
     training_result: TrainingResult | None = None
     try:

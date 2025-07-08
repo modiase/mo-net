@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import IO, Final, TypedDict, assert_never, cast
+from typing import IO, TypedDict, assert_never, cast
 
+import jax
 import jax.numpy as jnp
 from jax import jit, lax, random
 
@@ -17,8 +18,6 @@ from mo_net.protos import (
     SupportsGradientOperations,
     d,
 )
-
-EPSILON: Final[float] = 1e-8
 
 
 class Cache(TypedDict):
@@ -120,17 +119,19 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
+        key: jax.Array,
     ) -> Parameters:
+        key1, key2 = jax.random.split(key)
         limit = jnp.sqrt(1 / (in_channels * in_height * in_width))
         return cls(
-            weights=random.uniform(
-                random.PRNGKey(0),
+            weights=jax.random.uniform(
+                key1,
                 shape=(n_kernels, in_channels, in_height, in_width),
                 minval=-limit,
                 maxval=limit,
             ),
             biases=random.uniform(
-                random.PRNGKey(1),
+                key2,
                 shape=(n_kernels,),
                 minval=-limit,
                 maxval=limit,
@@ -157,12 +158,13 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
+        key: jax.Array,
     ) -> Parameters:
         fan_in = in_channels * in_height * in_width
         limit = jnp.sqrt(6.0 / fan_in)
         return cls(
-            weights=random.uniform(
-                random.PRNGKey(0),
+            weights=jax.random.uniform(
+                key,
                 shape=(n_kernels, in_channels, in_height, in_width),
                 minval=-limit,
                 maxval=limit,
@@ -177,11 +179,14 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
+        *,
+        key: jax.Array,
     ) -> Parameters:
+        key1 = jax.random.split(key)[0]
         std = jnp.sqrt(2 / (in_channels * in_height * in_width))
         return cls(
-            weights=random.normal(
-                random.PRNGKey(0),
+            weights=jax.random.normal(
+                key1,
                 (n_kernels, in_channels, in_height, in_width),
             )
             * std,
@@ -236,6 +241,8 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             training: bool = False,
             freeze_parameters: bool = False,
         ) -> Convolution2D:
+            del training  # unused
+
             def _kernel_init_fn(
                 *args: object, **kwargs: Mapping[str, object]
             ) -> Parameters:
@@ -260,7 +267,7 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         kernel_size: int | tuple[int, int],
         stride: int | tuple[int, int] = 1,
         # padding: int | tuple[int, int] = 0, # TODO: Implement padding.
-        kernel_init_fn: KernelInitFn = Parameters.he,
+        kernel_init_fn: KernelInitFn,
         layer_id: str | None = None,
         freeze_parameters: bool = False,
         clip_gradients: bool = False,
@@ -314,12 +321,8 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         self._cache = Cache(input_activations=None, output_activations=None, dP=None)
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        batch_size = input_activations.shape[0]
         self._cache["input_activations"] = input_activations
 
-        # Use JAX's conv_general_dilated for convolution
-        # Our format is NCHW (batch, channels, height, width)
-        # Kernel format is OIHW (out_channels, in_channels, height, width)
         output = lax.conv_general_dilated(
             input_activations,
             self._parameters.weights,
@@ -329,25 +332,18 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             feature_group_count=1,
         )
 
-        # Add bias
         output += self._parameters.biases[jnp.newaxis, :, jnp.newaxis, jnp.newaxis]
 
         return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        batch_size, n_kernels, dZ_height, dZ_width = cast(jnp.ndarray, dZ).shape
+        batch_size, _, dZ_height, dZ_width = cast(jnp.ndarray, dZ).shape
         input_activations = self._cache["input_activations"]
         if input_activations is None:
             raise ValueError("input_activations not set during forward_prop.")
 
-        # Compute weight gradients using transposed convolution
-        # We treat the input as the "kernel" and dZ as the "input" to get weight gradients
-
-        # First, we need to extract patches from the input
-        # Create indices for the patches
         batch_size, in_channels, in_height, in_width = input_activations.shape
 
-        # Use lax.conv_general_dilated_patches to extract input patches
         patches = lax.conv_general_dilated_patches(
             input_activations,
             filter_shape=(self._kernel_height, self._kernel_width),
@@ -356,8 +352,6 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             dimension_numbers=("NCHW", "OIHW", "NCHW"),
         )
 
-        # patches shape: (batch_size, in_channels * kernel_h * kernel_w, out_h, out_w)
-        # Reshape to (batch_size, in_channels, kernel_h, kernel_w, out_h, out_w)
         patches_reshaped = patches.reshape(
             batch_size,
             in_channels,
@@ -367,29 +361,18 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             dZ_width,
         )
 
-        # Transpose to (batch_size, out_h, out_w, in_channels, kernel_h, kernel_w)
         patches_transposed = jnp.transpose(patches_reshaped, (0, 4, 5, 1, 2, 3))
 
-        # dZ shape: (batch_size, n_kernels, out_h, out_w)
-        # Transpose to (batch_size, out_h, out_w, n_kernels)
         dZ_transposed = jnp.transpose(cast(jnp.ndarray, dZ), (0, 2, 3, 1))
 
-        # Compute weight gradients using einsum
-        # We want: dK[o, i, h, w] = sum over batch and positions of: patches[b, y, x, i, h, w] * dZ[b, y, x, o]
         dK = jnp.einsum("byxihw,byxo->oihw", patches_transposed, dZ_transposed)
 
-        # Compute bias gradients
         db = jnp.sum(cast(jnp.ndarray, dZ), axis=(0, 2, 3))
 
         if self._clip_gradients:
             dK = self._clip_gradient_impl(dK, self._weight_max_norm)
             db = self._clip_gradient_impl(db, self._bias_max_norm)
 
-        # Compute gradients with respect to input
-        # For multiple kernels, we need to sum contributions from all output channels
-        # This is essentially a transposed convolution
-
-        # Pad dZ for full convolution
         pad_h = self._kernel_height - 1
         pad_w = self._kernel_width - 1
         dZ_padded = jnp.pad(
@@ -398,30 +381,15 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             mode="constant",
         )
 
-        # Flip weights for convolution (rotate 180 degrees)
         weights_flipped = jnp.flip(self._parameters.weights, axis=(2, 3))
 
-        # For backward pass through convolution, we need to sum over output channels
-        # dZ_padded shape: (batch, n_kernels, padded_height, padded_width)
-        # weights shape: (n_kernels, in_channels, kernel_height, kernel_width)
-        # We want dX shape: (batch, in_channels, in_height, in_width)
-
-        # We can compute this as a sum of convolutions for each output channel
         dX = jnp.zeros((batch_size, in_channels, in_height, in_width))
 
         for k in range(self._n_kernels):
-            # Extract gradients for this kernel
-            dZ_k = dZ_padded[
-                :, k : k + 1, :, :
-            ]  # Shape: (batch, 1, padded_h, padded_w)
-            # Extract weights for this kernel
-            weights_k = weights_flipped[
-                k : k + 1, :, :, :
-            ]  # Shape: (1, in_channels, kh, kw)
-            # Transpose to (in_channels, 1, kh, kw) for convolution
+            dZ_k = dZ_padded[:, k : k + 1, :, :]
+            weights_k = weights_flipped[k : k + 1, :, :, :]
             weights_k_t = jnp.transpose(weights_k, (1, 0, 2, 3))
 
-            # Convolve to get contribution to dX
             dX_k = lax.conv_general_dilated(
                 dZ_k,
                 weights_k_t,
@@ -432,7 +400,7 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             dX += dX_k
 
         self._cache["dP"] = d(self.Parameters(weights=dK, biases=db))
-        return d(Activations(dX))
+        return cast(D[Activations], dX)
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:
         f(self)

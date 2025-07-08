@@ -9,7 +9,6 @@ import jax.numpy as jnp
 from mo_net.functions import ACTIVATION_FUNCTIONS, get_activation_fn
 from mo_net.model.layer.base import Hidden
 from mo_net.protos import (
-    ActivationFnName,
     Activations,
     D,
     Dimensions,
@@ -20,7 +19,7 @@ class Activation(Hidden):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         input_dimensions: tuple[int, ...]
-        activation_fn: ActivationFnName
+        activation_fn: str
 
         def deserialize(
             self,
@@ -54,7 +53,7 @@ class Activation(Hidden):
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
-        return self._activation_fn(input_activations)
+        return Activations(self._activation_fn(input_activations))
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if (input_activations := self._cache["input_activations"]) is None:

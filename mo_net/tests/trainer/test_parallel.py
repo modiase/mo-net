@@ -1,3 +1,4 @@
+import functools
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -96,6 +97,9 @@ class GradientAggregationTestCase:
     gradient2: Any
 
 
+key = random.PRNGKey(42)
+
+
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -107,7 +111,9 @@ class GradientAggregationTestCase:
                     Linear(
                         input_dimensions=(3,),
                         output_dimensions=(2,),
-                        parameters=Linear.Parameters.xavier(dim_in=(3,), dim_out=(2,)),
+                        parameters=Linear.Parameters.xavier(
+                            dim_in=(3,), dim_out=(2,), key=key
+                        ),
                     )
                 ],
             ),
@@ -126,7 +132,9 @@ class GradientAggregationTestCase:
                         n_kernels=2,
                         kernel_size=3,
                         stride=1,
-                        kernel_init_fn=Convolution2D.Parameters.xavier,
+                        kernel_init_fn=functools.partial(
+                            Convolution2D.Parameters.xavier, key=key
+                        ),
                     )
                 ],
             ),
@@ -203,7 +211,9 @@ def test_gradient_transfer(
                     Linear(
                         input_dimensions=(2,),
                         output_dimensions=(1,),
-                        parameters=Linear.Parameters.xavier(dim_in=(2,), dim_out=(1,)),
+                        parameters=Linear.Parameters.xavier(
+                            dim_in=(2,), dim_out=(1,), key=key
+                        ),
                     )
                 ],
             ),
@@ -226,7 +236,9 @@ def test_gradient_transfer(
                         n_kernels=1,
                         kernel_size=2,
                         stride=1,
-                        kernel_init_fn=Convolution2D.Parameters.xavier,
+                        kernel_init_fn=functools.partial(
+                            Convolution2D.Parameters.xavier, key=key
+                        ),
                     )
                 ],
             ),

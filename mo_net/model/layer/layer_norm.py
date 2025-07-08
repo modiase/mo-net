@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, Self
+from typing import IO, Self, cast
 
 import jax.numpy as jnp
 
@@ -255,8 +255,10 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             jnp.sqrt(self._cache["var"]) + EPSILON  # type: ignore[arg-type]
         )
         if self._store_output_activations or self._training:
-            self._cache["output_activations"] = normalized
-        return self._parameters.weights * normalized + self._parameters.biases
+            self._cache["output_activations"] = Activations(normalized)
+        return Activations(
+            self._parameters.weights * normalized + self._parameters.biases
+        )
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if self._cache["mean"] is None:
@@ -292,7 +294,7 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
             / self._cache["var"]
         )
 
-        return d(Activations(dX))
+        return cast(D[Activations], dX)
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(

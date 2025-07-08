@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import jax.random as random
 from jax import jit
@@ -145,19 +146,25 @@ def affine_transform2D(
     def _affine_transform_inner(
         X: jnp.ndarray, key: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        key1, key2, key3, key4, key5, key6 = random.split(key, 6)
-        rotation = random.uniform(
+        key1, key2, key3, key4, key5, key6, key7 = random.split(key, 7)
+        rotation = jax.random.uniform(
             key1, (), minval=min_rotation_radians, maxval=max_rotation_radians
-        )
-        x_shear = random.uniform(key2, (), minval=min_shear, maxval=max_shear)
-        y_shear = random.uniform(key3, (), minval=min_shear, maxval=max_shear)
-        scale_val = random.uniform(key4, (), minval=min_scale, maxval=max_scale)
-        x_offset = random.randint(
+        ).item()
+        x_shear = jax.random.uniform(
+            key2, (), minval=min_shear, maxval=max_shear
+        ).item()
+        y_shear = jax.random.uniform(
+            key3, (), minval=min_shear, maxval=max_shear
+        ).item()
+        scale_val = jax.random.uniform(
+            key4, (), minval=min_scale, maxval=max_scale
+        ).item()
+        x_offset = jax.random.randint(
             key5, (), min_translation_pixels, max_translation_pixels
-        )
-        y_offset = random.randint(
-            key5, (), min_translation_pixels, max_translation_pixels
-        )
+        ).item()
+        y_offset = jax.random.randint(
+            key6, (), min_translation_pixels, max_translation_pixels
+        ).item()
         X = rotate(X, theta=rotation, x_size=x_size, y_size=y_size)
         X = shear(X, x_shear=x_shear, y_shear=y_shear, x_size=x_size, y_size=y_size)
         X = scale(X, x_scale=scale_val, y_scale=scale_val, x_size=x_size, y_size=y_size)
@@ -165,6 +172,6 @@ def affine_transform2D(
             X, x_offset=x_offset, y_offset=y_offset, x_size=x_size, y_size=y_size
         )
 
-        return X, key6
+        return X, key7
 
     return _affine_transform_inner

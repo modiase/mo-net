@@ -746,8 +746,8 @@ class ParallelTrainer(BasicTrainer):
                     dtype=self._Y_train.dtype,
                     buffer=self._Y_shared_memory.buf,
                 )
-                jnp.copyto(X_shared, self._X_train)
-                jnp.copyto(Y_shared, self._Y_train)
+                X_shared[:] = self._X_train
+                Y_shared[:] = self._Y_train
 
             barrier_parties = self._training_parameters.workers + 1
             self._gradient_barrier = mp.Barrier(barrier_parties)

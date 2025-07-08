@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import assert_never
 
+import jax
+
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm import BatchNorm
 from mo_net.model.layer.layer_norm import LayerNorm
@@ -28,6 +30,7 @@ class Norm(Hidden):
         activation_fn: ActivationFn,
         options: BatchNormOptions | LayerNormOptions,
         store_output_activations: bool,
+        key: jax.Array,
     ):
         norm_layer: BatchNorm | LayerNorm
         match options:
@@ -55,6 +58,7 @@ class Norm(Hidden):
                             dim_in=input_dimensions,
                             dim_out=output_dimensions,
                             activation_fn=activation_fn,
+                            key=key,
                         ),
                         store_output_activations=store_output_activations,
                         clip_gradients=True,

@@ -1,5 +1,6 @@
 import io
 from dataclasses import dataclass
+from functools import partial
 
 import jax.numpy as jnp
 import jax.random as random
@@ -410,7 +411,7 @@ def test_linear_initialization_methods(init_method, input_dim, output_dim):
     layer = Linear(
         input_dimensions=input_dim,
         output_dimensions=output_dim,
-        parameters_init_fn=init_method,
+        parameters_init_fn=partial(init_method, key=random.PRNGKey(42)),
     )
 
     assert layer.parameters.weights.shape == (input_dim[0], output_dim[0])
