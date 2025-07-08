@@ -67,11 +67,10 @@ This guide explains how to enable GPU acceleration.
 Use the `--device` flag when training:
 
 ```bash
-uv run train --dataset mnist --device auto
+uv run train --device auto # The default. Can omit
 
-# Specify a device
-uv run train --dataset mnist --device gpu    # NVIDIA GPU
-uv run train --dataset mnist --device cpu    # CPU only
+uv run train --device gpu    # NVIDIA GPU
+uv run train --device cpu    # CPU only
 ```
 
 ### Python API
@@ -82,7 +81,6 @@ from mo_net.device import set_default_device, print_device_info
 # Set device before creating models or training
 set_default_device("auto")  # or "gpu", "cpu"
 
-# Check available devices
 print_device_info()
 ```
 
@@ -124,7 +122,3 @@ This will show:
 - Check device is actually being used: Look for device info in training logs
 - Ensure batch size is appropriate for your GPU memory
 - Monitor GPU usage with `nvidia-smi` (NVIDIA) or Activity Monitor (macOS)
-
-```
-
-```
