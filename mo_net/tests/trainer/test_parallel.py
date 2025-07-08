@@ -3,11 +3,11 @@ import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, Final
 from unittest.mock import Mock
 
+import jax
 import jax.numpy as jnp
-import jax.random as random
 import numpy.testing as np_testing
 import pytest
 from loguru import logger
@@ -19,8 +19,7 @@ from mo_net.model.layer.linear import Linear
 from mo_net.model.model import Model
 from mo_net.train.trainer.parallel import SharedMemoryManager
 
-# Create a random key for testing
-key = random.PRNGKey(42)
+key: Final = jax.random.PRNGKey(42)
 
 
 class MockedSharedMemoryManager(SharedMemoryManager):
@@ -97,9 +96,6 @@ class GradientAggregationTestCase:
     gradient2: Any
 
 
-key = random.PRNGKey(42)
-
-
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -138,8 +134,8 @@ key = random.PRNGKey(42)
                     )
                 ],
             ),
-            forward_input=random.uniform(random.split(key)[0], (2, 1, 4, 4)),
-            backward_input=random.uniform(random.split(key)[1], (2, 2, 2, 2)),
+            forward_input=jax.random.uniform(jax.random.split(key)[0], (2, 1, 4, 4)),
+            backward_input=jax.random.uniform(jax.random.split(key)[1], (2, 2, 2, 2)),
             expected_w_shape=(2, 1, 3, 3),
             expected_b_shape=(2,),
         ),
@@ -149,8 +145,8 @@ key = random.PRNGKey(42)
                 input_dimensions=(4,),
                 hidden=[BatchNorm(input_dimensions=(4,), training=True)],
             ),
-            forward_input=random.uniform(random.split(key)[0], (3, 4)),
-            backward_input=random.uniform(random.split(key)[1], (3, 4)),
+            forward_input=jax.random.uniform(jax.random.split(key)[0], (3, 4)),
+            backward_input=jax.random.uniform(jax.random.split(key)[1], (3, 4)),
             expected_w_shape=(4,),
             expected_b_shape=(4,),
         ),
