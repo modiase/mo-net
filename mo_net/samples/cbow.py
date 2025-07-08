@@ -230,7 +230,7 @@ class CBOWModel(Model):
         tracing_enabled: bool = False,
         vocab_size: int,
     ) -> CBOWModel:
-        key1, key2 = jax.random.split(key, 3)
+        key1, key2 = jax.random.split(key, 2)
         return cls(
             input_dimensions=(context_size * 2,),
             hidden=(
