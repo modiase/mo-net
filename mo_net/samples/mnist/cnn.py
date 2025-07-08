@@ -325,7 +325,7 @@ def train(
         workers=0,
     )
 
-    train_size = int(0.8 * len(X_train))
+    train_size = int(train_split * len(X_train))
     X_train_split = X_train[:train_size]
     Y_train_split = Y_train[:train_size]
     X_val = X_train[train_size:]
