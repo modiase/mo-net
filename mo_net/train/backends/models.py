@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     create_engine,
@@ -34,6 +35,11 @@ class Iteration(Base):
     learning_rate: Mapped[float] = mapped_column(Float)
     timestamp: Mapped[datetime] = mapped_column(DateTime)
     val_loss: Mapped[float] = mapped_column(Float)
+
+    __table_args__ = (
+        Index("ix_iterations_run_id", "run_id"),
+        Index("ix_iterations_epoch", "epoch"),
+    )
 
 
 class DbRun(Base):
