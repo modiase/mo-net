@@ -335,7 +335,7 @@ class BasicTrainer:
                 if L_val < self._L_val_min:
                     self._L_val_min = L_val
                     self._L_val_min_epoch = self._training_parameters.current_epoch(i)
-                    self._model.dump(open(self._model_checkpoint_path, "wb"))
+                    self._model.dump(self._model_checkpoint_path)
 
                 if (post_epoch_check := self._post_epoch(L_val)) is not None:
                     return TrainingFailed(

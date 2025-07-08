@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import pickle
 from collections.abc import Callable, Mapping, MutableSequence
@@ -307,17 +308,22 @@ class Model(ModelBase):
             module.update_parameters()
         self.output_module.update_parameters()
 
-    def dump(self, io: IO[bytes]) -> None:
-        pickle.dump(
-            self.Serialized(
-                input_dimensions=tuple(self.input_layer.input_dimensions),
-                hidden_modules=tuple(
-                    module.serialize() for module in self.hidden_modules
+    def dump(self, out: IO[bytes] | Path) -> None:
+        with (
+            contextlib.nullcontext(out)
+            if isinstance(out, Path)
+            else contextlib.nullcontext() as io
+        ):
+            pickle.dump(
+                self.Serialized(
+                    input_dimensions=tuple(self.input_layer.input_dimensions),
+                    hidden_modules=tuple(
+                        module.serialize() for module in self.hidden_modules
+                    ),
+                    output_module=self.output_module.serialize(),
                 ),
-                output_module=self.output_module.serialize(),
-            ),
-            io,
-        )
+                io,
+            )
 
     @classmethod
     def load(
