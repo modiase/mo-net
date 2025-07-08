@@ -1,6 +1,7 @@
 import io
 from dataclasses import dataclass
 
+import jax
 import jax.numpy as jnp
 import jax.random as random
 import pytest
@@ -318,6 +319,7 @@ def test_embedding_initialization_methods(init_method, vocab_size, embedding_dim
         output_dimensions=(vocab_size, embedding_dim),
         vocab_size=vocab_size,
         parameters_init_fn=init_method,
+        key=random.PRNGKey(42),
     )
     assert layer.parameters.embeddings.shape == (vocab_size, embedding_dim)
     assert jnp.isfinite(layer.parameters.embeddings).all()
@@ -328,6 +330,7 @@ def test_embedding_cache_initialization():
         input_dimensions=(3,),
         output_dimensions=(3, 2),
         vocab_size=5,
+        key=random.PRNGKey(42),
     )
     assert layer.cache["input_indices"] is None
     assert layer.cache["output_activations"] is None
@@ -339,6 +342,7 @@ def test_embedding_forward_prop_caches_indices():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     input_activations = jnp.array([1, 2])
     layer.forward_prop(input_activations=Activations(input_activations))
@@ -353,6 +357,7 @@ def test_embedding_gradient_clipping():
         vocab_size=3,
         clip_gradients=True,
         weight_max_norm=1.0,
+        key=random.PRNGKey(42),
     )
     input_activations = jnp.array([0, 1])
     layer.forward_prop(input_activations=Activations(input_activations))
@@ -373,6 +378,7 @@ def test_embedding_frozen_parameters():
         output_dimensions=(2, 2),
         vocab_size=3,
         freeze_parameters=True,
+        key=random.PRNGKey(42),
     )
     original_embeddings = layer.parameters.embeddings.copy()
     input_activations = jnp.array([0, 1])
@@ -388,6 +394,7 @@ def test_embedding_empty_gradient():
         input_dimensions=(2,),
         output_dimensions=(2, 2),
         vocab_size=3,
+        key=random.PRNGKey(42),
     )
     empty_grad = layer.empty_gradient()
     assert empty_grad.embeddings.shape == layer.parameters.embeddings.shape
@@ -399,6 +406,7 @@ def test_embedding_parameter_count():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     expected_count = 4 * 3  # vocab_size * embedding_dim
     assert layer.parameter_count == expected_count
@@ -411,6 +419,7 @@ def test_embedding_serialization_deserialization():
         output_dimensions=(2, 3),
         vocab_size=4,
         layer_id="test_embedding_serial_unique",
+        key=random.PRNGKey(42),
     )
     serialized = layer.serialize()
     deserialized = serialized.deserialize()
@@ -428,6 +437,7 @@ def test_embedding_serialize_deserialize_parameters_with_wrong_layer_id():
         output_dimensions=(2, 3),
         vocab_size=4,
         layer_id="test_embedding_wrong_id",
+        key=random.PRNGKey(42),
     )
     layer.forward_prop(input_activations=Activations(jnp.array([0, 1])))
     layer.backward_prop(dZ=jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]))
@@ -442,6 +452,7 @@ def test_embedding_serialize_deserialize_parameters_with_wrong_layer_id():
         output_dimensions=(2, 3),
         vocab_size=4,
         layer_id="different_embedding",
+        key=random.PRNGKey(42),
     )
 
     with pytest.raises(BadLayerId):
@@ -453,6 +464,7 @@ def test_embedding_error_on_backward_prop_without_forward():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     with pytest.raises(ValueError, match="Input indices not set"):
         layer.backward_prop(dZ=jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]))
@@ -463,6 +475,7 @@ def test_embedding_error_on_update_without_gradients():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     with pytest.raises(ValueError, match="Gradient not set"):
         layer.update_parameters()
@@ -473,6 +486,7 @@ def test_embedding_mathematical_properties():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     input_activations = jnp.array([0, 1])
 
@@ -493,6 +507,7 @@ def test_embedding_zero_input():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     input_activations = jnp.array([0, 0])  # All zeros
     output = layer.forward_prop(input_activations=Activations(input_activations))
@@ -506,6 +521,7 @@ def test_embedding_large_batch():
         input_dimensions=(100,),
         output_dimensions=(100, 5),
         vocab_size=1000,
+        key=random.PRNGKey(42),
     )
     input_activations = random.randint(key, (100,), 0, 1000)
     output = layer.forward_prop(input_activations=Activations(input_activations))
@@ -523,6 +539,7 @@ def test_embedding_gradient_accumulation():
         output_dimensions=(3, 2),
         vocab_size=4,
         clip_gradients=False,
+        key=random.PRNGKey(42),
     )
     input_activations = jnp.array([1, 1, 1])  # Same token repeated
     layer.forward_prop(input_activations=Activations(input_activations))
@@ -543,6 +560,7 @@ def test_embedding_embedding_shape_validation():
             output_dimensions=(2, 3),
             vocab_size=4,
             parameters=Embedding.Parameters.of(jnp.zeros((3, 3))),  # Wrong shape
+            key=random.PRNGKey(42),
         )
 
 
@@ -553,6 +571,7 @@ def test_embedding_output_storage_option(store_output):
         output_dimensions=(2, 3),
         vocab_size=4,
         store_output_activations=store_output,
+        key=random.PRNGKey(42),
     )
     input_activations = jnp.array([0, 1])
     output = layer.forward_prop(input_activations=Activations(input_activations))
@@ -570,6 +589,7 @@ def test_embedding_constructor_edge_cases():
         input_dimensions=(1,),
         output_dimensions=(1, 1),
         vocab_size=1,
+        key=random.PRNGKey(42),
     )
     assert layer.vocab_size == 1
     assert layer.parameters.embeddings.shape == (1, 1)
@@ -579,6 +599,7 @@ def test_embedding_constructor_edge_cases():
         input_dimensions=(2,),
         output_dimensions=(2, 100),
         vocab_size=10,
+        key=random.PRNGKey(42),
     )
     assert layer.parameters.embeddings.shape == (10, 100)
 
@@ -588,6 +609,7 @@ def test_embedding_gradient_operation_interface():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
 
     def grad_callback(grad_layer):
@@ -598,8 +620,7 @@ def test_embedding_gradient_operation_interface():
 
 def test_embedding_reinitialise():
     # Create a custom initialization function that generates different embeddings
-    def custom_init(vocab_size: int, embedding_dim: int):
-        key = random.PRNGKey(123)  # Different seed
+    def custom_init(vocab_size: int, embedding_dim: int, key: jax.Array):
         return Embedding.Parameters(
             embeddings=random.normal(key, (vocab_size, embedding_dim))
         )
@@ -609,12 +630,12 @@ def test_embedding_reinitialise():
         output_dimensions=(2, 3),
         vocab_size=4,
         parameters_init_fn=custom_init,
+        key=random.PRNGKey(42),
     )
     original_embeddings = layer.parameters.embeddings.copy()
 
     # Create a different initialization function for reinitialise
-    def different_init(vocab_size: int, embedding_dim: int):
-        key = random.PRNGKey(456)  # Different seed
+    def different_init(vocab_size: int, embedding_dim: int, key: jax.Array):
         return Embedding.Parameters(
             embeddings=random.normal(key, (vocab_size, embedding_dim))
         )
@@ -632,6 +653,7 @@ def test_embedding_parameter_nbytes():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=4,
+        key=random.PRNGKey(42),
     )
     expected_nbytes = layer.parameters.embeddings.nbytes
     assert layer.parameter_nbytes == expected_nbytes
@@ -642,5 +664,6 @@ def test_embedding_vocab_size_property():
         input_dimensions=(2,),
         output_dimensions=(2, 3),
         vocab_size=42,
+        key=random.PRNGKey(42),
     )
     assert layer.vocab_size == 42
