@@ -129,7 +129,12 @@ class Monitor:
         self._L_history.append(L)
         if len(self._L_history) < self._L_history_max_len:
             return None
-        if jnp.polyfit(range(len(self._L_history)), self._L_history, 1)[0] >= 0:
+        if (
+            jnp.polyfit(
+                jnp.arange(len(self._L_history)), jnp.array(list(self._L_history)), 1
+            )[0]
+            >= 0
+        ):
             return CheckFailed(message="Model is not learning.")
         return None
 
