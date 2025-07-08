@@ -162,7 +162,7 @@ class CNNModel(Model):
                     dense := Linear(
                         input_dimensions=flatten.output_dimensions,
                         output_dimensions=(512,),
-                        parameters=functools.partial(
+                        parameters_init_fn=functools.partial(
                             Linear.Parameters.xavier,
                             key=key4,
                         ),
@@ -175,7 +175,7 @@ class CNNModel(Model):
                     Linear(
                         input_dimensions=(512,),
                         output_dimensions=(N_DIGITS,),
-                        parameters=functools.partial(
+                        parameters_init_fn=functools.partial(
                             Linear.Parameters.xavier,
                             key=key5,
                         ),

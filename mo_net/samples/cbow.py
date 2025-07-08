@@ -251,8 +251,9 @@ class CBOWModel(Model):
                     Linear(
                         input_dimensions=(embedding_dim,),
                         output_dimensions=(vocab_size,),
-                        parameters=Linear.Parameters.xavier(
-                            (embedding_dim,), (vocab_size,), key=key
+                        parameters_init_fn=lambda dim_in,
+                        dim_out: Linear.Parameters.xavier(
+                            dim_in, dim_out, key=jax.random.split(key)[0]
                         ),
                         store_output_activations=tracing_enabled,
                     ),

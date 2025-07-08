@@ -22,7 +22,7 @@ class Dense(Hidden):
                     Linear(
                         output_dimensions=output_dimensions,
                         input_dimensions=input_dimensions,
-                        parameters=Linear.Parameters.appropriate(
+                        parameters_init_fn=lambda *_: Linear.Parameters.appropriate(
                             activation_fn=activation_fn,
                             dim_in=input_dimensions,
                             dim_out=output_dimensions,

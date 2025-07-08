@@ -63,7 +63,7 @@ def test_forward_prop_linear_model(factor: int, dX: jnp.ndarray):
             Linear(
                 input_dimensions=(5,),
                 output_dimensions=(2,),
-                parameters=Linear.Parameters(
+                parameters_init_fn=lambda *_: Linear.Parameters(
                     weights=weights,
                     biases=bias_1,
                 ),

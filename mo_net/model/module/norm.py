@@ -54,11 +54,12 @@ class Norm(Hidden):
                     Linear(
                         output_dimensions=output_dimensions,
                         input_dimensions=input_dimensions,
-                        parameters=Linear.Parameters.appropriate(
-                            dim_in=input_dimensions,
-                            dim_out=output_dimensions,
+                        parameters_init_fn=lambda dim_in,
+                        dim_out: Linear.Parameters.appropriate(
+                            dim_in=dim_in,
+                            dim_out=dim_out,
                             activation_fn=activation_fn,
-                            key=key,
+                            key=jax.random.split(key)[0],
                         ),
                         store_output_activations=store_output_activations,
                         clip_gradients=True,

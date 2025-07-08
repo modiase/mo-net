@@ -197,7 +197,7 @@ class Model(ModelBase):
                     Linear(
                         input_dimensions=(last(model_hidden_dimensions)),
                         output_dimensions=model_output_dimension,
-                        parameters=functools.partial(
+                        parameters_init_fn=functools.partial(
                             Linear.Parameters.xavier,
                             key=subkey,
                         ),

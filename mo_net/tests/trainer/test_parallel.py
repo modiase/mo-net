@@ -111,8 +111,8 @@ key = random.PRNGKey(42)
                     Linear(
                         input_dimensions=(3,),
                         output_dimensions=(2,),
-                        parameters=Linear.Parameters.xavier(
-                            dim_in=(3,), dim_out=(2,), key=key
+                        parameters_init_fn=functools.partial(
+                            Linear.Parameters.xavier, key=key
                         ),
                     )
                 ],
@@ -211,8 +211,8 @@ def test_gradient_transfer(
                     Linear(
                         input_dimensions=(2,),
                         output_dimensions=(1,),
-                        parameters=Linear.Parameters.xavier(
-                            dim_in=(2,), dim_out=(1,), key=key
+                        parameters_init_fn=functools.partial(
+                            Linear.Parameters.xavier, key=key
                         ),
                     )
                 ],
