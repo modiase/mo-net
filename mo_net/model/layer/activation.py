@@ -62,20 +62,14 @@ class Activation(Hidden):
         # For common activation functions, we can compute the derivative directly
         # This is more efficient than using automatic differentiation
         if self._activation_fn.__name__ == "relu":
-            # Derivative of ReLU: 1 if x > 0, 0 otherwise
             return jnp.where(input_activations > 0, 1, 0) * dZ
         elif self._activation_fn.__name__ == "tanh":
-            # Derivative of tanh: 1 - tanh(x)^2
             return (1 - jnp.tanh(input_activations) ** 2) * dZ
         elif self._activation_fn.__name__ == "leaky_relu":
-            # Derivative of leaky_relu: 1 if x > 0, 0.01 otherwise
             return jnp.where(input_activations > 0, 1, 0.01) * dZ
         elif self._activation_fn.__name__ == "identity":
-            # Derivative of identity: 1
             return dZ
         else:
-            # For other functions, use automatic differentiation
-            # Ensure input is floating point
             input_float = input_activations.astype(jnp.float32)
             grad_fn = jax.grad(lambda x: jnp.sum(self._activation_fn(x)))
             return grad_fn(input_float) * dZ
@@ -89,7 +83,6 @@ class Activation(Hidden):
         return self._input_dimensions
 
     def serialize(self) -> Activation.Serialized:
-        # Find the name of the activation function
         for name, func in ACTIVATION_FUNCTIONS.items():
             if func == self._activation_fn:
                 return Activation.Serialized(
