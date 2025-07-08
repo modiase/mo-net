@@ -38,7 +38,7 @@ class Iteration(Base):
 
     __table_args__ = (
         Index("ix_iterations_run_id", "run_id"),
-        Index("ix_iterations_epoch", "epoch"),
+        Index("ix_iterations_run_id_epoch", "run_id", "epoch"),
     )
 
 
