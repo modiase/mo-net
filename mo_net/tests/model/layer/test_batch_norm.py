@@ -7,7 +7,6 @@ import pytest
 from mo_net.model.layer.batch_norm.batch_norm import BatchNorm, ParametersType
 from mo_net.protos import Activations, Dimensions
 
-# Create a random key for testing
 key = random.PRNGKey(42)
 
 
@@ -209,8 +208,7 @@ def test_batch_norm_backward_prop(test_case: BackwardPropTestCase):
 
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
 
-    # Split key for different random operations
-    key1, key2 = random.split(key)
+    key1, _ = random.split(key)
     dZ = random.normal(key1, (3, 2))
     dX = layer.backward_prop(dZ=dZ)
 
@@ -436,7 +434,6 @@ def test_batch_norm_gradient_flow():
     input_data = jnp.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     layer.forward_prop(input_activations=Activations(input_data))
 
-    # Split key for different random operations
     key1, _ = random.split(key)
     dZ = random.normal(key1, (3, 2))
     dX = layer.backward_prop(dZ=dZ)
