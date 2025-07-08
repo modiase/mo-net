@@ -1,7 +1,9 @@
 import io
 from dataclasses import dataclass
 from functools import partial
+from typing import Final
 
+import jax
 import jax.numpy as jnp
 import jax.random as random
 import pytest
@@ -10,8 +12,7 @@ from mo_net.model.layer.base import BadLayerId
 from mo_net.model.layer.linear import Linear, ParametersType
 from mo_net.protos import Activations, Dimensions
 
-# Create a random key for testing
-key = random.PRNGKey(42)
+key: Final = jax.random.PRNGKey(42)
 
 
 @dataclass(frozen=True)
@@ -347,9 +348,7 @@ def test_linear_serialization_deserialization():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
     )
 
     # First do a forward and backward pass to populate gradients
@@ -379,16 +378,12 @@ def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
     layer_1 = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
     )
     layer_2 = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(43)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
     )
 
     # First do a forward and backward pass to populate gradients
@@ -407,9 +402,7 @@ def test_linear_error_on_backward_prop_without_forward():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
     )
     with pytest.raises(
         ValueError, match="Input activations not set during forward pass"
@@ -421,9 +414,7 @@ def test_linear_error_on_update_without_gradients():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
     )
     with pytest.raises(ValueError, match="Gradient not set during backward pass"):
         layer.update_parameters()
@@ -441,7 +432,7 @@ def test_linear_initialization_methods(init_method, input_dim, output_dim):
     layer = Linear(
         input_dimensions=input_dim,
         output_dimensions=output_dim,
-        parameters_init_fn=partial(init_method, key=random.PRNGKey(42)),
+        parameters_init_fn=partial(init_method, key=key),
     )
 
     assert layer.parameters.weights.shape == (input_dim[0], output_dim[0])
@@ -503,14 +494,12 @@ def test_linear_large_batch():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(3,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (3,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (3,), key=key),
     )
 
     # Split key for different random operations
-    key1, key2 = random.split(random.PRNGKey(42))
-    input_data = random.normal(key1, (100, 2))
+    key1, key2 = random.split(key)
+    input_data = jax.random.normal(key1, (100, 2))
     output = layer.forward_prop(input_activations=Activations(input_data))
 
     assert output.shape == (100, 3)
@@ -595,9 +584,7 @@ def test_linear_output_storage_option(store_output):
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
         store_output_activations=store_output,
     )
 
@@ -613,9 +600,7 @@ def test_linear_output_storage_option(store_output):
 def test_linear_constructor_edge_cases():
     layer = Linear(
         input_dimensions=(3,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (3,), (3,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((3,), (3,), key=key),
     )
     assert layer.input_dimensions == (3,)
     assert layer.output_dimensions == (3,)
@@ -633,9 +618,7 @@ def test_linear_gradient_operation_interface():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
-            (2,), (2,), key=random.PRNGKey(42)
-        ),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
     )
 
     called = False
