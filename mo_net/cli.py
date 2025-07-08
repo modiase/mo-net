@@ -15,7 +15,6 @@ from typing import (
 import click
 import jax
 import jax.numpy as jnp
-import jax.random as random
 from loguru import logger
 
 from mo_net.data import (
@@ -36,7 +35,7 @@ from mo_net.functions import (
 )
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
-from mo_net.protos import NormalisationType
+from mo_net.protos import ActivationFn, NormalisationType
 from mo_net.train import (
     TrainingParameters,
 )
@@ -272,7 +271,7 @@ def get_model(
     *,
     X_train: jnp.ndarray,
     Y_train: jnp.ndarray,
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
+    activation_fn: ActivationFn,
     batch_size: int,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
@@ -324,7 +323,6 @@ def cli_train(*args, **kwargs) -> TrainingResult:
     log_level = kwargs.get("log_level", LogLevel.INFO)
     seed = int(os.getenv("MO_NET_SEED", time.time()))
     kwargs["seed"] = seed
-    random.PRNGKey(seed)  # Initialize JAX random state
     setup_logging(log_level)
     logger.info(f"Training model with {seed=}.")
     return train(*args, **kwargs)
