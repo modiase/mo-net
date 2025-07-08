@@ -12,7 +12,7 @@ from mo_net.data import DATA_DIR, SplitConfig, load_data
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
 from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
-from mo_net.train.augment import affine_transform
+from mo_net.train.augment import affine_transform2D
 
 # MNIST-specific constants
 N_DIGITS: Final[int] = 10
@@ -171,7 +171,7 @@ def sample_data(*, dataset_url: str, with_transformed: bool):
     sample_indices = sample(range(len(X_train)), 25)
     if with_transformed:
         for i in sample_indices:
-            X_train[i] = affine_transform(
+            X_train[i] = affine_transform2D(
                 X_train[i], MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE
             )
     X_train = X_train.reshape(-1, MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE)

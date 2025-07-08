@@ -1,10 +1,14 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from typing import Self
 
 import jax.numpy as jnp
 import jax.random as random
 
-from mo_net.functions import identity
+from mo_net.functions import TransformFn
+
+
+def noop_transform(X: jnp.ndarray, key: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    return X, key
 
 
 class Batcher:
@@ -14,13 +18,15 @@ class Batcher:
         X: jnp.ndarray,
         Y: jnp.ndarray,
         batch_size: int,
-        transform: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+        key: jnp.ndarray,
+        transform: TransformFn = noop_transform,
     ):
         self.X = X
         self.Y = Y
         self.batch_size = batch_size
         self.train_set_size = X.shape[0]
-        self._transform = transform if transform is not None else identity
+        self._key = key
+        self._transform = transform if transform is not None else noop_transform
         self._shuffle()
 
         num_batches = (self.train_set_size + self.batch_size - 1) // self.batch_size
@@ -31,8 +37,8 @@ class Batcher:
         )
 
     def _shuffle(self) -> None:
-        key = random.PRNGKey(0)  # You might want to make this configurable
-        permutation = random.permutation(key, self.train_set_size)
+        self._key, subkey = random.split(self._key)
+        permutation = random.permutation(subkey, self.train_set_size)
         self.X = self.X[permutation]
         self.Y = self.Y[permutation]
 
@@ -42,7 +48,7 @@ class Batcher:
     def __next__(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         try:
             X, Y = next(self._internal_iterator)
-            X = self._transform(X)
+            X, self._key = self._transform(X, self._key)
             return X, Y
         except StopIteration:
             self._shuffle()
@@ -55,10 +61,10 @@ class Batcher:
 
 
 class IndexBatcher:
-    def __init__(self, *, train_set_size: int, batch_size: int):
+    def __init__(self, *, train_set_size: int, batch_size: int, key: jnp.ndarray):
         self.batch_size = batch_size
         self.train_set_size = train_set_size
-        key = random.PRNGKey(0)  # You might want to make this configurable
+        self._key = key
         self._internal_iterator: Iterator[jnp.ndarray] = iter(
             jnp.array_split(
                 random.permutation(key, self.train_set_size),
@@ -67,10 +73,10 @@ class IndexBatcher:
         )
 
     def _shuffle(self) -> None:
-        key = random.PRNGKey(0)  # You might want to make this configurable
+        self._key, subkey = random.split(self._key)
         self._internal_iterator = iter(
             jnp.array_split(
-                random.permutation(key, self.train_set_size),
+                random.permutation(subkey, self.train_set_size),
                 self.train_set_size // self.batch_size,
             )
         )
@@ -83,9 +89,10 @@ class IndexBatcher:
             return next(self._internal_iterator)
         except StopIteration:
             self._shuffle()
+            self._key, subkey = random.split(self._key)
             self._internal_iterator = iter(
                 jnp.array_split(
-                    random.permutation(random.PRNGKey(0), self.train_set_size),
+                    random.permutation(subkey, self.train_set_size),
                     self.train_set_size // self.batch_size,
                 )
             )

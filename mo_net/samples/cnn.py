@@ -25,6 +25,7 @@ from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import NormalisationType
 from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.train import TrainingParameters
+from mo_net.train.augment import affine_transform2D
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
 from mo_net.train.trainer.trainer import (
@@ -283,6 +284,9 @@ def train(
     logger.info(f"Test data shape: {X_test.shape}")
     logger.info(f"Number of classes: {N_DIGITS}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Seed: {seed}")
+
     if model_path is None:
         model = CNNModel.create(tracing_enabled=False)
     else:
@@ -319,14 +323,18 @@ def train(
 
     trainer = BasicTrainer(
         X_train=X_train_split,
-        Y_train=Y_train_split,
         X_val=X_val,
+        Y_train=Y_train_split,
         Y_val=Y_val,
+        key=jax.random.PRNGKey(seed),
+        transform_fn=affine_transform2D(
+            x_size=MNIST_IMAGE_SIZE, y_size=MNIST_IMAGE_SIZE
+        ),
+        loss_fn=sparse_cross_entropy,
         model=model,
         optimizer=optimizer,
         run=run,
         training_parameters=training_parameters,
-        loss_fn=sparse_cross_entropy,
     )
 
     logger.info(f"Starting CNN training with {len(X_train_split)} training samples")

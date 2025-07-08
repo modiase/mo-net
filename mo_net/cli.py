@@ -444,6 +444,7 @@ def train(
         start_epoch=start_epoch,
         training_parameters=training_parameters,
         loss_fn=get_loss_fn(loss_fn_name),
+        key=random.PRNGKey(seed),
     )
     training_result: TrainingResult | None = None
     try:

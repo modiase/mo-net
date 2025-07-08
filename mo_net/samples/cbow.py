@@ -478,6 +478,8 @@ def train(
     Y_val = Y_train[train_size:]
 
     seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+
     run = TrainingRun(seed=seed, name=f"cbow_run_{seed}", backend=SqliteBackend())
     optimizer = get_optimizer("adam", model, training_parameters)
     EmbeddingWeightDecayRegulariser.attach(
@@ -497,6 +499,7 @@ def train(
         run=run,
         training_parameters=training_parameters,
         loss_fn=sparse_cross_entropy,
+        key=random.PRNGKey(seed),
     )
 
     logger.info(f"Starting CBOW training with {len(X_train_split)} training samples")

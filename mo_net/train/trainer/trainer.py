@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ContextManager, Final, Literal, assert_never
 
+import jax
 import jax.numpy as jnp
 from loguru import logger
 from tqdm import tqdm
@@ -110,7 +111,9 @@ class BasicTrainer:
         X_val: jnp.ndarray,
         Y_val: jnp.ndarray,
         loss_fn: LossFn,
+        key: jnp.ndarray,
     ) -> None:
+        key1, key2 = jax.random.split(key, 2)
         self._disable_shutdown = disable_shutdown
         self._run = run
         self._model = model
@@ -126,7 +129,9 @@ class BasicTrainer:
         self._batcher = IndexBatcher(
             train_set_size=X_train.shape[0],
             batch_size=self._training_parameters.batch_size,
+            key=key1,
         )
+        self._key = key2
         self._X_val = X_val
         self._Y_val = Y_val
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
@@ -266,7 +271,9 @@ class BasicTrainer:
 
     def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
-        L_val = None
+        L_val = self._model.compute_loss(
+            X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+        )
         for i in tqdm(
             range(
                 (
@@ -289,7 +296,7 @@ class BasicTrainer:
                 Y_train_batch = self._Y_train[batch_indices]
 
                 if self._transform is not None:
-                    X_train_batch = self._transform(X_train_batch)
+                    X_train_batch, self._key = self._transform(X_train_batch, self._key)
 
                 gradient, update = self._training_step(
                     X_train_batch=X_train_batch,
@@ -338,11 +345,8 @@ class BasicTrainer:
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 if not self._training_parameters.quiet:
-                    val_loss_str = (
-                        f", Validation Loss = {L_val}" if L_val is not None else ""
-                    )
                     tqdm.write(
-                        f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}{val_loss_str}"
+                        f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
                         + (
                             f", {report}"
                             if (report := self._optimizer.report()) != ""
