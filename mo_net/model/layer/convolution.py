@@ -183,13 +183,12 @@ class Parameters(SupportsGradientOperations):
         key: jax.Array,
     ) -> Parameters:
         key1 = jax.random.split(key)[0]
-        std = jnp.sqrt(2 / (in_channels * in_height * in_width))
         return cls(
             weights=jax.random.normal(
                 key1,
                 (n_kernels, in_channels, in_height, in_width),
             )
-            * std,
+            * jnp.sqrt(2 / (in_channels * in_height * in_width)),
             biases=jnp.zeros(n_kernels),
         )
 
