@@ -23,7 +23,7 @@ from mo_net.model.layer.reshape import Flatten
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import NormalisationType
-from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
+from mo_net.resources import MNIST_TRAIN_URL
 from mo_net.train import TrainingParameters
 from mo_net.train.augment import affine_transform2D
 from mo_net.train.backends.log import SqliteBackend
@@ -290,13 +290,10 @@ def train(
         split=SplitConfig.of(train_split, 0),
         one_hot=False,
     )
-    X_test, _ = load_data(MNIST_TEST_URL)
 
     X_train = X_train.reshape(-1, 1, MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE)
-    X_test = X_test.reshape(-1, 1, MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE)
 
     logger.info(f"Training data shape: {X_train.shape}")
-    logger.info(f"Test data shape: {X_test.shape}")
     logger.info(f"Number of classes: {N_DIGITS}")
 
     seed = time.time_ns() // 1000
