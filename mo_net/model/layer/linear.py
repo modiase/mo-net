@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
-from typing import IO, Callable, Final, Self
+from typing import (
+    IO,
+    Callable,
+    Self,
+)
 
-import numpy as np
+import jax
+import jax.numpy as jnp
+from jax import jit
 from more_itertools import one
 
-from mo_net.functions import Identity, LeakyReLU, ReLU, Tanh
+from mo_net.constants import EPSILON
+from mo_net.functions import identity
 from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
@@ -21,20 +27,17 @@ from mo_net.protos import (
     GradLayer,
     SupportsGradientOperations,
     d,
-    d_op,
 )
-
-EPSILON: Final[float] = 1e-8
 
 
 @dataclass(kw_only=True)
 class Parameters(SupportsGradientOperations):
-    weights: np.ndarray
-    biases: np.ndarray
+    weights: jnp.ndarray
+    biases: jnp.ndarray
 
     def __getitem__(
         self, index: int | tuple[int, ...]
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         return self.weights[index], self.biases[index]
 
     def __add__(self, other: Self | float | int) -> Self:
@@ -96,39 +99,51 @@ class Parameters(SupportsGradientOperations):
         return self.__class__(weights=self.weights**scalar, biases=self.biases**scalar)
 
     @classmethod
-    def random(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+    def random(
+        cls,
+        dim_in: Dimensions,
+        dim_out: Dimensions,
+        key: jax.Array,
+    ) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
         return cls(
-            weights=np.random.randn(_dim_in, _dim_out), biases=np.zeros(_dim_out)
+            weights=jax.random.normal(key, (_dim_in, _dim_out)),
+            biases=jnp.zeros(_dim_out),
         )
 
     @classmethod
-    def xavier(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+    def xavier(cls, dim_in: Dimensions, dim_out: Dimensions, key: jax.Array) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
         return cls(
-            weights=np.random.randn(_dim_in, _dim_out) * np.sqrt(1 / _dim_in),
-            biases=np.zeros(_dim_out),
+            weights=jax.random.normal(key, (_dim_in, _dim_out)) * jnp.sqrt(1 / _dim_in),
+            biases=jnp.zeros(_dim_out),
         )
 
     @classmethod
-    def he(cls, dim_in: Dimensions, dim_out: Dimensions) -> Self:
+    def he(cls, dim_in: Dimensions, dim_out: Dimensions, *, key: jax.Array) -> Self:
         _dim_in = one(dim_in)
         _dim_out = one(dim_out)
         return cls(
-            weights=np.random.normal(0, np.sqrt(2 / _dim_in), (_dim_in, _dim_out)),
-            biases=np.zeros(_dim_out),
+            weights=jax.random.normal(key, (_dim_in, _dim_out)) * jnp.sqrt(2 / _dim_in),
+            biases=jnp.zeros(_dim_out),
         )
 
     @classmethod
     def appropriate(
-        cls, dim_in: Dimensions, dim_out: Dimensions, activation_fn: ActivationFn
+        cls,
+        dim_in: Dimensions,
+        dim_out: Dimensions,
+        *,
+        activation_fn: ActivationFn,
+        key: jax.Array,
     ) -> Self:
-        if activation_fn.name in (ReLU.name, LeakyReLU.name):
-            return cls.he(dim_in, dim_out)
-        elif activation_fn.name in (Tanh.name, Identity.name):
-            return cls.xavier(dim_in, dim_out)
+        key1, key2 = jax.random.split(key)
+        if activation_fn in (jax.nn.relu, jax.nn.leaky_relu):
+            return cls.he(dim_in, dim_out, key=key1)
+        elif activation_fn in (jax.nn.tanh, identity):
+            return cls.xavier(dim_in, dim_out, key=key2)
         else:
             raise ValueError(
                 f"Cannot choose appropriate initialisation for {activation_fn}"
@@ -137,17 +152,17 @@ class Parameters(SupportsGradientOperations):
     @classmethod
     def eye(cls, dim: Dimensions) -> Self:
         _dim = one(dim)
-        return cls(weights=np.eye(_dim), biases=np.zeros(_dim))
+        return cls(weights=jnp.eye(_dim), biases=jnp.zeros(_dim))
 
     @classmethod
-    def of(cls, W: np.ndarray, B: np.ndarray) -> Self:
-        return cls(weights=np.atleast_2d(W), biases=np.atleast_1d(B))
+    def of(cls, W: jnp.ndarray, B: jnp.ndarray) -> Self:
+        return cls(weights=jnp.atleast_2d(W), biases=jnp.atleast_1d(B))
 
     def from_bytes(self, data: IO[bytes]) -> Self:
-        W = np.frombuffer(
+        W = jnp.frombuffer(
             data.read(self.weights.nbytes), dtype=self.weights.dtype
         ).reshape(self.weights.shape)
-        B = np.frombuffer(
+        B = jnp.frombuffer(
             data.read(self.biases.nbytes), dtype=self.biases.dtype
         ).reshape(self.biases.shape)
         return self.__class__(weights=W, biases=B)
@@ -170,14 +185,27 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
     _parameters: ParametersType
     _cache: CacheType
 
+    @staticmethod
+    @jit
+    def _clip_gradient_impl(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """JIT-compiled gradient clipping implementation."""
+        norm = jnp.linalg.norm(grad)
+        scale = jnp.minimum(1.0, max_norm * jnp.sqrt(grad.size) / (norm + EPSILON))
+        return grad * scale
+
+    @staticmethod
+    def _no_clip_gradient(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """No-op gradient clipping function."""
+        return grad
+
     @classmethod
-    def of_bias(cls, dim: Dimensions, bias: float | np.ndarray) -> Self:
+    def of_bias(cls, dim: Dimensions, bias: float | jnp.ndarray) -> Self:
         return cls(
             input_dimensions=dim,
             output_dimensions=dim,
-            parameters=cls.Parameters.of(
-                W=np.zeros((one(dim), one(dim))),
-                B=(np.ones(one(dim)) * bias if isinstance(bias, float) else bias),
+            parameters_init_fn=lambda dim_in, dim_out: cls.Parameters.of(
+                W=jnp.zeros((one(dim_in), one(dim_out))),
+                B=(jnp.ones(one(dim_out)) * bias if isinstance(bias, float) else bias),
             ),
         )
 
@@ -186,7 +214,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         return cls(
             input_dimensions=dim,
             output_dimensions=dim,
-            parameters=cls.Parameters.eye(dim),
+            parameters_init_fn=lambda _, __: cls.Parameters.eye(dim),
         )
 
     @dataclass(frozen=True, kw_only=True)
@@ -207,7 +235,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
-                parameters=self.parameters,
+                parameters_init_fn=lambda _, __: self.parameters,
                 freeze_parameters=freeze_parameters,
             )
 
@@ -220,10 +248,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         input_dimensions: Dimensions,
         layer_id: str | None = None,
         output_dimensions: Dimensions | None = None,
-        parameters: ParametersType | None = None,
-        parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType] = (
-            Parameters.xavier
-        ),
+        parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType],
         store_output_activations: bool = False,  # Only used for tracing
         weight_max_norm: float = 1.0,
     ):
@@ -234,32 +259,32 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
         )
-        self._parameters_init_fn = parameters_init_fn
         self._freeze_parameters = freeze_parameters
-        self._clip_gradients = clip_gradients
         self._weight_max_norm = weight_max_norm
         self._bias_max_norm = bias_max_norm
-        if parameters is not None:
-            if parameters.weights.shape != (
-                one(input_dimensions),
-                one(output_dimensions),
-            ):
-                raise ValueError(
-                    f"Weight matrix shape ({parameters.weights.shape}) "
-                    f"does not match input dimensions ({input_dimensions}) "
-                    f"and output dimensions ({output_dimensions})."
-                )
-            if parameters.biases.shape != (one(output_dimensions),):
-                raise ValueError(
-                    f"Bias vector shape ({parameters.biases.shape}) "
-                    f"does not match output dimensions ({output_dimensions})."
-                )
 
-        self._parameters = (
-            parameters
-            if parameters is not None
-            else self._parameters_init_fn(input_dimensions, output_dimensions)
+        self._clip_gradient_fn = (
+            self._clip_gradient_impl if clip_gradients else self._no_clip_gradient
         )
+
+        self._parameters_init_fn = parameters_init_fn
+        self._parameters = parameters_init_fn(input_dimensions, output_dimensions)
+
+        if self._parameters.weights.shape != (
+            one(input_dimensions),
+            one(output_dimensions),
+        ):
+            raise ValueError(
+                f"Weight matrix shape ({self._parameters.weights.shape}) "
+                f"does not match input dimensions ({input_dimensions}) "
+                f"and output dimensions ({output_dimensions})."
+            )
+        if self._parameters.biases.shape != (one(output_dimensions),):
+            raise ValueError(
+                f"Bias vector shape ({self._parameters.biases.shape}) "
+                f"does not match output dimensions ({output_dimensions})."
+            )
+
         self._store_output_activations = store_output_activations
         self._cache: CacheType = {
             "input_activations": None,
@@ -269,8 +294,15 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
+
+        @jit
+        def linear_forward(x, w, b):
+            return x @ w + b
+
         output_activations = Activations(
-            input_activations @ self._parameters.weights + self._parameters.biases
+            linear_forward(
+                input_activations, self._parameters.weights, self._parameters.biases
+            )
         )
         if self._store_output_activations:
             self._cache["output_activations"] = output_activations
@@ -284,35 +316,32 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         if (input_activations := self._cache["input_activations"]) is None:
             raise ValueError("Input activations not set during forward pass.")
 
-        dW = input_activations.T @ dZ
-        dB = d_op(dZ, partial(np.sum, axis=0))
+        @jit
+        def compute_gradients(x, dz, w):
+            dW = x.T @ dz
+            dB = jnp.sum(dz, axis=0)
+            dX = dz @ w.T
+            return dW, dB, dX
 
-        if self._clip_gradients:
-            dW *= min(
-                1.0,
-                self._weight_max_norm
-                * np.sqrt(dW.size)
-                / (np.linalg.norm(dW) + EPSILON),
-            )
-            dB *= min(
-                1.0,
-                self._bias_max_norm * np.sqrt(dB.size) / (np.linalg.norm(dB) + EPSILON),
-            )
+        dW, dB, dX = compute_gradients(input_activations, dZ, self._parameters.weights)
+
+        dW = self._clip_gradient_fn(dW, self._weight_max_norm)
+        dB = self._clip_gradient_fn(dB, self._bias_max_norm)
 
         self._cache["dP"] = d(self.Parameters(weights=dW, biases=dB))
-        return dZ @ self._parameters.weights.T
+        return dX
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                weights=np.zeros_like(self._parameters.weights),
-                biases=np.zeros_like(self._parameters.biases),
+                weights=jnp.zeros_like(self._parameters.weights),
+                biases=jnp.zeros_like(self._parameters.biases),
             )
         )
 
     def reinitialise(self) -> None:
         self._parameters = self._parameters_init_fn(
-            self.input_dimensions, self.output_dimensions
+            self._input_dimensions, self._output_dimensions
         )
 
     def serialize(self) -> Linear.Serialized:

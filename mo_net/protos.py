@@ -4,24 +4,12 @@ from collections.abc import Callable, Sequence
 from enum import StrEnum
 from typing import Generic, NewType, Protocol, Self, TypedDict, TypeVar, cast
 
-import numpy as np
+import jax.numpy as jnp
 from typing_extensions import runtime_checkable
 
-Activations = NewType("Activations", np.ndarray)
+Activations = NewType("Activations", jnp.ndarray)
 
-_X = TypeVar("_X", bound=np.ndarray | float)
-
-
-ActivationFnName = NewType("ActivationFnName", str)
-
-
-class ActivationFn(Protocol):
-    def __call__(self, x: _X) -> _X: ...
-
-    def deriv(self, x: _X) -> _X: ...
-
-    @property
-    def name(self) -> ActivationFnName: ...
+type ActivationFn = Callable[[jnp.ndarray], jnp.ndarray]
 
 
 _Quantity = TypeVar("_Quantity")
@@ -46,11 +34,11 @@ class EventLike(Protocol):
 
 
 class HasBiases(Protocol):
-    biases: np.ndarray
+    biases: jnp.ndarray
 
 
 class HasWeights(Protocol):
-    weights: np.ndarray
+    weights: jnp.ndarray
 
 
 type LossContributor = Callable[[], float]
@@ -164,12 +152,14 @@ def d(value: _SupportsGradientOperationsT) -> D[_SupportsGradientOperationsT]:
     return cast(D[_SupportsGradientOperationsT], value)
 
 
-def d_op(value: D[Activations], op: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
+def d_op(
+    value: D[Activations], op: Callable[[jnp.ndarray], jnp.ndarray]
+) -> jnp.ndarray:
     """
-    This is a helper function to apply numpy operations to the value of a D[Activations] object.
-    The type-checker is unable to recognise that D[Activations] is a numpy array, so we need to cast it.
+    This is a helper function to apply JAX operations to the value of a D[Activations] object.
+    The type-checker is unable to recognise that D[Activations] is a JAX array, so we need to cast it.
     """
-    return op(cast(np.ndarray, value))
+    return op(cast(jnp.ndarray, value))
 
 
 type Dimensions = Sequence[int]

@@ -1,4 +1,7 @@
-from mo_net.functions import ReLU
+import functools
+
+import jax.nn
+
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm.batch_norm_2d import BatchNorm2D
 from mo_net.model.layer.convolution import Convolution2D
@@ -12,15 +15,17 @@ class Convolution(Hidden):
     def __init__(
         self,
         *,
+        activation_fn: ActivationFn = jax.nn.relu,
+        flatten_output: bool = False,
         input_dimensions: Dimensions,
-        n_kernels: int,
         kernel_size: int | tuple[int, int],
-        stride: int | tuple[int, int] = 1,
+        key: jax.Array,
+        n_kernels: int,
         pool_size: int | tuple[int, int] = 2,
         pool_stride: int | tuple[int, int] = 1,
-        activation_fn: ActivationFn = ReLU,
-        flatten_output: bool = False,
+        stride: int | tuple[int, int] = 1,
     ):
+        key = jax.random.split(key)[0]
         super().__init__(
             layers=(
                 conv_layer := Convolution2D(
@@ -28,6 +33,9 @@ class Convolution(Hidden):
                     n_kernels=n_kernels,
                     kernel_size=kernel_size,
                     stride=stride,
+                    kernel_init_fn=functools.partial(
+                        Convolution2D.Parameters.he, key=key
+                    ),
                 ),
                 batch_norm_layer := BatchNorm2D(
                     input_dimensions=conv_layer.output_dimensions,

@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import IO as IO_Type
 from typing import Final, ParamSpec, TypeVar, cast
 
-import numpy as np
+import jax.numpy as jnp
+import jax.random as random
 from loguru import logger
 
 from mo_net.log import log_time
@@ -456,10 +457,10 @@ def worker_process(
     log_level: str,
     batch_size: int,
     worker_ready_event: EventLike,
-    X_shared_memory_dtype: np.dtype,
+    X_shared_memory_dtype: jnp.dtype,
     X_shared_memory_name: str,
     X_shared_memory_shape: Sequence[int],
-    Y_shared_memory_dtype: np.dtype,
+    Y_shared_memory_dtype: jnp.dtype,
     Y_shared_memory_name: str,
     Y_shared_memory_shape: Sequence[int],
 ) -> None:
@@ -486,12 +487,12 @@ def worker_process(
             X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
             Y_shared_memory = mp.shared_memory.SharedMemory(Y_shared_memory_name)
 
-            X_train: np.ndarray = np.ndarray(
+            X_train: jnp.ndarray = jnp.ndarray(
                 shape=X_shared_memory_shape,
                 dtype=X_shared_memory_dtype,
                 buffer=X_shared_memory.buf,
             )
-            Y_train: np.ndarray = np.ndarray(
+            Y_train: jnp.ndarray = jnp.ndarray(
                 shape=Y_shared_memory_shape,
                 dtype=Y_shared_memory_dtype,
                 buffer=Y_shared_memory.buf,
@@ -525,8 +526,11 @@ def worker_process(
                         reload_event.clear()
                         worker_ready_event.set()
 
-                indices = np.random.choice(
-                    X_train.shape[0], size=batch_size, replace=False
+                indices = random.choice(
+                    random.PRNGKey(worker_id),
+                    X_train.shape[0],
+                    shape=(batch_size,),
+                    replace=False,
                 )
                 X_batch = X_train[indices]
                 Y_batch = Y_train[indices]
@@ -649,9 +653,9 @@ class ParallelTrainer(BasicTrainer):
     @staticmethod
     def create_worker_process(
         *,
-        X: np.ndarray,
+        X: jnp.ndarray,
         X_shared_memory_name: str,
-        Y: np.ndarray,
+        Y: jnp.ndarray,
         Y_shared_memory_name: str,
         batch_size: int,
         log_level: str,
@@ -732,18 +736,18 @@ class ParallelTrainer(BasicTrainer):
                 )
 
             with log_time("Training data copy to shared memory: {time_taken:.4f}s"):
-                X_shared: np.ndarray = np.ndarray(
+                X_shared: jnp.ndarray = jnp.ndarray(
                     self._X_train.shape,
                     dtype=self._X_train.dtype,
                     buffer=self._X_shared_memory.buf,
                 )
-                Y_shared: np.ndarray = np.ndarray(
+                Y_shared: jnp.ndarray = jnp.ndarray(
                     self._Y_train.shape,
                     dtype=self._Y_train.dtype,
                     buffer=self._Y_shared_memory.buf,
                 )
-                np.copyto(X_shared, self._X_train)
-                np.copyto(Y_shared, self._Y_train)
+                X_shared[:] = self._X_train
+                Y_shared[:] = self._Y_train
 
             barrier_parties = self._training_parameters.workers + 1
             self._gradient_barrier = mp.Barrier(barrier_parties)
@@ -808,8 +812,8 @@ class ParallelTrainer(BasicTrainer):
 
     def _training_step(
         self,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
+        X_train_batch: jnp.ndarray,
+        Y_train_batch: jnp.ndarray,
     ) -> tuple[
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],

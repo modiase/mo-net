@@ -1,6 +1,6 @@
 from itertools import chain
 
-import numpy as np
+import jax.numpy as jnp
 
 from mo_net.model.layer.linear import Linear
 from mo_net.model.model import Model
@@ -26,7 +26,7 @@ class WeightDecayRegulariser(TrainingStepHandler):
             dP
             + Linear.Parameters(
                 weights=self._lambda * self._layer.parameters.weights,
-                biases=np.zeros_like(dP.biases),
+                biases=jnp.zeros_like(dP.biases),
             )
         )
 
@@ -34,9 +34,9 @@ class WeightDecayRegulariser(TrainingStepHandler):
         return (
             0.5
             * self._lambda
-            * np.sum(self._layer.parameters.weights**2)
+            * jnp.sum(self._layer.parameters.weights**2)
             / self._batch_size
-        )
+        ).item()
 
     def __call__(self) -> float:
         return self.compute_regularisation_loss()

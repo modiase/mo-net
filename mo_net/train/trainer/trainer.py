@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ContextManager, Final, Literal, assert_never
 
-import numpy as np
+import jax
+import jax.numpy as jnp
 from loguru import logger
 from tqdm import tqdm
 
 from mo_net.config import TrainingParameters
 from mo_net.data import RUN_PATH
+from mo_net.functions import LossFn, TransformFn
 from mo_net.model.model import Model
 from mo_net.optimizer import Base, OptimizerConfigT
 from mo_net.optimizer.adam import AdaM
@@ -18,7 +20,7 @@ from mo_net.optimizer.base import Null
 from mo_net.optimizer.rmsprop import RMSProp
 from mo_net.optimizer.scheduler import CosineScheduler, WarmupScheduler
 from mo_net.protos import SupportsGradientOperations, UpdateGradientType
-from mo_net.train.batcher import Batcher
+from mo_net.train.batcher import IndexBatcher
 from mo_net.train.exceptions import CheckFailed
 from mo_net.train.monitor import Monitor
 from mo_net.train.run import TrainingRun
@@ -92,8 +94,6 @@ type AfterTrainingStepHandler = Callable[
     None | CheckFailed,
 ]
 
-type TransformFn = Callable[[np.ndarray], np.ndarray]
-
 
 class BasicTrainer:
     def __init__(
@@ -104,13 +104,16 @@ class BasicTrainer:
         optimizer: Base[OptimizerConfigT],
         run: TrainingRun,
         training_parameters: TrainingParameters,
-        transform: TransformFn | None = None,
+        transform_fn: TransformFn | None = None,
         start_epoch: int | None = None,
-        X_train: np.ndarray,
-        Y_train: np.ndarray,
-        X_val: np.ndarray,
-        Y_val: np.ndarray,
+        X_train: jnp.ndarray,
+        Y_train: jnp.ndarray,
+        X_val: jnp.ndarray,
+        Y_val: jnp.ndarray,
+        loss_fn: LossFn,
+        key: jnp.ndarray,
     ) -> None:
+        key1, key2 = jax.random.split(key, 2)
         self._disable_shutdown = disable_shutdown
         self._run = run
         self._model = model
@@ -120,13 +123,15 @@ class BasicTrainer:
         self._training_parameters = training_parameters
         self._X_train = X_train
         self._Y_train = Y_train
+        self._transform = transform_fn
+        self._loss_fn = loss_fn
         self._logger = logger.bind(name="trainer")
-        self._batcher = Batcher(
-            X=X_train,
-            Y=Y_train,
+        self._batcher = IndexBatcher(
+            train_set_size=X_train.shape[0],
             batch_size=self._training_parameters.batch_size,
-            transform=transform,
+            key=key1,
         )
+        self._key = key2
         self._X_val = X_val
         self._Y_val = Y_val
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
@@ -174,7 +179,6 @@ class BasicTrainer:
 
     @contextmanager
     def _monotonic_training_step_context(self) -> Iterator[None]:
-        # TODO: Implement monotonic training.
         raise NotImplementedError("Monotonic training is not implemented.")
 
     def _revert_training_step(self) -> None:
@@ -231,7 +235,9 @@ class BasicTrainer:
         self._logger.info(f"Logging to: {self._run._backend.connection_string}.")
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
-        self._L_val_min = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
+        self._L_val_min = self._model.compute_loss(
+            X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+        )
 
         if self._training_parameters.trace_logging:
             tracer = Tracer(
@@ -265,6 +271,9 @@ class BasicTrainer:
 
     def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
+        L_val = self._model.compute_loss(
+            X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+        )
         for i in tqdm(
             range(
                 (
@@ -282,7 +291,14 @@ class BasicTrainer:
             disable=self._training_parameters.quiet,
         ):
             with self._create_training_step_context():
-                X_train_batch, Y_train_batch = next(self._batcher)
+                batch_indices = next(self._batcher)
+                X_train_batch = self._X_train[batch_indices]
+                Y_train_batch = self._Y_train[batch_indices]
+
+                if self._transform is not None:
+                    self._key, subkey = jax.random.split(self._key)
+                    X_train_batch = self._transform(X_train_batch, subkey)
+
                 gradient, update = self._training_step(
                     X_train_batch=X_train_batch,
                     Y_train_batch=Y_train_batch,
@@ -301,35 +317,36 @@ class BasicTrainer:
                     case never:
                         assert_never(never)
 
-            if i % self._training_parameters.batches_per_epoch == 0:
-                L_batch = self._model.compute_loss(
-                    X=X_train_batch, Y_true=Y_train_batch
-                )
-                L_val = self._model.compute_loss(X=self._X_val, Y_true=self._Y_val)
+            if self._training_parameters.monotonic:
+                if self._last_update is not None:
+                    self._revert_training_step()
 
+            L_batch = self._model.compute_loss(
+                X=X_train_batch, Y_true=Y_train_batch, loss_fn=self._loss_fn
+            )
+
+            if self._training_parameters.monotonic:
+                self._last_update = update
+
+            if (i + 1) % self._training_parameters.batches_per_epoch == 0 and i > 0:
+                L_val = self._model.compute_loss(
+                    X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+                )
                 if L_val < self._L_val_min:
-                    self._model.dump(open(self._model_checkpoint_path, "wb"))
-                    if self._monitor is not None:
-                        self._monitor.clear_history()
-                    if self._training_parameters.max_restarts > 0:
-                        self._optimizer.snapshot()
                     self._L_val_min = L_val
                     self._L_val_min_epoch = self._training_parameters.current_epoch(i)
-                match self._post_epoch(L_val):
-                    case CheckFailed() as check:
-                        return TrainingFailed(
-                            model_checkpoint_path=self._model_checkpoint_path,
-                            message=check.message,
-                            model_checkpoint_save_epoch=self._L_val_min_epoch,
-                        )
-                    case None:
-                        pass
-                    case never:
-                        assert_never(never)
+                    self._model.dump(self._model_checkpoint_path)
+
+                if (post_epoch_check := self._post_epoch(L_val)) is not None:
+                    return TrainingFailed(
+                        model_checkpoint_path=self._model_checkpoint_path,
+                        message=post_epoch_check.message,
+                        model_checkpoint_save_epoch=self._L_val_min_epoch,
+                    )
 
             self._run.log_iteration(
                 epoch=self._training_parameters.current_epoch(i),
-                batch=i,
+                batch=i + 1,
                 batch_loss=L_batch,
                 val_loss=L_val,
                 learning_rate=self._optimizer.learning_rate,
@@ -360,8 +377,8 @@ class BasicTrainer:
 
     def _training_step(
         self,
-        X_train_batch: np.ndarray,
-        Y_train_batch: np.ndarray,
+        X_train_batch: jnp.ndarray,
+        Y_train_batch: jnp.ndarray,
     ) -> tuple[
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],

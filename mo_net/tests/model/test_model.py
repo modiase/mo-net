@@ -1,7 +1,8 @@
 import io
 import pickle
 
-import numpy as np
+import jax
+import jax.numpy as jnp
 import pytest
 from more_itertools import one
 
@@ -12,7 +13,10 @@ from mo_net.model.module.base import Hidden
 
 
 def test_model_initialisation_of_mlp_has_correct_dimensions():
-    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    model = Model.mlp_of(
+        module_dimensions=((2,), (2,), (2,)),
+        key=jax.random.PRNGKey(42),
+    )
 
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
@@ -37,29 +41,29 @@ def test_forward_prop_identity(n_hidden_layers: int, n_neurons: int):
         ],
     )
 
-    X = np.atleast_2d(np.array(range(n_neurons)))
+    X = jnp.atleast_2d(jnp.array(range(n_neurons)))
     output = model.forward_prop(X)
-    assert np.allclose(output, np.atleast_2d(np.array(range(n_neurons))))
+    assert jnp.allclose(output, jnp.atleast_2d(jnp.array(range(n_neurons))))
 
 
 @pytest.mark.parametrize("factor", [2, 3, 4])
-@pytest.mark.parametrize("dX", [np.zeros(5), np.ones(5)])
-def test_forward_prop_linear_model(factor: int, dX: np.ndarray):
+@pytest.mark.parametrize("dX", [jnp.zeros(5), jnp.ones(5)])
+def test_forward_prop_linear_model(factor: int, dX: jnp.ndarray):
     """
     Test that the forward propagation of a linear model is a linear function.
     => L(X + dX) = L(X) + dL(X)
     => L(kX) = kL(X)
     """
-    X = np.array([1, -1, 2, 1, 0])
-    weights = np.array([[1, 1, 1, -2, 0], [1, 4, 1, 1, 0]]).T
-    bias_1 = np.array([1, 1])
+    X = jnp.array([1, -1, 2, 1, 0])
+    weights = jnp.array([[1, 1, 1, -2, 0], [1, 4, 1, 1, 0]]).T
+    bias_1 = jnp.array([1, 1])
     model = Model(
         input_dimensions=(5,),
         hidden=[
             Linear(
                 input_dimensions=(5,),
                 output_dimensions=(2,),
-                parameters=Linear.Parameters(
+                parameters_init_fn=lambda *_: Linear.Parameters(
                     weights=weights,
                     biases=bias_1,
                 ),
@@ -68,9 +72,9 @@ def test_forward_prop_linear_model(factor: int, dX: np.ndarray):
     )
 
     output = model.forward_prop(factor * (X + dX))
-    assert np.allclose(
+    assert jnp.allclose(
         output,
-        np.array(
+        jnp.array(
             [
                 factor
                 * (
@@ -96,8 +100,11 @@ def test_forward_prop_linear_model(factor: int, dX: np.ndarray):
 
 
 def test_serialize_deserialize():
-    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
-    X = np.ones((1, one(model.input_dimensions)))
+    model = Model.mlp_of(
+        module_dimensions=((2,), (2,), (2,)),
+        key=jax.random.PRNGKey(42),
+    )
+    X = jnp.ones((1, one(model.input_dimensions)))
 
     X_prop_before = model.forward_prop(X)
     buffer = io.BytesIO()
@@ -109,11 +116,14 @@ def test_serialize_deserialize():
     X_prop_after = deserialized.forward_prop(X)
 
     assert model.module_dimensions == deserialized.module_dimensions
-    assert np.allclose(X_prop_before, X_prop_after)
+    assert jnp.allclose(X_prop_before, X_prop_after)
 
 
 def test_gradient_size():
-    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    model = Model.mlp_of(
+        module_dimensions=((2,), (2,), (2,)),
+        key=jax.random.PRNGKey(42),
+    )
     assert model.parameter_count == 2 * 6  # 2 x (4 weights, 2 biases)
     assert model.grad_layers[0].parameter_nbytes == 6 * N_BYTES_PER_FLOAT
     assert model.grad_layers[1].parameter_nbytes == 6 * N_BYTES_PER_FLOAT

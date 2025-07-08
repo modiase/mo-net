@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
-import numpy as np
+import jax.nn
+import jax.numpy as jnp
 import pytest
 
-from mo_net.functions import ReLU
 from mo_net.model.layer import Activation
 from mo_net.model.layer.convolution import (
     Convolution2D,
@@ -19,7 +19,7 @@ class OutputShapeTestCase:
     input_dimensions: Dimensions
     kernel_size: int | tuple[int, int]
     n_kernels: int
-    input_activations: np.ndarray
+    input_activations: jnp.ndarray
     expected_output_shape: tuple[int, ...]
 
 
@@ -31,7 +31,7 @@ class OutputShapeTestCase:
             input_dimensions=(1, 3, 3),
             kernel_size=1,
             n_kernels=1,
-            input_activations=np.ones((1, 1, 3, 3)),
+            input_activations=jnp.ones((1, 1, 3, 3)),
             expected_output_shape=(1, 1, 3, 3),
         ),
         OutputShapeTestCase(
@@ -39,7 +39,7 @@ class OutputShapeTestCase:
             input_dimensions=(1, 3, 3),
             kernel_size=2,
             n_kernels=1,
-            input_activations=np.ones((1, 1, 3, 3)),
+            input_activations=jnp.ones((1, 1, 3, 3)),
             expected_output_shape=(1, 1, 2, 2),
         ),
         OutputShapeTestCase(
@@ -47,7 +47,7 @@ class OutputShapeTestCase:
             input_dimensions=(1, 3, 3),
             kernel_size=2,
             n_kernels=2,
-            input_activations=np.ones((1, 1, 3, 3)),
+            input_activations=jnp.ones((1, 1, 3, 3)),
             expected_output_shape=(1, 2, 2, 2),
         ),
         OutputShapeTestCase(
@@ -55,7 +55,7 @@ class OutputShapeTestCase:
             input_dimensions=(1, 5, 4),
             kernel_size=(3, 2),  # (height=3, width=2)
             n_kernels=1,
-            input_activations=np.ones((1, 1, 5, 4)),
+            input_activations=jnp.ones((1, 1, 5, 4)),
             expected_output_shape=(1, 1, 3, 3),  # (5-3)//1+1=3, (4-2)//1+1=3
         ),
         OutputShapeTestCase(
@@ -63,7 +63,7 @@ class OutputShapeTestCase:
             input_dimensions=(1, 3, 6),
             kernel_size=(1, 3),  # (height=1, width=3)
             n_kernels=2,
-            input_activations=np.ones((1, 1, 3, 6)),
+            input_activations=jnp.ones((1, 1, 3, 6)),
             expected_output_shape=(1, 2, 3, 4),  # (3-1)//1+1=3, (6-3)//1+1=4
         ),
         OutputShapeTestCase(
@@ -71,7 +71,7 @@ class OutputShapeTestCase:
             input_dimensions=(1, 6, 3),
             kernel_size=(2, 1),  # (height=2, width=1)
             n_kernels=3,
-            input_activations=np.ones((1, 1, 6, 3)),
+            input_activations=jnp.ones((1, 1, 6, 3)),
             expected_output_shape=(1, 3, 5, 3),  # (6-2)//1+1=5, (3-1)//1+1=3
         ),
     ],
@@ -83,6 +83,7 @@ def test_convolution_2d_output_shape(test_case: OutputShapeTestCase):
         input_dimensions=test_case.input_dimensions,
         kernel_size=test_case.kernel_size,
         n_kernels=test_case.n_kernels,
+        kernel_init_fn=Convolution2D.Parameters.ones,
     )
     output = layer.forward_prop(input_activations=test_case.input_activations)  # type: ignore[arg-type]
     assert output.shape == test_case.expected_output_shape
@@ -95,8 +96,8 @@ class ForwardPropTestCase:
     kernel_size: int | tuple[int, int]
     n_kernels: int
     kernel_init_fn: KernelInitFn
-    input_activations: np.ndarray
-    expected_output: np.ndarray
+    input_activations: jnp.ndarray
+    expected_output: jnp.ndarray
     use_activation: bool = False
 
 
@@ -104,7 +105,7 @@ def _custom_kernel_init_fn(*args: object) -> ParametersType:
     """Custom kernel initialization for testing."""
     del args  # unused
     return Convolution2D.Parameters(
-        weights=np.ones((1, 1, 2, 2)), biases=np.zeros(1) - 2
+        weights=jnp.ones((1, 1, 2, 2)), biases=jnp.zeros(1) - 2
     )
 
 
@@ -117,8 +118,8 @@ def _custom_kernel_init_fn(*args: object) -> ParametersType:
             kernel_size=2,
             n_kernels=1,
             kernel_init_fn=_custom_kernel_init_fn,
-            input_activations=np.ones((1, 1, 3, 3)),
-            expected_output=np.array([[[[2.0, 2.0], [2.0, 2.0]]]]),
+            input_activations=jnp.ones((1, 1, 3, 3)),
+            expected_output=jnp.array([[[[2.0, 2.0], [2.0, 2.0]]]]),
             use_activation=True,
         ),
         ForwardPropTestCase(
@@ -127,8 +128,8 @@ def _custom_kernel_init_fn(*args: object) -> ParametersType:
             kernel_size=2,
             n_kernels=1,
             kernel_init_fn=_custom_kernel_init_fn,
-            input_activations=np.ones((1, 1, 4, 3)),
-            expected_output=np.array([[[[2.0, 2.0], [2.0, 2.0], [2.0, 2.0]]]]),
+            input_activations=jnp.ones((1, 1, 4, 3)),
+            expected_output=jnp.array([[[[2.0, 2.0], [2.0, 2.0], [2.0, 2.0]]]]),
             use_activation=True,
         ),
         ForwardPropTestCase(
@@ -137,11 +138,11 @@ def _custom_kernel_init_fn(*args: object) -> ParametersType:
             kernel_size=(3, 2),  # (height=3, width=2)
             n_kernels=1,
             kernel_init_fn=lambda *args: Convolution2D.Parameters(
-                weights=np.ones((1, 1, 3, 2)),
-                biases=np.zeros(1) - 6,  # (n_kernels, in_channels, height, width)
+                weights=jnp.ones((1, 1, 3, 2)),
+                biases=jnp.zeros(1) - 6,  # (n_kernels, in_channels, height, width)
             ),
-            input_activations=np.ones((1, 1, 5, 4)),
-            expected_output=np.array(
+            input_activations=jnp.ones((1, 1, 5, 4)),
+            expected_output=jnp.array(
                 [[[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]]]
             ),  # Shape: (1, 1, 3, 3)
             use_activation=True,
@@ -152,11 +153,11 @@ def _custom_kernel_init_fn(*args: object) -> ParametersType:
             kernel_size=(1, 3),  # (height=1, width=3)
             n_kernels=1,
             kernel_init_fn=lambda *args: Convolution2D.Parameters(
-                weights=np.ones((1, 1, 1, 3)),
-                biases=np.zeros(1) - 3,  # (n_kernels, in_channels, height, width)
+                weights=jnp.ones((1, 1, 1, 3)),
+                biases=jnp.zeros(1) - 3,  # (n_kernels, in_channels, height, width)
             ),
-            input_activations=np.ones((1, 1, 3, 6)),
-            expected_output=np.array(
+            input_activations=jnp.ones((1, 1, 3, 6)),
+            expected_output=jnp.array(
                 [[[[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]]]
             ),  # Shape: (1, 1, 3, 4)
             use_activation=True,
@@ -167,11 +168,11 @@ def _custom_kernel_init_fn(*args: object) -> ParametersType:
             kernel_size=(2, 1),  # (height=2, width=1)
             n_kernels=1,
             kernel_init_fn=lambda *args: Convolution2D.Parameters(
-                weights=np.ones((1, 1, 2, 1)),
-                biases=np.zeros(1) - 2,  # (n_kernels, in_channels, height, width)
+                weights=jnp.ones((1, 1, 2, 1)),
+                biases=jnp.zeros(1) - 2,  # (n_kernels, in_channels, height, width)
             ),
-            input_activations=np.ones((1, 1, 6, 3)),
-            expected_output=np.array(
+            input_activations=jnp.ones((1, 1, 6, 3)),
+            expected_output=jnp.array(
                 [
                     [
                         [
@@ -200,7 +201,7 @@ def test_convolution_2d_forward_prop(test_case: ForwardPropTestCase):
 
     if test_case.use_activation:
         activation_layer = Activation(
-            input_dimensions=conv_layer.output_dimensions, activation_fn=ReLU
+            input_dimensions=conv_layer.output_dimensions, activation_fn=jax.nn.relu
         )
         output = activation_layer.forward_prop(
             input_activations=conv_layer.forward_prop(
@@ -212,7 +213,7 @@ def test_convolution_2d_forward_prop(test_case: ForwardPropTestCase):
             input_activations=Activations(test_case.input_activations)
         )
 
-    assert np.allclose(output, test_case.expected_output)
+    assert jnp.allclose(output, test_case.expected_output)
 
 
 @dataclass(frozen=True)
@@ -222,8 +223,8 @@ class BackwardPropTestCase:
     kernel_size: int | tuple[int, int]
     n_kernels: int
     kernel_init_fn: KernelInitFn
-    input_activations: np.ndarray
-    expected_dX: np.ndarray
+    input_activations: jnp.ndarray
+    expected_dX: jnp.ndarray
 
 
 @pytest.mark.parametrize(
@@ -235,8 +236,8 @@ class BackwardPropTestCase:
             kernel_size=2,
             n_kernels=1,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 3, 3)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 3, 3)),
+            expected_dX=jnp.array(
                 [[[[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]]]
             ),
         ),
@@ -246,8 +247,8 @@ class BackwardPropTestCase:
             kernel_size=(3, 2),  # (height=3, width=2)
             n_kernels=1,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 4, 5)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 4, 5)),
+            expected_dX=jnp.array(
                 [
                     [
                         [
@@ -266,8 +267,8 @@ class BackwardPropTestCase:
             kernel_size=(1, 3),  # (height=1, width=3)
             n_kernels=1,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 3, 5)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 3, 5)),
+            expected_dX=jnp.array(
                 [
                     [
                         [
@@ -285,8 +286,8 @@ class BackwardPropTestCase:
             kernel_size=(2, 1),  # (height=2, width=1)
             n_kernels=1,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 5, 3)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 5, 3)),
+            expected_dX=jnp.array(
                 [
                     [
                         [
@@ -306,8 +307,8 @@ class BackwardPropTestCase:
             kernel_size=2,
             n_kernels=2,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 3, 3)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 3, 3)),
+            expected_dX=jnp.array(
                 [[[[2.0, 4.0, 2.0], [4.0, 8.0, 4.0], [2.0, 4.0, 2.0]]]]
             ),
         ),
@@ -317,8 +318,8 @@ class BackwardPropTestCase:
             kernel_size=1,
             n_kernels=1,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 3, 3)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 3, 3)),
+            expected_dX=jnp.array(
                 [[[[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]]]
             ),
         ),
@@ -328,8 +329,8 @@ class BackwardPropTestCase:
             kernel_size=(3, 1),  # (height=3, width=1)
             n_kernels=1,
             kernel_init_fn=Convolution2D.Parameters.ones,
-            input_activations=np.ones((1, 1, 5, 2)),
-            expected_dX=np.array(
+            input_activations=jnp.ones((1, 1, 5, 2)),
+            expected_dX=jnp.array(
                 [[[[1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [2.0, 2.0], [1.0, 1.0]]]]
             ),
         ),
@@ -347,14 +348,19 @@ def test_convolution_2d_backward_prop(test_case: BackwardPropTestCase):
     output = layer.forward_prop(
         input_activations=Activations(test_case.input_activations)
     )
-    dZ = np.ones_like(output)
+    dZ = jnp.ones_like(output)
     dX = layer.backward_prop(dZ=dZ)
-    assert np.allclose(dX, test_case.expected_dX)  # type: ignore[arg-type]
+    assert jnp.allclose(dX, test_case.expected_dX)  # type: ignore[arg-type]
 
 
 def test_convolution_2d_gradient_operation():
     """Test that Convolution2D layer implements GradLayer interface."""
-    layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
+    layer = Convolution2D(
+        input_dimensions=(1, 3, 3),
+        kernel_size=2,
+        n_kernels=1,
+        kernel_init_fn=Convolution2D.Parameters.ones,
+    )
     assert isinstance(layer, GradLayer)
 
 
@@ -365,11 +371,11 @@ class ParameterUpdateTestCase:
     kernel_size: int | tuple[int, int]
     n_kernels: int
     kernel_init_fn: KernelInitFn
-    input_activations: np.ndarray
-    dZ: np.ndarray
-    expected_output: np.ndarray
-    expected_weight_gradients: np.ndarray
-    expected_bias_gradients: np.ndarray
+    input_activations: jnp.ndarray
+    dZ: jnp.ndarray
+    expected_output: jnp.ndarray
+    expected_weight_gradients: jnp.ndarray
+    expected_bias_gradients: jnp.ndarray
 
 
 @pytest.mark.parametrize(
@@ -381,13 +387,13 @@ class ParameterUpdateTestCase:
             kernel_size=2,
             n_kernels=1,
             kernel_init_fn=lambda *_: Convolution2D.Parameters(
-                weights=np.array([[[[0.1, 0.2], [0.3, 0.4]]]]), biases=np.array([0.5])
+                weights=jnp.array([[[[0.1, 0.2], [0.3, 0.4]]]]), biases=jnp.array([0.5])
             ),
-            input_activations=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
-            dZ=np.array([[[[1.0]]]]),
-            expected_output=np.array([[[[3.5]]]]),
-            expected_weight_gradients=np.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
-            expected_bias_gradients=np.array([1.0]),
+            input_activations=jnp.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
+            dZ=jnp.array([[[[1.0]]]]),
+            expected_output=jnp.array([[[[3.5]]]]),
+            expected_weight_gradients=jnp.array([[[[1.0, 2.0], [3.0, 4.0]]]]),
+            expected_bias_gradients=jnp.array([1.0]),
         ),
         ParameterUpdateTestCase(
             name="3x3_input_2x2_kernel",
@@ -395,15 +401,15 @@ class ParameterUpdateTestCase:
             kernel_size=2,
             n_kernels=1,
             kernel_init_fn=lambda *_: Convolution2D.Parameters(
-                weights=np.array([[[[1.0, 0.0], [0.0, 1.0]]]]), biases=np.array([0.0])
+                weights=jnp.array([[[[1.0, 0.0], [0.0, 1.0]]]]), biases=jnp.array([0.0])
             ),
-            input_activations=np.array(
+            input_activations=jnp.array(
                 [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]]]
             ),
-            dZ=np.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
-            expected_output=np.array([[[[6.0, 8.0], [12.0, 14.0]]]]),
-            expected_weight_gradients=np.array([[[[12.0, 16.0], [24.0, 28.0]]]]),
-            expected_bias_gradients=np.array([4.0]),
+            dZ=jnp.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
+            expected_output=jnp.array([[[[6.0, 8.0], [12.0, 14.0]]]]),
+            expected_weight_gradients=jnp.array([[[[12.0, 16.0], [24.0, 28.0]]]]),
+            expected_bias_gradients=jnp.array([4.0]),
         ),
         ParameterUpdateTestCase(
             name="3x2_input_2x1_kernel",
@@ -411,13 +417,13 @@ class ParameterUpdateTestCase:
             kernel_size=(2, 1),
             n_kernels=1,
             kernel_init_fn=lambda *_: Convolution2D.Parameters(
-                weights=np.array([[[[1.0], [0.5]]]]), biases=np.array([0.0])
+                weights=jnp.array([[[[1.0], [0.5]]]]), biases=jnp.array([0.0])
             ),
-            input_activations=np.array([[[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]]]),
-            dZ=np.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
-            expected_output=np.array([[[[2.5, 4.0], [5.5, 7.0]]]]),
-            expected_weight_gradients=np.array([[[[10.0], [18.0]]]]),
-            expected_bias_gradients=np.array([4.0]),
+            input_activations=jnp.array([[[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]]]),
+            dZ=jnp.array([[[[1.0, 1.0], [1.0, 1.0]]]]),
+            expected_output=jnp.array([[[[2.5, 4.0], [5.5, 7.0]]]]),
+            expected_weight_gradients=jnp.array([[[[10.0], [18.0]]]]),
+            expected_bias_gradients=jnp.array([4.0]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -434,7 +440,7 @@ def test_parameter_update_value(test_case: ParameterUpdateTestCase):
     output = layer.forward_prop(
         input_activations=Activations(test_case.input_activations)
     )
-    assert np.allclose(output, test_case.expected_output), (
+    assert jnp.allclose(output, test_case.expected_output), (
         f"Forward prop failed: got {output}, expected {test_case.expected_output}"
     )
 
@@ -442,9 +448,9 @@ def test_parameter_update_value(test_case: ParameterUpdateTestCase):
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"
-    assert np.allclose(cached_dP.weights, test_case.expected_weight_gradients), (  # type: ignore[attr-defined]
+    assert jnp.allclose(cached_dP.weights, test_case.expected_weight_gradients), (  # type: ignore[attr-defined]
         f"Weight gradients incorrect: got {cached_dP.weights}"  # type: ignore[attr-defined]
     )
-    assert np.allclose(cached_dP.biases, test_case.expected_bias_gradients), (  # type: ignore[attr-defined]
+    assert jnp.allclose(cached_dP.biases, test_case.expected_bias_gradients), (  # type: ignore[attr-defined]
         f"Bias gradients incorrect: got {cached_dP.biases}"  # type: ignore[attr-defined]
     )

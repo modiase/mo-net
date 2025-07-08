@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypedDict, TypeVar
+from typing import TypedDict, TypeVar, cast
 
-import numpy as np
+import jax
+import jax.numpy as jnp
 from pyparsing import abstractmethod
 
-from mo_net.functions import softmax
 from mo_net.model.layer.base import _Base
 from mo_net.protos import (
     Activations,
@@ -38,14 +38,14 @@ class OutputLayer(_Base, SupportsSerialize[OutputLayerT_co]):
             "output_activations": None,
         }
 
-    def backward_prop(self, *, Y_true: np.ndarray) -> D[Activations]:
+    def backward_prop(self, *, Y_true: jnp.ndarray) -> D[Activations]:
         return self._backward_prop(Y_true=Y_true)
 
     @abstractmethod
     def _backward_prop(
         self,
         *,
-        Y_true: np.ndarray,
+        Y_true: jnp.ndarray,
     ) -> D[Activations]: ...
 
     @abstractmethod
@@ -74,18 +74,18 @@ class SoftmaxOutputLayer(OutputLayer):
         input_activations: Activations,
     ) -> Activations:
         self._cache["output_activations"] = (
-            output_activations := softmax(input_activations)
+            output_activations := Activations(jax.nn.softmax(input_activations))
         )
         return output_activations
 
     def _backward_prop(
         self,
         *,
-        Y_true: np.ndarray,
+        Y_true: jnp.ndarray,
     ) -> D[Activations]:
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
-        return np.atleast_1d(output_activations - Y_true)
+        return jnp.atleast_1d(output_activations - Y_true)
 
     @property
     def output_dimensions(self) -> Dimensions:
@@ -120,3 +120,53 @@ class RawOutputLayer(SoftmaxOutputLayer):
     ) -> Activations:
         self._cache["output_activations"] = input_activations
         return input_activations
+
+
+class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        input_dimensions: tuple[int, ...]
+
+        def deserialize(
+            self,
+            *,
+            training: bool = False,
+            freeze_parameters: bool = False,
+        ) -> SparseCategoricalSoftmaxOutputLayer:
+            del training, freeze_parameters  # unused
+            return SparseCategoricalSoftmaxOutputLayer(
+                input_dimensions=self.input_dimensions,
+            )
+
+    def _forward_prop(
+        self,
+        *,
+        input_activations: Activations,
+    ) -> Activations:
+        self._cache["output_activations"] = (
+            output_activations := Activations(jax.nn.softmax(input_activations))
+        )
+        return output_activations
+
+    def _backward_prop(
+        self,
+        *,
+        Y_true: jnp.ndarray,
+    ) -> D[Activations]:
+        if (output_activations := self._cache["output_activations"]) is None:
+            raise ValueError("Output activations not set during forward pass.")
+        return cast(
+            D[Activations],
+            jnp.atleast_1d(
+                output_activations.copy()
+                .at[jnp.arange(Y_true.shape[0]), Y_true]
+                .add(-1.0)
+            ),
+        )
+
+    @property
+    def output_dimensions(self) -> Dimensions:
+        return self._input_dimensions
+
+    def serialize(self) -> SparseCategoricalSoftmaxOutputLayer.Serialized:
+        return self.Serialized(input_dimensions=tuple(self._input_dimensions))

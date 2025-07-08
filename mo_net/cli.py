@@ -3,10 +3,18 @@ import os
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, Final, ParamSpec, TypeVar, assert_never
+from typing import (
+    Callable,
+    Final,
+    Literal,
+    ParamSpec,
+    TypeVar,
+    assert_never,
+)
 
 import click
-import numpy as np
+import jax
+import jax.numpy as jnp
 from loguru import logger
 
 from mo_net.data import (
@@ -15,11 +23,14 @@ from mo_net.data import (
     SplitConfig,
     load_data,
 )
-from mo_net.device import DeviceType, print_device_info, set_default_device
+from mo_net.device import (
+    DEVICE_TYPES,
+    DeviceType,
+    print_device_info,
+    set_default_device,
+)
 from mo_net.functions import (
-    LeakyReLU,
-    ReLU,
-    Tanh,
+    get_loss_fn,
     parse_activation_fn,
 )
 from mo_net.log import LogLevel, setup_logging
@@ -114,7 +125,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     )
     @click.option(
         "--device",
-        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
+        type=click.Choice(DEVICE_TYPES),
         help="Device to use for training (auto will select the best available)",
         default="auto",
     )
@@ -159,9 +170,9 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "-f",
         "--activation-fn",
-        type=click.Choice([ReLU.name, Tanh.name, LeakyReLU.name]),
+        type=click.Choice(["relu", "tanh", "leaky_relu"]),
         help="Set the activation function",
-        default=ReLU.name,
+        default="relu",
         callback=parse_activation_fn,
     )
     @click.option(
@@ -242,6 +253,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Set the connection string for the logging backend",
         default=None,
     )
+    @click.option(
+        "--loss-fn-name",
+        type=click.Choice(["cross_entropy", "sparse_cross_entropy"]),
+        help="Set the loss function name",
+        default="cross_entropy",
+    )
     @dataset_split_options
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
@@ -252,12 +269,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
 
 def get_model(
     *,
-    X_train: np.ndarray,
-    Y_train: np.ndarray,
+    X_train: jnp.ndarray,
+    Y_train: jnp.ndarray,
     activation_fn: ActivationFn,
     batch_size: int,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
+    key: jax.Array,
     model_path: Path | None,
     normalisation_type: NormalisationType,
     tracing_enabled: bool,
@@ -266,6 +284,7 @@ def get_model(
         if len(dims) == 0:
             raise ValueError("Dims must be provided when training a new model.")
         return Model.mlp_of(  # type: ignore[call-overload]
+            key=key,
             module_dimensions=(
                 tuple(
                     map(
@@ -304,7 +323,6 @@ def cli_train(*args, **kwargs) -> TrainingResult:
     log_level = kwargs.get("log_level", LogLevel.INFO)
     seed = int(os.getenv("MO_NET_SEED", time.time()))
     kwargs["seed"] = seed
-    np.random.seed(seed)
     setup_logging(log_level)
     logger.info(f"Training model with {seed=}.")
     return train(*args, **kwargs)
@@ -312,7 +330,7 @@ def cli_train(*args, **kwargs) -> TrainingResult:
 
 def train(
     *,
-    activation_fn: ActivationFn,
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
     batch_size: int | None,
     dataset_url: str | None,
     device: DeviceType,
@@ -322,6 +340,7 @@ def train(
     log_level: LogLevel,
     logging_backend_connection_string: str,
     learning_rate_limits: tuple[float, float],
+    loss_fn_name: Literal["cross_entropy", "sparse_cross_entropy"],
     model_path: Path | None,
     max_restarts: int,
     monotonic: bool,
@@ -347,7 +366,9 @@ def train(
     if dataset_url is None:
         raise ValueError("No dataset URL provided.")
     X_train, Y_train, X_val, Y_val = load_data(
-        dataset_url, split=SplitConfig.of(train_split, train_split_index)
+        dataset_url,
+        split=SplitConfig.of(train_split, train_split_index),
+        one_hot=loss_fn_name == "cross_entropy",
     )
 
     train_set_size = X_train.shape[0]
@@ -369,12 +390,14 @@ def train(
         num_epochs=num_epochs,
         quiet=quiet,
         regulariser_lambda=regulariser_lambda,
+        seed=seed,
         trace_logging=tracing_enabled,
         train_set_size=train_set_size,
         warmup_epochs=warmup_epochs,
         workers=workers,
     )
 
+    key1, key2 = jax.random.split(jax.random.PRNGKey(seed))
     model = get_model(
         model_path=model_path,
         dims=dims,
@@ -385,6 +408,7 @@ def train(
         normalisation_type=normalisation_type,
         tracing_enabled=tracing_enabled,
         dropout_keep_probs=dropout_keep_probs,
+        key=key1,
     )
 
     if model_output_path is None:
@@ -397,8 +421,8 @@ def train(
 
     if only_misclassified_examples:
         Y_train_pred = model.predict(X_train)
-        Y_train_true = np.argmax(Y_train, axis=1)
-        misclassified_indices = np.where(Y_train_pred != Y_train_true)[0]
+        Y_train_true = jnp.argmax(Y_train, axis=1)
+        misclassified_indices = jnp.where(Y_train_pred != Y_train_true)[0]
         X_train = X_train[misclassified_indices]
         Y_train = Y_train[misclassified_indices]
         training_parameters.train_set_size = X_train.shape[0]
@@ -427,6 +451,8 @@ def train(
         run=run,
         start_epoch=start_epoch,
         training_parameters=training_parameters,
+        loss_fn=get_loss_fn(loss_fn_name),
+        key=key2,
     )
     training_result: TrainingResult | None = None
     try:

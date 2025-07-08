@@ -1,12 +1,18 @@
 import io
 from dataclasses import dataclass
+from functools import partial
+from typing import Final
 
-import numpy as np
+import jax
+import jax.numpy as jnp
+import jax.random as random
 import pytest
 
 from mo_net.model.layer.base import BadLayerId
 from mo_net.model.layer.linear import Linear, ParametersType
 from mo_net.protos import Activations, Dimensions
+
+key: Final = jax.random.PRNGKey(42)
 
 
 @dataclass(frozen=True)
@@ -15,8 +21,8 @@ class ForwardPropTestCase:
     input_dimensions: Dimensions
     output_dimensions: Dimensions
     parameters: ParametersType
-    input_activations: np.ndarray
-    expected_output: np.ndarray
+    input_activations: jnp.ndarray
+    expected_output: jnp.ndarray
 
 
 @pytest.mark.parametrize(
@@ -26,49 +32,50 @@ class ForwardPropTestCase:
             name="identity_matrix_single_dimension",
             input_dimensions=(2,),
             output_dimensions=(2,),
-            parameters=Linear.Parameters(weights=np.eye(2), biases=np.zeros(2)),
-            input_activations=np.array([[1.0, 2.0]]),
-            expected_output=np.array([[1.0, 2.0]]),
+            parameters=Linear.Parameters(weights=jnp.eye(2), biases=jnp.zeros(2)),
+            input_activations=jnp.array([[1.0, 2.0]]),
+            expected_output=jnp.array([[1.0, 2.0]]),
         ),
         ForwardPropTestCase(
             name="simple_weights_and_bias",
             input_dimensions=(2,),
             output_dimensions=(1,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0], [2.0]]), biases=np.array([3.0])
+                weights=jnp.array([[1.0], [2.0]]), biases=jnp.array([3.0])
             ),
-            input_activations=np.array([[1.0, 2.0]]),
-            expected_output=np.array([[8.0]]),
+            input_activations=jnp.array([[1.0, 2.0]]),
+            expected_output=jnp.array([[8.0]]),
         ),
         ForwardPropTestCase(
             name="batch_processing",
             input_dimensions=(2,),
             output_dimensions=(2,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0, 0.0], [0.0, 2.0]]), biases=np.array([1.0, -1.0])
+                weights=jnp.array([[1.0, 0.0], [0.0, 2.0]]),
+                biases=jnp.array([1.0, -1.0]),
             ),
-            input_activations=np.array([[1.0, 2.0], [3.0, 4.0]]),
-            expected_output=np.array([[2.0, 3.0], [4.0, 7.0]]),
+            input_activations=jnp.array([[1.0, 2.0], [3.0, 4.0]]),
+            expected_output=jnp.array([[2.0, 3.0], [4.0, 7.0]]),
         ),
         ForwardPropTestCase(
             name="dimension_expansion",
             input_dimensions=(1,),
             output_dimensions=(3,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0, 2.0, 3.0]]), biases=np.array([0.5, -0.5, 1.0])
+                weights=jnp.array([[1.0, 2.0, 3.0]]), biases=jnp.array([0.5, -0.5, 1.0])
             ),
-            input_activations=np.array([[2.0]]),
-            expected_output=np.array([[2.5, 3.5, 7.0]]),
+            input_activations=jnp.array([[2.0]]),
+            expected_output=jnp.array([[2.5, 3.5, 7.0]]),
         ),
         ForwardPropTestCase(
             name="dimension_reduction",
             input_dimensions=(3,),
             output_dimensions=(1,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0], [2.0], [3.0]]), biases=np.array([0.0])
+                weights=jnp.array([[1.0], [2.0], [3.0]]), biases=jnp.array([0.0])
             ),
-            input_activations=np.array([[1.0, 2.0, 3.0]]),
-            expected_output=np.array([[14.0]]),
+            input_activations=jnp.array([[1.0, 2.0, 3.0]]),
+            expected_output=jnp.array([[14.0]]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -77,9 +84,9 @@ def test_linear_forward_prop(test_case: ForwardPropTestCase):
     layer = Linear(
         input_dimensions=test_case.input_dimensions,
         output_dimensions=test_case.output_dimensions,
-        parameters=test_case.parameters,
+        parameters_init_fn=lambda *_: test_case.parameters,
     )
-    assert np.allclose(
+    assert jnp.allclose(
         layer.forward_prop(input_activations=Activations(test_case.input_activations)),
         test_case.expected_output,
     )
@@ -91,11 +98,11 @@ class BackwardPropTestCase:
     input_dimensions: Dimensions
     output_dimensions: Dimensions
     parameters: ParametersType
-    input_activations: np.ndarray
-    dZ: np.ndarray
-    expected_dX: np.ndarray
-    expected_dW: np.ndarray
-    expected_dB: np.ndarray
+    input_activations: jnp.ndarray
+    dZ: jnp.ndarray
+    expected_dX: jnp.ndarray
+    expected_dW: jnp.ndarray
+    expected_dB: jnp.ndarray
 
 
 @pytest.mark.parametrize(
@@ -106,52 +113,53 @@ class BackwardPropTestCase:
             input_dimensions=(1,),
             output_dimensions=(1,),
             parameters=Linear.Parameters(
-                weights=np.array([[2.0]]), biases=np.array([1.0])
+                weights=jnp.array([[2.0]]), biases=jnp.array([1.0])
             ),
-            input_activations=np.array([[3.0]]),
-            dZ=np.array([[1.0]]),
-            expected_dX=np.array([[2.0]]),
-            expected_dW=np.array([[3.0]]),
-            expected_dB=np.array([1.0]),
+            input_activations=jnp.array([[3.0]]),
+            dZ=jnp.array([[1.0]]),
+            expected_dX=jnp.array([[2.0]]),
+            expected_dW=jnp.array([[3.0]]),
+            expected_dB=jnp.array([1.0]),
         ),
         BackwardPropTestCase(
             name="multiple_inputs_single_output",
             input_dimensions=(2,),
             output_dimensions=(1,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0], [2.0]]), biases=np.array([0.0])
+                weights=jnp.array([[1.0], [2.0]]), biases=jnp.array([0.0])
             ),
-            input_activations=np.array([[1.0, 2.0]]),
-            dZ=np.array([[1.0]]),
-            expected_dX=np.array([[1.0, 2.0]]),
-            expected_dW=np.array([[1.0], [2.0]]),
-            expected_dB=np.array([1.0]),
+            input_activations=jnp.array([[1.0, 2.0]]),
+            dZ=jnp.array([[1.0]]),
+            expected_dX=jnp.array([[1.0, 2.0]]),
+            expected_dW=jnp.array([[1.0], [2.0]]),
+            expected_dB=jnp.array([1.0]),
         ),
         BackwardPropTestCase(
             name="single_input_multiple_outputs",
             input_dimensions=(1,),
             output_dimensions=(2,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0, 2.0]]), biases=np.array([0.0, 0.0])
+                weights=jnp.array([[1.0, 2.0]]), biases=jnp.array([0.0, 0.0])
             ),
-            input_activations=np.array([[3.0]]),
-            dZ=np.array([[1.0, 1.0]]),
-            expected_dX=np.array([[3.0]]),
-            expected_dW=np.array([[3.0, 3.0]]),
-            expected_dB=np.array([1.0, 1.0]),
+            input_activations=jnp.array([[3.0]]),
+            dZ=jnp.array([[1.0, 1.0]]),
+            expected_dX=jnp.array([[3.0]]),
+            expected_dW=jnp.array([[3.0, 3.0]]),
+            expected_dB=jnp.array([1.0, 1.0]),
         ),
         BackwardPropTestCase(
             name="batch_processing_gradients",
             input_dimensions=(2,),
             output_dimensions=(2,),
             parameters=Linear.Parameters(
-                weights=np.array([[1.0, 0.0], [0.0, 1.0]]), biases=np.array([0.0, 0.0])
+                weights=jnp.array([[1.0, 0.0], [0.0, 1.0]]),
+                biases=jnp.array([0.0, 0.0]),
             ),
-            input_activations=np.array([[1.0, 2.0], [3.0, 4.0]]),
-            dZ=np.array([[1.0, 1.0], [1.0, 1.0]]),
-            expected_dX=np.array([[1.0, 1.0], [1.0, 1.0]]),
-            expected_dW=np.array([[4.0, 4.0], [6.0, 6.0]]),
-            expected_dB=np.array([2.0, 2.0]),
+            input_activations=jnp.array([[1.0, 2.0], [3.0, 4.0]]),
+            dZ=jnp.array([[1.0, 1.0], [1.0, 1.0]]),
+            expected_dX=jnp.array([[1.0, 1.0], [1.0, 1.0]]),
+            expected_dW=jnp.array([[4.0, 4.0], [6.0, 6.0]]),
+            expected_dB=jnp.array([2.0, 2.0]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -160,14 +168,14 @@ def test_linear_backward_prop(test_case: BackwardPropTestCase):
     layer = Linear(
         input_dimensions=test_case.input_dimensions,
         output_dimensions=test_case.output_dimensions,
-        parameters=test_case.parameters,
+        parameters_init_fn=lambda *_: test_case.parameters,
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    assert np.allclose(layer.backward_prop(dZ=test_case.dZ), test_case.expected_dX)  # type: ignore[arg-type]
+    assert jnp.allclose(layer.backward_prop(dZ=test_case.dZ), test_case.expected_dX)  # type: ignore[arg-type]
     assert layer.cache["dP"] is not None  # type: ignore[index]
-    assert np.allclose(layer.cache["dP"].weights, test_case.expected_dW)  # type: ignore[attr-defined]
-    assert np.allclose(layer.cache["dP"].biases, test_case.expected_dB)  # type: ignore[attr-defined]
+    assert jnp.allclose(layer.cache["dP"].weights, test_case.expected_dW)  # type: ignore[attr-defined]
+    assert jnp.allclose(layer.cache["dP"].biases, test_case.expected_dB)  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True)
@@ -176,10 +184,10 @@ class ParameterUpdateTestCase:
     input_dimensions: Dimensions
     output_dimensions: Dimensions
     initial_parameters: ParametersType
-    input_activations: np.ndarray
-    dZ: np.ndarray
-    expected_updated_weights: np.ndarray
-    expected_updated_biases: np.ndarray
+    input_activations: jnp.ndarray
+    dZ: jnp.ndarray
+    expected_updated_weights: jnp.ndarray
+    expected_updated_biases: jnp.ndarray
 
 
 @pytest.mark.parametrize(
@@ -190,24 +198,25 @@ class ParameterUpdateTestCase:
             input_dimensions=(1,),
             output_dimensions=(1,),
             initial_parameters=Linear.Parameters(
-                weights=np.array([[1.0]]), biases=np.array([0.0])
+                weights=jnp.array([[1.0]]), biases=jnp.array([0.0])
             ),
-            input_activations=np.array([[2.0]]),
-            dZ=np.array([[1.0]]),
-            expected_updated_weights=np.array([[3.0]]),
-            expected_updated_biases=np.array([1.0]),
+            input_activations=jnp.array([[2.0]]),
+            dZ=jnp.array([[1.0]]),
+            expected_updated_weights=jnp.array([[3.0]]),
+            expected_updated_biases=jnp.array([1.0]),
         ),
         ParameterUpdateTestCase(
             name="multi_dimensional_update",
             input_dimensions=(2,),
             output_dimensions=(2,),
             initial_parameters=Linear.Parameters(
-                weights=np.array([[1.0, 2.0], [3.0, 4.0]]), biases=np.array([0.5, -0.5])
+                weights=jnp.array([[1.0, 2.0], [3.0, 4.0]]),
+                biases=jnp.array([0.5, -0.5]),
             ),
-            input_activations=np.array([[1.0, 1.0]]),
-            dZ=np.array([[1.0, 1.0]]),
-            expected_updated_weights=np.array([[2.0, 3.0], [4.0, 5.0]]),
-            expected_updated_biases=np.array([1.5, 0.5]),
+            input_activations=jnp.array([[1.0, 1.0]]),
+            dZ=jnp.array([[1.0, 1.0]]),
+            expected_updated_weights=jnp.array([[2.0, 3.0], [4.0, 5.0]]),
+            expected_updated_biases=jnp.array([1.5, 0.5]),
         ),
     ],
     ids=lambda test_case: test_case.name,
@@ -216,15 +225,15 @@ def test_linear_parameter_update(test_case: ParameterUpdateTestCase):
     layer = Linear(
         input_dimensions=test_case.input_dimensions,
         output_dimensions=test_case.output_dimensions,
-        parameters=test_case.initial_parameters,
+        parameters_init_fn=lambda *_: test_case.initial_parameters,
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
     layer.backward_prop(dZ=test_case.dZ)
     layer.update_parameters()
 
-    assert np.allclose(layer.parameters.weights, test_case.expected_updated_weights)
-    assert np.allclose(layer.parameters.biases, test_case.expected_updated_biases)
+    assert jnp.allclose(layer.parameters.weights, test_case.expected_updated_weights)
+    assert jnp.allclose(layer.parameters.biases, test_case.expected_updated_biases)
     assert layer.cache["dP"] is None
 
 
@@ -233,7 +242,7 @@ def identity_layer() -> Linear:
     return Linear(
         input_dimensions=(3,),
         output_dimensions=(3,),
-        parameters=Linear.Parameters.eye((3,)),
+        parameters_init_fn=lambda *_: Linear.Parameters.eye((3,)),
     )
 
 
@@ -242,15 +251,15 @@ def simple_layer() -> Linear:
     return Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
-            weights=np.array([[2.0, 0.0], [0.0, 3.0]]), biases=np.array([1.0, -1.0])
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=jnp.array([[2.0, 0.0], [0.0, 3.0]]), biases=jnp.array([1.0, -1.0])
         ),
     )
 
 
 @pytest.fixture
-def test_input() -> np.ndarray:
-    return np.array([[1.0, 2.0, 3.0]])
+def test_input() -> jnp.ndarray:
+    return jnp.array([[1.0, 2.0, 3.0]])
 
 
 def test_linear_cache_initialization(identity_layer: Linear):
@@ -260,37 +269,37 @@ def test_linear_cache_initialization(identity_layer: Linear):
 
 
 def test_linear_forward_prop_caches_input(
-    identity_layer: Linear, test_input: np.ndarray
+    identity_layer: Linear, test_input: jnp.ndarray
 ):
     identity_layer.forward_prop(input_activations=Activations(test_input))
     assert identity_layer.cache["input_activations"] is not None
-    assert np.allclose(identity_layer.cache["input_activations"], test_input)
+    assert jnp.allclose(identity_layer.cache["input_activations"], test_input)
 
 
 def test_linear_gradient_clipping():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
-            weights=np.array([[1.0, 0.0], [0.0, 1.0]]), biases=np.array([0.0, 0.0])
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=jnp.array([[1.0, 0.0], [0.0, 1.0]]), biases=jnp.array([0.0, 0.0])
         ),
         clip_gradients=True,
         weight_max_norm=1.0,
         bias_max_norm=1.0,
     )
 
-    layer.forward_prop(input_activations=Activations(np.array([[1.0, 1.0]])))
-    layer.backward_prop(dZ=np.array([[1000.0, 1000.0]]))
+    layer.forward_prop(input_activations=Activations(jnp.array([[1.0, 1.0]])))
+    layer.backward_prop(dZ=jnp.array([[1000.0, 1000.0]]))
 
     assert layer.cache["dP"] is not None
     assert (
-        np.linalg.norm(layer.cache["dP"].weights)
-        / np.sqrt(layer.cache["dP"].weights.size)
+        jnp.linalg.norm(layer.cache["dP"].weights)
+        / jnp.sqrt(layer.cache["dP"].weights.size)
         <= 1.0 + 1e-6
     )
     assert (
-        np.linalg.norm(layer.cache["dP"].biases)
-        / np.sqrt(layer.cache["dP"].biases.size)
+        jnp.linalg.norm(layer.cache["dP"].biases)
+        / jnp.sqrt(layer.cache["dP"].biases.size)
         <= 1.0 + 1e-6
     )
 
@@ -299,30 +308,32 @@ def test_linear_frozen_parameters():
     layer = Linear(
         input_dimensions=(1,),
         output_dimensions=(1,),
-        parameters=Linear.Parameters(weights=np.array([[1.0]]), biases=np.array([0.0])),
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=jnp.array([[1.0]]), biases=jnp.array([0.0])
+        ),
         freeze_parameters=True,
     )
 
     original_weights = layer.parameters.weights.copy()
     original_biases = layer.parameters.biases.copy()
 
-    layer.forward_prop(input_activations=Activations(np.array([[2.0]])))
-    layer.backward_prop(dZ=np.array([[1.0]]))
+    layer.forward_prop(input_activations=Activations(jnp.array([[2.0]])))
+    layer.backward_prop(dZ=jnp.array([[1.0]]))
     layer.update_parameters()
 
-    assert np.allclose(layer.parameters.weights, original_weights)
-    assert np.allclose(layer.parameters.biases, original_biases)
+    assert jnp.allclose(layer.parameters.weights, original_weights)
+    assert jnp.allclose(layer.parameters.biases, original_biases)
 
 
 def test_linear_empty_gradient(simple_layer: Linear):
     empty_grad = simple_layer.empty_gradient()
-    assert np.allclose(
+    assert jnp.allclose(
         empty_grad.weights,  # type: ignore[attr-defined]
-        np.zeros_like(simple_layer.parameters.weights),  # type: ignore[attr-defined]
+        jnp.zeros_like(simple_layer.parameters.weights),  # type: ignore[attr-defined]
     )
-    assert np.allclose(
+    assert jnp.allclose(
         empty_grad.biases,  # type: ignore[attr-defined]
-        np.zeros_like(simple_layer.parameters.biases),  # type: ignore[attr-defined]
+        jnp.zeros_like(simple_layer.parameters.biases),  # type: ignore[attr-defined]
     )
 
 
@@ -334,12 +345,16 @@ def test_linear_parameter_count(simple_layer: Linear):
 
 
 def test_linear_serialization_deserialization():
-    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer = Linear(
+        input_dimensions=(2,),
+        output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
+    )
 
     # First do a forward and backward pass to populate gradients
-    input_data = np.array([[1.0, 2.0]])
+    input_data = jnp.array([[1.0, 2.0]])
     layer.forward_prop(input_activations=Activations(input_data))
-    layer.backward_prop(dZ=np.array([[1.0, 1.0]]))
+    layer.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
 
     original_dP = layer.cache["dP"]
     assert original_dP is not None
@@ -355,18 +370,26 @@ def test_linear_serialization_deserialization():
     layer.read_serialized_parameters(buffer)
 
     assert layer.cache["dP"] is not None
-    assert np.allclose(layer.cache["dP"].weights, original_dP.weights)
-    assert np.allclose(layer.cache["dP"].biases, original_dP.biases)
+    assert jnp.allclose(layer.cache["dP"].weights, original_dP.weights)
+    assert jnp.allclose(layer.cache["dP"].biases, original_dP.biases)
 
 
 def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
-    layer_1 = Linear(input_dimensions=(2,), output_dimensions=(2,))
-    layer_2 = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer_1 = Linear(
+        input_dimensions=(2,),
+        output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
+    )
+    layer_2 = Linear(
+        input_dimensions=(2,),
+        output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
+    )
 
     # First do a forward and backward pass to populate gradients
-    input_data = np.array([[1.0, 2.0]])
+    input_data = jnp.array([[1.0, 2.0]])
     layer_1.forward_prop(input_activations=Activations(input_data))
-    layer_1.backward_prop(dZ=np.array([[1.0, 1.0]]))
+    layer_1.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
 
     buffer = io.BytesIO()
     layer_1.write_serialized_parameters(buffer)
@@ -376,15 +399,23 @@ def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
 
 
 def test_linear_error_on_backward_prop_without_forward():
-    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer = Linear(
+        input_dimensions=(2,),
+        output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
+    )
     with pytest.raises(
         ValueError, match="Input activations not set during forward pass"
     ):
-        layer.backward_prop(dZ=np.array([[1.0, 1.0]]))
+        layer.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
 
 
 def test_linear_error_on_update_without_gradients():
-    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer = Linear(
+        input_dimensions=(2,),
+        output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
+    )
     with pytest.raises(ValueError, match="Gradient not set during backward pass"):
         layer.update_parameters()
 
@@ -401,41 +432,45 @@ def test_linear_initialization_methods(init_method, input_dim, output_dim):
     layer = Linear(
         input_dimensions=input_dim,
         output_dimensions=output_dim,
-        parameters_init_fn=init_method,
+        parameters_init_fn=partial(init_method, key=key),
     )
 
     assert layer.parameters.weights.shape == (input_dim[0], output_dim[0])
     assert layer.parameters.biases.shape == (output_dim[0],)
-    assert not np.allclose(layer.parameters.weights, 0)
+    assert not jnp.allclose(layer.parameters.weights, 0)
 
 
 def test_linear_mathematical_properties():
-    W = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+    W = jnp.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     layer = Linear(
         input_dimensions=(3,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(weights=W, biases=np.array([0.0, 0.0])),
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=W, biases=jnp.array([0.0, 0.0])
+        ),
     )
 
-    x1, x2 = np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])
+    x1, x2 = jnp.array([[1.0, 2.0, 3.0]]), jnp.array([[4.0, 5.0, 6.0]])
     a, b = 2.0, 3.0
 
     result_combined = layer.forward_prop(input_activations=Activations(a * x1 + b * x2))
     result_x1 = layer.forward_prop(input_activations=Activations(x1))
     result_x2 = layer.forward_prop(input_activations=Activations(x2))
 
-    assert np.allclose(result_combined, a * result_x1 + b * result_x2)
+    assert jnp.allclose(result_combined, a * result_x1 + b * result_x2)
 
     layer_with_bias = Linear(
         input_dimensions=(3,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(weights=W, biases=np.array([1.0, -1.0])),
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=W, biases=jnp.array([1.0, -1.0])
+        ),
     )
 
-    x = np.array([[1.0, 2.0, 3.0]])
-    assert np.allclose(
+    x = jnp.array([[1.0, 2.0, 3.0]])
+    assert jnp.allclose(
         layer_with_bias.forward_prop(input_activations=Activations(x)),
-        x @ W + np.array([1.0, -1.0]),
+        x @ W + jnp.array([1.0, -1.0]),
     )
 
 
@@ -443,14 +478,14 @@ def test_linear_zero_input():
     layer = Linear(
         input_dimensions=(3,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
-            weights=np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
-            biases=np.array([1.0, -1.0]),
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=jnp.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
+            biases=jnp.array([1.0, -1.0]),
         ),
     )
 
-    assert np.allclose(
-        layer.forward_prop(input_activations=Activations(np.zeros((1, 3)))),
+    assert jnp.allclose(
+        layer.forward_prop(input_activations=Activations(jnp.zeros((1, 3)))),
         layer.parameters.biases,
     )
 
@@ -459,15 +494,17 @@ def test_linear_large_batch():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(3,),
-        parameters=Linear.Parameters.xavier((2,), (3,)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (3,), key=key),
     )
 
-    input_data = np.random.randn(100, 2)
+    # Split key for different random operations
+    key1, key2 = random.split(key)
+    input_data = jax.random.normal(key1, (100, 2))
     output = layer.forward_prop(input_activations=Activations(input_data))
 
     assert output.shape == (100, 3)
 
-    dX = layer.backward_prop(dZ=np.random.randn(100, 3))
+    dX = layer.backward_prop(dZ=random.normal(key2, (100, 3)))
 
     assert dX.shape == (100, 2)
     assert layer.cache["dP"] is not None
@@ -477,29 +514,29 @@ def test_linear_gradient_accumulation():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(1,),
-        parameters=Linear.Parameters(
-            weights=np.array([[1.0], [1.0]]), biases=np.array([0.0])
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=jnp.array([[1.0], [1.0]]), biases=jnp.array([0.0])
         ),
         clip_gradients=False,
     )
 
-    layer.forward_prop(input_activations=Activations(np.array([[1.0, 1.0]])))
-    layer.backward_prop(dZ=np.array([[1.0]]))
+    layer.forward_prop(input_activations=Activations(jnp.array([[1.0, 1.0]])))
+    layer.backward_prop(dZ=jnp.array([[1.0]]))
     grad1 = layer.cache["dP"]
 
-    layer.forward_prop(input_activations=Activations(np.array([[2.0, 2.0]])))
-    layer.backward_prop(dZ=np.array([[1.0]]))
+    layer.forward_prop(input_activations=Activations(jnp.array([[2.0, 2.0]])))
+    layer.backward_prop(dZ=jnp.array([[1.0]]))
     grad2 = layer.cache["dP"]
 
-    assert not np.allclose(grad1.weights, grad2.weights)
+    assert not jnp.allclose(grad1.weights, grad2.weights)
 
 
 def test_linear_weight_and_bias_shapes():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(3,),
-        parameters=Linear.Parameters(
-            weights=np.random.randn(2, 3), biases=np.random.randn(3)
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=random.normal(key, (2, 3)), biases=random.normal(key, (3,))
         ),
     )
     assert layer.parameters.weights.shape == (2, 3)
@@ -509,8 +546,8 @@ def test_linear_weight_and_bias_shapes():
         Linear(
             input_dimensions=(2,),
             output_dimensions=(3,),
-            parameters=Linear.Parameters(
-                weights=np.random.randn(3, 2), biases=np.random.randn(3)
+            parameters_init_fn=lambda *_: Linear.Parameters(
+                weights=random.normal(key, (3, 2)), biases=random.normal(key, (3,))
             ),
         )
 
@@ -518,8 +555,8 @@ def test_linear_weight_and_bias_shapes():
         Linear(
             input_dimensions=(2,),
             output_dimensions=(3,),
-            parameters=Linear.Parameters(
-                weights=np.random.randn(2, 3), biases=np.random.randn(2)
+            parameters_init_fn=lambda *_: Linear.Parameters(
+                weights=random.normal(key, (2, 3)), biases=random.normal(key, (2,))
             ),
         )
 
@@ -528,17 +565,17 @@ def test_linear_numerical_stability():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
-            weights=np.array([[1e-8, 1e8], [1e8, 1e-8]]), biases=np.array([1e-8, 1e8])
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=jnp.array([[1e-8, 1e8], [1e8, 1e-8]]), biases=jnp.array([1e-8, 1e8])
         ),
         clip_gradients=False,
     )
 
-    assert np.isfinite(
-        layer.forward_prop(input_activations=Activations(np.array([[1e-8, 1e-8]])))
+    assert jnp.isfinite(
+        layer.forward_prop(input_activations=Activations(jnp.array([[1e-8, 1e-8]])))
     ).all()
-    assert np.isfinite(
-        layer.forward_prop(input_activations=Activations(np.array([[1e8, 1e8]])))
+    assert jnp.isfinite(
+        layer.forward_prop(input_activations=Activations(jnp.array([[1e8, 1e8]])))
     ).all()
 
 
@@ -547,34 +584,42 @@ def test_linear_output_storage_option(store_output):
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
         store_output_activations=store_output,
     )
 
-    output = layer.forward_prop(input_activations=Activations(np.array([[1.0, 2.0]])))
+    output = layer.forward_prop(input_activations=Activations(jnp.array([[1.0, 2.0]])))
 
     if store_output:
         assert layer.cache["output_activations"] is not None
-        assert np.allclose(layer.cache["output_activations"], output)
+        assert jnp.allclose(layer.cache["output_activations"], output)
     else:
         assert layer.cache["output_activations"] is None
 
 
 def test_linear_constructor_edge_cases():
-    layer = Linear(input_dimensions=(3,))
+    layer = Linear(
+        input_dimensions=(3,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((3,), (3,), key=key),
+    )
     assert layer.input_dimensions == (3,)
     assert layer.output_dimensions == (3,)
 
     bias_layer = Linear.of_bias(dim=(2,), bias=5.0)
-    assert np.allclose(bias_layer.parameters.weights, 0)
-    assert np.allclose(bias_layer.parameters.biases, 5.0)
+    assert jnp.allclose(bias_layer.parameters.weights, 0)
+    assert jnp.allclose(bias_layer.parameters.biases, 5.0)
 
     identity_layer = Linear.of_eye(dim=(3,))
-    assert np.allclose(identity_layer.parameters.weights, np.eye(3))
-    assert np.allclose(identity_layer.parameters.biases, 0)
+    assert jnp.allclose(identity_layer.parameters.weights, jnp.eye(3))
+    assert jnp.allclose(identity_layer.parameters.biases, 0)
 
 
 def test_linear_gradient_operation_interface():
-    layer = Linear(input_dimensions=(2,), output_dimensions=(2,))
+    layer = Linear(
+        input_dimensions=(2,),
+        output_dimensions=(2,),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier((2,), (2,), key=key),
+    )
 
     called = False
 

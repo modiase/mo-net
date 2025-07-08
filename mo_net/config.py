@@ -18,6 +18,7 @@ class TrainingParameters(BaseModel):
     num_epochs: int
     quiet: bool
     regulariser_lambda: float
+    seed: int
     trace_logging: bool
     train_set_size: int
     warmup_epochs: int

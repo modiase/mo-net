@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import IO, Final, TypedDict, assert_never, cast
+from typing import IO, TypedDict, assert_never, cast
 
-import numpy as np
-from numpy.lib.stride_tricks import as_strided
+import jax
+import jax.numpy as jnp
+from jax import jit, lax, random
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
 from mo_net.protos import (
     Activations,
@@ -16,8 +18,6 @@ from mo_net.protos import (
     SupportsGradientOperations,
     d,
 )
-
-EPSILON: Final[float] = 1e-8
 
 
 class Cache(TypedDict):
@@ -31,8 +31,8 @@ type CacheType = Cache
 
 @dataclass(frozen=True, kw_only=True)
 class Parameters(SupportsGradientOperations):
-    weights: np.ndarray
-    biases: np.ndarray
+    weights: jnp.ndarray
+    biases: jnp.ndarray
 
     def __add__(self, other: Parameters | float | int) -> Parameters:
         match other:
@@ -119,14 +119,23 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
+        key: jax.Array,
     ) -> Parameters:
+        key1, key2 = jax.random.split(key)
+        limit = jnp.sqrt(1 / (in_channels * in_height * in_width))
         return cls(
-            weights=np.random.uniform(
-                -np.sqrt(1 / (in_channels * in_height * in_width)),
-                np.sqrt(1 / (in_channels * in_height * in_width)),
-                (n_kernels, in_channels, in_height, in_width),
+            weights=jax.random.uniform(
+                key1,
+                shape=(n_kernels, in_channels, in_height, in_width),
+                minval=-limit,
+                maxval=limit,
             ),
-            biases=np.random.rand(n_kernels),
+            biases=random.uniform(
+                key2,
+                shape=(n_kernels,),
+                minval=-limit,
+                maxval=limit,
+            ),
         )
 
     @classmethod
@@ -138,8 +147,8 @@ class Parameters(SupportsGradientOperations):
         in_width: int,
     ) -> Parameters:
         return cls(
-            weights=np.ones((n_kernels, in_channels, in_height, in_width)),
-            biases=np.zeros(n_kernels),
+            weights=jnp.ones((n_kernels, in_channels, in_height, in_width)),
+            biases=jnp.zeros(n_kernels),
         )
 
     @classmethod
@@ -149,14 +158,18 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
+        key: jax.Array,
     ) -> Parameters:
         fan_in = in_channels * in_height * in_width
-        limit = np.sqrt(6.0 / fan_in)
+        limit = jnp.sqrt(6.0 / fan_in)
         return cls(
-            weights=np.random.uniform(
-                -limit, limit, (n_kernels, in_channels, in_height, in_width)
+            weights=jax.random.uniform(
+                key,
+                shape=(n_kernels, in_channels, in_height, in_width),
+                minval=-limit,
+                maxval=limit,
             ),
-            biases=np.zeros(n_kernels),
+            biases=jnp.zeros(n_kernels),
         )
 
     @classmethod
@@ -166,22 +179,25 @@ class Parameters(SupportsGradientOperations):
         in_channels: int,
         in_height: int,
         in_width: int,
+        *,
+        key: jax.Array,
     ) -> Parameters:
+        key1 = jax.random.split(key)[0]
         return cls(
-            weights=np.random.normal(
-                0,
-                np.sqrt(2 / (in_channels * in_height * in_width)),
+            weights=jax.random.normal(
+                key1,
                 (n_kernels, in_channels, in_height, in_width),
-            ),
-            biases=np.zeros(n_kernels),
+            )
+            * jnp.sqrt(2 / (in_channels * in_height * in_width)),
+            biases=jnp.zeros(n_kernels),
         )
 
     def from_bytes(self, data: IO[bytes]) -> Parameters:
         return Parameters(
-            weights=np.frombuffer(
+            weights=jnp.frombuffer(
                 data.read(self.weights.nbytes), dtype=self.weights.dtype
             ).reshape(self.weights.shape),
-            biases=np.frombuffer(
+            biases=jnp.frombuffer(
                 data.read(self.biases.nbytes), dtype=self.biases.dtype
             ).reshape(self.biases.shape),
         )
@@ -194,6 +210,19 @@ type KernelInitFn = Callable[[int, int, int, int], ParametersType]
 class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
     Cache = Cache
     Parameters = Parameters
+
+    @staticmethod
+    @jit
+    def _clip_gradient_impl(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """JIT-compiled gradient clipping implementation."""
+        return grad * jnp.minimum(
+            1.0, max_norm * jnp.sqrt(grad.size) / (jnp.linalg.norm(grad) + EPSILON)
+        )
+
+    @staticmethod
+    def _no_clip_gradient(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """No-op gradient clipping function."""
+        return grad
 
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
@@ -211,6 +240,8 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
             training: bool = False,
             freeze_parameters: bool = False,
         ) -> Convolution2D:
+            del training  # unused
+
             def _kernel_init_fn(
                 *args: object, **kwargs: Mapping[str, object]
             ) -> Parameters:
@@ -235,7 +266,7 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         kernel_size: int | tuple[int, int],
         stride: int | tuple[int, int] = 1,
         # padding: int | tuple[int, int] = 0, # TODO: Implement padding.
-        kernel_init_fn: KernelInitFn = Parameters.he,
+        kernel_init_fn: KernelInitFn,
         layer_id: str | None = None,
         freeze_parameters: bool = False,
         clip_gradients: bool = False,
@@ -289,117 +320,86 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
         self._cache = Cache(input_activations=None, output_activations=None, dP=None)
 
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        batch_size = input_activations.shape[0]
         self._cache["input_activations"] = input_activations
 
-        input_windows = as_strided(
+        output = lax.conv_general_dilated(
             input_activations,
-            shape=(
-                batch_size,
-                self._in_channels,
-                self._out_height,
-                self._out_width,
-                self._kernel_height,
-                self._kernel_width,
-            ),
-            strides=(
-                input_activations.strides[0],
-                input_activations.strides[1],
-                input_activations.strides[2] * self._stride_y,
-                input_activations.strides[3] * self._stride_x,
-                input_activations.strides[2],
-                input_activations.strides[3],
-            ),
-            writeable=False,
+            self._parameters.weights,
+            window_strides=(self._stride_y, self._stride_x),
+            padding="VALID",
+            dimension_numbers=("NCHW", "OIHW", "NCHW"),
+            feature_group_count=1,
         )
 
-        output = np.einsum(
-            "bchwij,kcij->bkhw", input_windows, self._parameters.weights, optimize=True
-        )
-
-        output += self._parameters.biases[np.newaxis, :, np.newaxis, np.newaxis]
+        output += self._parameters.biases[jnp.newaxis, :, jnp.newaxis, jnp.newaxis]
 
         return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        batch_size, n_kernels, dZ_height, dZ_width = cast(np.ndarray, dZ).shape
+        batch_size, _, dZ_height, dZ_width = cast(jnp.ndarray, dZ).shape
         input_activations = self._cache["input_activations"]
         if input_activations is None:
             raise ValueError("input_activations not set during forward_prop.")
 
-        input_windows = as_strided(
+        batch_size, in_channels, in_height, in_width = input_activations.shape
+
+        patches = lax.conv_general_dilated_patches(
             input_activations,
-            shape=(
-                batch_size,
-                self._in_channels,
-                dZ_height,
-                dZ_width,
-                self._kernel_height,
-                self._kernel_width,
-            ),
-            strides=(
-                input_activations.strides[0],
-                input_activations.strides[1],
-                input_activations.strides[2] * self._stride_y,
-                input_activations.strides[3] * self._stride_x,
-                input_activations.strides[2],
-                input_activations.strides[3],
-            ),
-            writeable=False,
+            filter_shape=(self._kernel_height, self._kernel_width),
+            window_strides=(self._stride_y, self._stride_x),
+            padding="VALID",
+            dimension_numbers=("NCHW", "OIHW", "NCHW"),
         )
 
-        dK = np.einsum("bchwij,bmhw->mcij", input_windows, cast(np.ndarray, dZ))
+        patches_reshaped = patches.reshape(
+            batch_size,
+            in_channels,
+            self._kernel_height,
+            self._kernel_width,
+            dZ_height,
+            dZ_width,
+        )
 
-        db = np.sum(cast(np.ndarray, dZ), axis=(0, 2, 3))
+        patches_transposed = jnp.transpose(patches_reshaped, (0, 4, 5, 1, 2, 3))
+
+        dZ_transposed = jnp.transpose(cast(jnp.ndarray, dZ), (0, 2, 3, 1))
+
+        dK = jnp.einsum("byxihw,byxo->oihw", patches_transposed, dZ_transposed)
+
+        db = jnp.sum(cast(jnp.ndarray, dZ), axis=(0, 2, 3))
 
         if self._clip_gradients:
-            dK *= min(
-                1.0,
-                self._weight_max_norm
-                * np.sqrt(dK.size)
-                / (np.linalg.norm(dK) + EPSILON),
-            )
-            db *= min(
-                1.0,
-                self._bias_max_norm * np.sqrt(db.size) / (np.linalg.norm(db) + EPSILON),
-            )
+            dK = self._clip_gradient_impl(dK, self._weight_max_norm)
+            db = self._clip_gradient_impl(db, self._bias_max_norm)
 
         pad_h = self._kernel_height - 1
         pad_w = self._kernel_width - 1
-        dZ_padded = np.pad(
-            cast(np.ndarray, dZ),
+        dZ_padded = jnp.pad(
+            cast(jnp.ndarray, dZ),
             ((0, 0), (0, 0), (pad_h, pad_h), (pad_w, pad_w)),
             mode="constant",
-            constant_values=0,
         )
 
-        in_height, in_width = input_activations.shape[2:]
-        dZ_windows = as_strided(
-            dZ_padded,
-            shape=(
-                batch_size,
-                n_kernels,
-                in_height,
-                in_width,
-                self._kernel_height,
-                self._kernel_width,
-            ),
-            strides=(
-                dZ_padded.strides[0],
-                dZ_padded.strides[1],
-                dZ_padded.strides[2],
-                dZ_padded.strides[3],
-                dZ_padded.strides[2],
-                dZ_padded.strides[3],
-            ),
-            writeable=False,
-        )
+        weights_flipped = jnp.flip(self._parameters.weights, axis=(2, 3))
 
-        flipped_weights = np.flip(self._parameters.weights, axis=(2, 3))
-        dX = np.einsum("bmhwij,mcij->bchw", dZ_windows, flipped_weights)
+        dX = jnp.zeros((batch_size, in_channels, in_height, in_width))
+
+        for k in range(self._n_kernels):
+            dZ_k = dZ_padded[:, k : k + 1, :, :]
+            weights_k = weights_flipped[k : k + 1, :, :, :]
+            weights_k_t = jnp.transpose(weights_k, (1, 0, 2, 3))
+
+            dX_k = lax.conv_general_dilated(
+                dZ_k,
+                weights_k_t,
+                window_strides=(1, 1),
+                padding="VALID",
+                dimension_numbers=("NCHW", "OIHW", "NCHW"),
+            )
+            dX += dX_k
 
         self._cache["dP"] = d(self.Parameters(weights=dK, biases=db))
-        return d(Activations(dX))
+        return cast(D[Activations], dX)
 
     def gradient_operation(self, f: Callable[[GradLayer], None]) -> None:
         f(self)
@@ -407,8 +407,8 @@ class Convolution2D(ParametrisedHidden[ParametersType, CacheType]):
     def empty_gradient(self) -> D[ParametersType]:
         return d(
             self.Parameters(
-                weights=np.zeros_like(self._parameters.weights),
-                biases=np.zeros_like(self._parameters.biases),
+                weights=jnp.zeros_like(self._parameters.weights),
+                biases=jnp.zeros_like(self._parameters.biases),
             )
         )
 

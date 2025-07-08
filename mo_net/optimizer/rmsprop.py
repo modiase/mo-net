@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-import numpy as np
+import jax.numpy as jnp
 from loguru import logger
 
 from mo_net.constants import EPSILON
@@ -48,7 +48,7 @@ class RMSProp(Base[Config]):
         for layer in self._model.grad_layers:
             layer.cache["squared_grad_avg"] = layer.empty_gradient()
 
-        self._snapshot_squared_grad_avg: Sequence[np.ndarray] | None = None
+        self._snapshot_squared_grad_avg: Sequence[jnp.ndarray] | None = None
 
     def gradient_operation(self, layer: GradLayer) -> None:
         cache = layer.cache

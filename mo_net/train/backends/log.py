@@ -1,13 +1,28 @@
+import threading
+from collections.abc import MutableSequence, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Protocol
 from urllib.parse import urlparse
 
 import pandas as pd
+from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from mo_net.train.backends.models import DB_PATH, DbRun, Iteration
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LogEntry:
+    batch_loss: float
+    val_loss: float
+    batch: int
+    epoch: int
+    learning_rate: float
+    timestamp: datetime
 
 
 class LoggingBackend(Protocol):
@@ -116,12 +131,23 @@ class CsvBackend(LoggingBackend):
 
 
 class SqliteBackend(LoggingBackend):
-    def __init__(self, *, path: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        path: Path | None = None,
+        batch_size: int = 10,
+        max_queue_size: int = 1000,
+    ) -> None:
         self._path = (path if path is not None else DB_PATH).resolve()
         self._session: Session | None = None
         self._current_run: DbRun | None = None
         self._engine = create_engine(f"sqlite:///{self._path}")
         self._session_maker = sessionmaker(bind=self._engine)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="logging")
+        self._lock = threading.Lock()
+        self._batch_size = batch_size
+        self._max_queue_size = max_queue_size
+        self._pending_entries: MutableSequence[LogEntry] = []
 
     @property
     def connection_string(self) -> str:
@@ -162,9 +188,15 @@ class SqliteBackend(LoggingBackend):
         self._current_run = None
 
     def teardown(self) -> None:
+        if self._current_run is not None and self._pending_entries:
+            with self._lock:
+                self._flush_batch(self._pending_entries, run_id=self._current_run.id)
+                self._pending_entries.clear()
+
         if self._session:
             self._session.close()
             self._session = None
+        self._executor.shutdown(wait=True)
 
     def log_training_parameters(self, *, training_parameters: str) -> None:
         self._path.with_suffix(".json").write_text(training_parameters)
@@ -182,26 +214,62 @@ class SqliteBackend(LoggingBackend):
         if not self._session or not self._current_run:
             raise RuntimeError("No active run. Call start_run() first.")
 
-        self._current_run.current_batch = batch
-        self._current_run.current_batch_loss = batch_loss
-        self._current_run.current_epoch = epoch
-        self._current_run.current_learning_rate = learning_rate
-        self._current_run.current_val_loss = val_loss
-        self._current_run.current_timestamp = timestamp
-        self._current_run.updated_at = timestamp
+        if len(self._pending_entries) >= self._max_queue_size:
+            logger.warning("Log queue is full. Dropping log entry.")
+            return
 
-        self._session.add(
-            Iteration(
-                run_id=self._current_run.id,
+        self._executor.submit(
+            self._log_iteration_sync,
+            run_id=self._current_run.id,
+            entry=LogEntry(
                 batch_loss=batch_loss,
+                val_loss=val_loss,
                 batch=batch,
                 epoch=epoch,
                 learning_rate=learning_rate,
                 timestamp=timestamp,
-                val_loss=val_loss,
-            )
+            ),
         )
-        self._session.commit()
+
+    def _log_iteration_sync(self, *, run_id: int, entry: LogEntry) -> None:
+        try:
+            with self._lock:
+                self._pending_entries.append(entry)
+                if len(self._pending_entries) >= self._batch_size:
+                    self._flush_batch(self._pending_entries, run_id=run_id)
+                    self._pending_entries.clear()
+        except Exception as e:
+            logger.error(f"Error logging iteration: {e}")
+
+    def _flush_batch(self, entries: Sequence[LogEntry], run_id: int) -> None:
+        try:
+            with self._session_maker() as session:
+                if run := session.get(DbRun, run_id):
+                    latest = entries[-1]
+                    run.current_batch = latest.batch
+                    run.current_batch_loss = latest.batch_loss
+                    run.current_epoch = latest.epoch
+                    run.current_learning_rate = latest.learning_rate
+                    run.current_val_loss = latest.val_loss
+                    run.current_timestamp = latest.timestamp
+                    run.updated_at = latest.timestamp
+
+                    for entry in entries:
+                        session.add(
+                            Iteration(
+                                run_id=run.id,
+                                batch_loss=entry.batch_loss,
+                                batch=entry.batch,
+                                epoch=entry.epoch,
+                                learning_rate=entry.learning_rate,
+                                timestamp=entry.timestamp,
+                                val_loss=entry.val_loss,
+                            )
+                        )
+
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Error flushing batch: {e}")
 
     def get_run(self, run_id: int) -> DbRun | None:
         if not self._session:

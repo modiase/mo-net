@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, Final, Self
+from typing import IO, Self
 
-import numpy as np
+import jax
+import jax.numpy as jnp
+import jax.random as random
+from jax import jit
 from more_itertools import one
 
+from mo_net.constants import EPSILON
 from mo_net.model.layer.base import BadLayerId, ParametrisedHidden
 from mo_net.protos import (
     Activations,
@@ -18,12 +22,10 @@ from mo_net.protos import (
     d,
 )
 
-EPSILON: Final[float] = 1e-8
-
 
 @dataclass(kw_only=True)
 class Parameters(SupportsGradientOperations):
-    embeddings: np.ndarray
+    embeddings: jnp.ndarray
 
     def __add__(self, other: Self | float | int) -> Self:
         match other:
@@ -73,30 +75,29 @@ class Parameters(SupportsGradientOperations):
         return self.__class__(embeddings=self.embeddings**scalar)
 
     @classmethod
-    def random(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(embeddings=np.random.randn(vocab_size, embedding_dim))
+    def random(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
+        return cls(embeddings=random.normal(key, (vocab_size, embedding_dim)))
 
     @classmethod
-    def xavier(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(
-            embeddings=np.random.randn(vocab_size, embedding_dim)
-            * np.sqrt(1 / vocab_size)
+    def xavier(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
+        embeddings = random.normal(key, (vocab_size, embedding_dim)) * jnp.sqrt(
+            1 / vocab_size
         )
+        return cls(embeddings=embeddings)
 
     @classmethod
-    def he(cls, vocab_size: int, embedding_dim: int) -> Self:
-        return cls(
-            embeddings=np.random.normal(
-                0, np.sqrt(2 / vocab_size), (vocab_size, embedding_dim)
-            )
+    def he(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
+        embeddings = random.normal(key, (vocab_size, embedding_dim)) * jnp.sqrt(
+            2 / vocab_size
         )
+        return cls(embeddings=embeddings)
 
     @classmethod
-    def of(cls, embeddings: np.ndarray) -> Self:
-        return cls(embeddings=np.atleast_2d(embeddings))
+    def of(cls, embeddings: jnp.ndarray) -> Self:
+        return cls(embeddings=jnp.atleast_2d(embeddings))
 
     def from_bytes(self, data: IO[bytes]) -> Self:
-        embeddings = np.frombuffer(
+        embeddings = jnp.frombuffer(
             data.read(self.embeddings.nbytes), dtype=self.embeddings.dtype
         ).reshape(self.embeddings.shape)
         return self.__class__(embeddings=embeddings)
@@ -106,7 +107,7 @@ type ParametersType = Parameters
 
 
 class Cache(GradCache[ParametersType]):
-    input_indices: np.ndarray | None
+    input_indices: jnp.ndarray | None
     output_activations: Activations | None
 
 
@@ -119,6 +120,19 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     _parameters: ParametersType
     _cache: CacheType
 
+    @staticmethod
+    @jit
+    def _clip_gradient_impl(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """JIT-compiled gradient clipping implementation."""
+        return grad * jnp.minimum(
+            1.0, max_norm * jnp.sqrt(grad.size) / (jnp.linalg.norm(grad) + EPSILON)
+        )
+
+    @staticmethod
+    def _no_clip_gradient(grad: jnp.ndarray, max_norm: float) -> jnp.ndarray:
+        """No-op gradient clipping function."""
+        return grad
+
     @dataclass(frozen=True, kw_only=True)
     class Serialized:
         layer_id: str
@@ -127,7 +141,9 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         vocab_size: int
         parameters: Parameters
 
-        def deserialize(self, *, training: bool = False) -> Embedding:
+        def deserialize(
+            self, *, training: bool = False, freeze_parameters: bool = False
+        ) -> Embedding:
             del training
             return Embedding(
                 layer_id=self.layer_id,
@@ -135,6 +151,8 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 output_dimensions=self.output_dimensions,
                 vocab_size=self.vocab_size,
                 parameters=self.parameters,
+                freeze_parameters=freeze_parameters,
+                key=jax.random.PRNGKey(0),
             )
 
     def __init__(
@@ -143,10 +161,13 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         clip_gradients: bool = True,
         freeze_parameters: bool = False,
         input_dimensions: Dimensions,
+        key: jax.Array,
         layer_id: str | None = None,
         output_dimensions: Dimensions,
         parameters: ParametersType | None = None,
-        parameters_init_fn: Callable[[int, int], ParametersType] = Parameters.xavier,
+        parameters_init_fn: Callable[
+            [int, int, jax.Array], ParametersType
+        ] = Parameters.xavier,
         store_output_activations: bool = False,
         vocab_size: int,
         weight_max_norm: float = 1.0,
@@ -156,11 +177,15 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
         )
+        self._freeze_parameters = freeze_parameters
+        self._key = key
         self._parameters_init_fn = parameters_init_fn
         self._store_output_activations = store_output_activations
-        self._clip_gradients = clip_gradients
-        self._freeze_parameters = freeze_parameters
         self._weight_max_norm = weight_max_norm
+
+        self._clip_gradient_fn = (
+            self._clip_gradient_impl if clip_gradients else self._no_clip_gradient
+        )
 
         embedding_dim = (
             output_dimensions[-1]
@@ -177,10 +202,11 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             )
 
         self._vocab_size = vocab_size
+        self._key, subkey = jax.random.split(self._key)
         self._parameters = (
             parameters
             if parameters is not None
-            else self._parameters_init_fn(vocab_size, embedding_dim)
+            else self._parameters_init_fn(vocab_size, embedding_dim, subkey)
         )
         self._cache: CacheType = {
             "input_indices": None,
@@ -200,25 +226,31 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         if (indices := self._cache["input_indices"]) is None:
             raise ValueError("Input indices not set during forward pass.")
-        dE = np.zeros_like(self._parameters.embeddings)
-        np.add.at(dE, indices, dZ)
-        if self._clip_gradients:
-            dE *= min(
-                1.0,
-                self._weight_max_norm
-                * np.sqrt(dE.size)
-                / (np.linalg.norm(dE) + EPSILON),
+
+        self._cache["dP"] = d(
+            self.Parameters(
+                embeddings=self._clip_gradient_fn(
+                    jnp.zeros_like(self._parameters.embeddings).at[indices].add(dZ),
+                    self._weight_max_norm,
+                )
             )
-        self._cache["dP"] = d(self.Parameters(embeddings=dE))
+        )
         return dZ
 
     def empty_gradient(self) -> D[ParametersType]:
-        return d(self.Parameters(embeddings=np.zeros_like(self._parameters.embeddings)))
+        return d(
+            self.Parameters(embeddings=jnp.zeros_like(self._parameters.embeddings))
+        )
 
     def reinitialise(self) -> None:
-        vocab_size = one(self.input_dimensions)
-        embedding_dim = one(self.output_dimensions)
-        self._parameters = self._parameters_init_fn(vocab_size, embedding_dim)
+        vocab_size = self._vocab_size
+        embedding_dim = (
+            self.output_dimensions[-1]
+            if len(self.output_dimensions) > 1
+            else one(self.output_dimensions)
+        )
+        self._key, subkey = jax.random.split(self._key)
+        self._parameters = self._parameters_init_fn(vocab_size, embedding_dim, subkey)
 
     def serialize(self) -> Embedding.Serialized:
         return self.Serialized(

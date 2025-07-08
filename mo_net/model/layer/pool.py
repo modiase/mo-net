@@ -3,16 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict, cast
 
-import numpy as np
-from numpy.lib.stride_tricks import as_strided
+import jax.numpy as jnp
+from jax import lax
 
 from mo_net.model.layer.base import Hidden
-from mo_net.protos import Activations, D, Dimensions, d
+from mo_net.protos import Activations, D, Dimensions
 
 
 class Cache(TypedDict):
     input_activations: Activations | None
-    max_indices: np.ndarray | None
+    max_indices: jnp.ndarray | None
 
 
 class MaxPooling2D(Hidden):
@@ -75,80 +75,59 @@ class MaxPooling2D(Hidden):
         batch_size, channels, _, _ = input_activations.shape
         _, h_out, w_out = self.output_dimensions
 
-        input_windows = as_strided(
-            input_activations,
-            shape=(batch_size, channels, h_out, w_out, self._pool_h, self._pool_w),
-            strides=(
-                input_activations.strides[0],
-                input_activations.strides[1],
-                input_activations.strides[2] * self._stride_h,
-                input_activations.strides[3] * self._stride_w,
-                input_activations.strides[2],
-                input_activations.strides[3],
-            ),
-            writeable=False,
+        input_float = jnp.asarray(input_activations, dtype=jnp.float32)
+
+        output = lax.reduce_window(
+            input_float,
+            init_value=jnp.finfo(input_float.dtype).min,
+            computation=lax.max,
+            window_dimensions=(1, 1, self._pool_h, self._pool_w),
+            window_strides=(1, 1, self._stride_h, self._stride_w),
+            padding="VALID",
         )
 
-        h_indices, w_indices = [
-            indices.reshape(batch_size, channels, h_out, w_out)
-            for indices in np.unravel_index(
-                np.argmax(
-                    input_windows.reshape(batch_size, channels, h_out, w_out, -1),
-                    axis=-1,
-                ).flatten(),
-                (self._pool_h, self._pool_w),
-            )
-        ]
+        self._cache["input_activations"] = Activations(input_float)
+        self._cache["max_indices"] = output
 
-        self._cache["input_activations"] = input_activations
-        self._cache["max_indices"] = np.stack([h_indices, w_indices], axis=-1)
-
-        return Activations(
-            input_windows[
-                np.arange(batch_size)[:, None, None, None],
-                np.arange(channels)[None, :, None, None],
-                np.arange(h_out)[None, None, :, None],
-                np.arange(w_out)[None, None, None, :],
-                h_indices,
-                w_indices,
-            ]
-        )
+        return Activations(output)
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
         input_activations = self._cache["input_activations"]
-        max_indices = self._cache["max_indices"]
+        pooled_output = self._cache["max_indices"]
         if input_activations is None:
             raise ValueError("Input activations were not set during forward pass.")
-        if max_indices is None:
-            raise ValueError("Max indices were not set during forward pass.")
+        if pooled_output is None:
+            raise ValueError("Pooled output was not set during forward pass.")
 
-        batch_size, channels, _, _ = input_activations.shape
-        _, _, h_out, w_out = cast(np.ndarray, dZ).shape
+        _, _, out_h, out_w = pooled_output.shape
 
-        dX = np.zeros_like(input_activations)
+        dX = jnp.zeros_like(input_activations)
 
-        h_coords_flat, w_coords_flat = [
-            coords.flatten()
-            for coords in np.meshgrid(np.arange(h_out), np.arange(w_out), indexing="ij")
-        ]
+        for h_out in range(out_h):
+            for w_out in range(out_w):
+                h_start = h_out * self._stride_h
+                h_end = h_start + self._pool_h
+                w_start = w_out * self._stride_w
+                w_end = w_start + self._pool_w
 
-        h_indices_flat, w_indices_flat = [
-            max_indices.reshape(batch_size, channels, h_out * w_out, 2)[:, :, :, i]
-            for i in [0, 1]
-        ]
+                window = input_activations[:, :, h_start:h_end, w_start:w_end]
 
-        np.add.at(
-            dX,
-            (
-                np.arange(batch_size)[:, None, None],
-                np.arange(channels)[None, :, None],
-                h_coords_flat * self._stride_h + h_indices_flat,
-                w_coords_flat * self._stride_w + w_indices_flat,
-            ),
-            cast(np.ndarray, dZ).reshape(batch_size, channels, -1),
-        )
+                pooled_vals = pooled_output[:, :, h_out : h_out + 1, w_out : w_out + 1]
 
-        return d(Activations(dX))
+                mask = (window == pooled_vals).astype(jnp.float32)
+
+                counts = jnp.sum(mask, axis=(2, 3), keepdims=True)
+                counts = jnp.maximum(counts, 1.0)
+
+                mask = mask / counts
+
+                grad_out = cast(jnp.ndarray, dZ)[
+                    :, :, h_out : h_out + 1, w_out : w_out + 1
+                ]
+
+                dX = dX.at[:, :, h_start:h_end, w_start:w_end].add(mask * grad_out)
+
+        return cast(D[Activations], dX)
 
     def serialize(self) -> MaxPooling2D.Serialized:
         channels, height, width = self.input_dimensions

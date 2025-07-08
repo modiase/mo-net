@@ -4,13 +4,13 @@ from math import ceil
 from pathlib import Path
 from typing import Final, Self, overload
 
-import numpy as np
+import jax.numpy as jnp
 import pandas as pd
 from loguru import logger
 
 from mo_net import PROJECT_ROOT_DIR
 from mo_net.log import LogLevel, log_result
-from mo_net.resources import MNIST_TRAIN_URL, get_resource
+from mo_net.resources import get_resource
 
 DATA_DIR: Final[Path] = PROJECT_ROOT_DIR / "data"
 DEFAULT_TRAIN_SPLIT: Final[float] = 0.8
@@ -68,17 +68,21 @@ class SplitConfig:
         return val_start, val_end
 
 
-def _load_data(data_path: Path) -> tuple[np.ndarray, np.ndarray]:
+def _load_data(data_path: Path, *, one_hot: bool) -> tuple[jnp.ndarray, jnp.ndarray]:
     df = pd.read_csv(data_path)
     return (
-        np.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
-        np.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()],
+        jnp.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
+        (
+            jnp.eye(N_DIGITS)[df.iloc[:, 0].to_numpy()]
+            if one_hot
+            else jnp.array(df.iloc[:, 0].to_numpy())
+        ),
     )
 
 
 def _load_data_split(
-    data_path: Path, split: SplitConfig
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    data_path: Path, split: SplitConfig, *, one_hot: bool
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     df = pd.read_csv(data_path)
 
     train_indices = split.get_train_indices(len(df))
@@ -89,36 +93,51 @@ def _load_data_split(
         [df.iloc[start:end, :] for start, end in train_indices], ignore_index=True
     )
 
-    Y_train = np.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
-    Y_val = np.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
+    Y_train = (
+        jnp.eye(N_DIGITS)[training_set.iloc[:, 0].to_numpy()]
+        if one_hot
+        else jnp.array(training_set.iloc[:, 0].to_numpy())
+    )
+    Y_val = (
+        jnp.eye(N_DIGITS)[val_set.iloc[:, 0].to_numpy()]
+        if one_hot
+        else jnp.array(val_set.iloc[:, 0].to_numpy())
+    )
 
-    X_train = np.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
-    X_val = np.array(val_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
+    X_train = jnp.array(training_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
+    X_val = jnp.array(val_set.iloc[:, 1:]) / MAX_PIXEL_VALUE
     return X_train, Y_train, X_val, Y_val
 
 
 @overload
 def load_data(
-    dataset_url: str, split: None = None
-) -> tuple[np.ndarray, np.ndarray]: ...
+    dataset_url: str,
+    split: None = None,
+    *,
+    one_hot: bool = True,
+) -> tuple[jnp.ndarray, jnp.ndarray]: ...
 @overload
 def load_data(
-    dataset_url: str, split: SplitConfig
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: ...
+    dataset_url: str,
+    split: SplitConfig,
+    *,
+    one_hot: bool = True,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]: ...
 
 
 def load_data(
-    dataset_url: str, split: SplitConfig | None = None
+    dataset_url: str,
+    split: SplitConfig | None = None,
+    *,
+    one_hot: bool = True,
 ) -> (
-    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-    | tuple[np.ndarray, np.ndarray]
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
+    | tuple[jnp.ndarray, jnp.ndarray]
 ):
     logger.info(f"Loading data from {dataset_url}.")
     data_path = get_resource(dataset_url)
-    return _load_data_split(data_path, split) if split else _load_data(data_path)
-
-
-def infer_dataset_url(quickstart: str | None) -> str | None:
-    if quickstart == "mnist_mlp" or quickstart == "mnist_cnn":
-        return MNIST_TRAIN_URL
-    return None
+    return (
+        _load_data_split(data_path, split, one_hot=one_hot)
+        if split
+        else _load_data(data_path, one_hot=one_hot)
+    )

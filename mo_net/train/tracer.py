@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 
 import h5py
-import numpy as np
+import jax
+import jax.numpy as jnp
 
 from mo_net.model.layer.linear import Linear, Parameters
 from mo_net.model.model import Model
@@ -28,18 +29,21 @@ class PerEpochTracerStrategy(TracerStrategy):
 
 class PerStepTracerStrategy(TracerStrategy):
     def should_trace(self, iteration: int) -> bool:
+        del iteration  # unused
         return True
 
 
 class SampleTracerStrategy(TracerStrategy):
-    def __init__(self, *, sample_rate: float):
+    def __init__(self, *, sample_rate: float, key: jax.Array):
         if sample_rate < 0 or sample_rate > 1:
             raise ValueError("Sample rate must be between 0 and 1")
         self._sample_rate = sample_rate
+        self._key = key
 
     def should_trace(self, iteration: int) -> bool:
         del iteration  # unused
-        return np.random.rand() < self._sample_rate
+        self._key = jax.random.split(self._key)[0]
+        return jax.random.uniform(self._key, ()).item() < self._sample_rate
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -61,13 +65,11 @@ class Tracer:
         tracer_config: TracerConfig,
     ):
         self.model = model
-        self._linear_layers: Sequence[Linear] = (
-            tuple(  # TODO: Consider reducing coupling to dense layers.
-                layer
-                for module in model.modules
-                for layer in module.layers
-                if isinstance(layer, Linear)
-            )
+        self._linear_layers: Sequence[Linear] = tuple(
+            layer
+            for module in model.modules
+            for layer in module.layers
+            if isinstance(layer, Linear)
         )
         self._trace_logging_path = Path(f"trace_log_{run_id}.hdf5")
         self._tracer_config = tracer_config
@@ -90,12 +92,12 @@ class Tracer:
             self._iterations += 1
             return
 
-        activations: Sequence[np.ndarray] = tuple(
+        activations: Sequence[jnp.ndarray] = tuple(
             layer_activations
             for layer in self.model.grad_layers
             if (
                 (layer_activations := layer.cache["output_activations"]) is not None
-                and isinstance(layer_activations, np.ndarray)
+                and isinstance(layer_activations, jnp.ndarray)
             )
         )
 
@@ -109,18 +111,18 @@ class Tracer:
                 activation_group = iter_group.create_group("activations")
                 for i, activation in enumerate(activations):
                     layer_group = activation_group.create_group(f"layer_{i}")
-                    hist_values, hist_bins = np.histogram(activation, bins=100)
+                    hist_values, hist_bins = jnp.histogram(activation, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
                     layer_group.create_dataset("histogram_bins", data=hist_bins)
 
                     layer_group.create_dataset(
-                        "deciles", data=np.quantile(activation, np.linspace(0, 1, 11))
+                        "deciles", data=jnp.quantile(activation, jnp.linspace(0, 1, 11))
                     )
 
-                    layer_group.attrs["mean"] = np.mean(activation)
-                    layer_group.attrs["std"] = np.std(activation)
-                    layer_group.attrs["min"] = np.min(activation)
-                    layer_group.attrs["max"] = np.max(activation)
+                    layer_group.attrs["mean"] = jnp.mean(activation)
+                    layer_group.attrs["std"] = jnp.std(activation)
+                    layer_group.attrs["min"] = jnp.min(activation)
+                    layer_group.attrs["max"] = jnp.max(activation)
 
             linear_layer_params = tuple(
                 layer.parameters for layer in self._linear_layers
@@ -130,37 +132,38 @@ class Tracer:
 
                 for i, param in enumerate(linear_layer_params):
                     layer_group = weights_group.create_group(f"layer_{i}")
-                    hist_values, hist_bins = np.histogram(param.weights, bins=100)
+                    hist_values, hist_bins = jnp.histogram(param.weights, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
                     layer_group.create_dataset("histogram_bins", data=hist_bins)
 
                     layer_group.create_dataset(
                         "deciles",
-                        data=np.quantile(param.weights, np.linspace(0, 1, 11)),
+                        data=jnp.quantile(param.weights, jnp.linspace(0, 1, 11)),
                     )
 
-                    layer_group.attrs["mean"] = np.mean(param.weights)
-                    layer_group.attrs["std"] = np.std(param.weights)
-                    layer_group.attrs["min"] = np.min(param.weights)
-                    layer_group.attrs["max"] = np.max(param.weights)
+                    layer_group.attrs["mean"] = jnp.mean(param.weights)
+                    layer_group.attrs["std"] = jnp.std(param.weights)
+                    layer_group.attrs["min"] = jnp.min(param.weights)
+                    layer_group.attrs["max"] = jnp.max(param.weights)
 
             if self._tracer_config.trace_biases:
                 biases_group = iter_group.create_group("biases")
 
                 for i, param in enumerate(linear_layer_params):
                     layer_group = biases_group.create_group(f"layer_{i}")
-                    hist_values, hist_bins = np.histogram(param.biases, bins=100)
+                    hist_values, hist_bins = jnp.histogram(param.biases, bins=100)
                     layer_group.create_dataset("histogram_values", data=hist_values)
                     layer_group.create_dataset("histogram_bins", data=hist_bins)
 
                     layer_group.create_dataset(
-                        "deciles", data=np.quantile(param.biases, np.linspace(0, 1, 11))
+                        "deciles",
+                        data=jnp.quantile(param.biases, jnp.linspace(0, 1, 11)),
                     )
 
-                    layer_group.attrs["mean"] = np.mean(param.biases)
-                    layer_group.attrs["std"] = np.std(param.biases)
-                    layer_group.attrs["min"] = np.min(param.biases)
-                    layer_group.attrs["max"] = np.max(param.biases)
+                    layer_group.attrs["mean"] = jnp.mean(param.biases)
+                    layer_group.attrs["std"] = jnp.std(param.biases)
+                    layer_group.attrs["min"] = jnp.min(param.biases)
+                    layer_group.attrs["max"] = jnp.max(param.biases)
 
             if self._tracer_config.trace_raw_gradients:
                 linear_layer_gradients = tuple(
@@ -174,32 +177,34 @@ class Tracer:
                     layer_group = raw_gradient_group.create_group(f"layer_{i}")
 
                     weights_group = layer_group.create_group("weights")
-                    hist_values, hist_bins = np.histogram(grad.weights, bins=100)
+                    hist_values, hist_bins = jnp.histogram(grad.weights, bins=100)
                     weights_group.create_dataset("histogram_values", data=hist_values)
                     weights_group.create_dataset("histogram_bins", data=hist_bins)
 
                     weights_group.create_dataset(
-                        "deciles", data=np.quantile(grad.weights, np.linspace(0, 1, 11))
+                        "deciles",
+                        data=jnp.quantile(grad.weights, jnp.linspace(0, 1, 11)),
                     )
 
-                    weights_group.attrs["mean"] = np.mean(grad.weights)
-                    weights_group.attrs["std"] = np.std(grad.weights)
-                    weights_group.attrs["min"] = np.min(grad.weights)
-                    weights_group.attrs["max"] = np.max(grad.weights)
+                    weights_group.attrs["mean"] = jnp.mean(grad.weights)
+                    weights_group.attrs["std"] = jnp.std(grad.weights)
+                    weights_group.attrs["min"] = jnp.min(grad.weights)
+                    weights_group.attrs["max"] = jnp.max(grad.weights)
 
                     biases_group = layer_group.create_group("biases")
-                    hist_values, hist_bins = np.histogram(grad.biases, bins=100)
+                    hist_values, hist_bins = jnp.histogram(grad.biases, bins=100)
                     biases_group.create_dataset("histogram_values", data=hist_values)
                     biases_group.create_dataset("histogram_bins", data=hist_bins)
 
                     biases_group.create_dataset(
-                        "deciles", data=np.quantile(grad.biases, np.linspace(0, 1, 11))
+                        "deciles",
+                        data=jnp.quantile(grad.biases, jnp.linspace(0, 1, 11)),
                     )
 
-                    biases_group.attrs["mean"] = np.mean(grad.biases)
-                    biases_group.attrs["std"] = np.std(grad.biases)
-                    biases_group.attrs["min"] = np.min(grad.biases)
-                    biases_group.attrs["max"] = np.max(grad.biases)
+                    biases_group.attrs["mean"] = jnp.mean(grad.biases)
+                    biases_group.attrs["std"] = jnp.std(grad.biases)
+                    biases_group.attrs["min"] = jnp.min(grad.biases)
+                    biases_group.attrs["max"] = jnp.max(grad.biases)
 
             if self._tracer_config.trace_updates:
                 update_gradients = tuple(
@@ -216,7 +221,7 @@ class Tracer:
                     weights_layer_group = update_weights_group.create_group(
                         f"layer_{i}"
                     )
-                    hist_values, hist_bins = np.histogram(
+                    hist_values, hist_bins = jnp.histogram(
                         update_gradient.weights, bins=100
                     )
                     weights_layer_group.create_dataset(
@@ -224,20 +229,22 @@ class Tracer:
                     )
                     weights_layer_group.create_dataset("histogram_bins", data=hist_bins)
 
-                    weights_layer_group.attrs["mean"] = np.mean(update_gradient.weights)
-                    weights_layer_group.attrs["std"] = np.std(update_gradient.weights)
-                    weights_layer_group.attrs["min"] = np.min(update_gradient.weights)
-                    weights_layer_group.attrs["max"] = np.max(update_gradient.weights)
+                    weights_layer_group.attrs["mean"] = jnp.mean(
+                        update_gradient.weights
+                    )
+                    weights_layer_group.attrs["std"] = jnp.std(update_gradient.weights)
+                    weights_layer_group.attrs["min"] = jnp.min(update_gradient.weights)
+                    weights_layer_group.attrs["max"] = jnp.max(update_gradient.weights)
 
                     weights_layer_group.create_dataset(
                         "deciles",
-                        data=np.quantile(
-                            update_gradient.weights, np.linspace(0, 1, 11)
+                        data=jnp.quantile(
+                            update_gradient.weights, jnp.linspace(0, 1, 11)
                         ),
                     )
 
                     biases_layer_group = update_biases_group.create_group(f"layer_{i}")
-                    hist_values, hist_bins = np.histogram(
+                    hist_values, hist_bins = jnp.histogram(
                         update_gradient.biases, bins=100
                     )
                     biases_layer_group.create_dataset(
@@ -247,12 +254,14 @@ class Tracer:
 
                     biases_layer_group.create_dataset(
                         "deciles",
-                        data=np.quantile(update_gradient.biases, np.linspace(0, 1, 11)),
+                        data=jnp.quantile(
+                            update_gradient.biases, jnp.linspace(0, 1, 11)
+                        ),
                     )
 
-                    biases_layer_group.attrs["mean"] = np.mean(update_gradient.biases)
-                    biases_layer_group.attrs["std"] = np.std(update_gradient.biases)
-                    biases_layer_group.attrs["min"] = np.min(update_gradient.biases)
-                    biases_layer_group.attrs["max"] = np.max(update_gradient.biases)
+                    biases_layer_group.attrs["mean"] = jnp.mean(update_gradient.biases)
+                    biases_layer_group.attrs["std"] = jnp.std(update_gradient.biases)
+                    biases_layer_group.attrs["min"] = jnp.min(update_gradient.biases)
+                    biases_layer_group.attrs["max"] = jnp.max(update_gradient.biases)
 
         self._iterations += 1

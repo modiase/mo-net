@@ -1,9 +1,11 @@
 import sys
+import time
 from pathlib import Path
 from typing import Final
 
 import click
-import numpy as np
+import jax
+import jax.numpy as jnp
 from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import peekable, sample
@@ -12,7 +14,7 @@ from mo_net.data import DATA_DIR, SplitConfig, load_data
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
 from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
-from mo_net.train.augment import affine_transform
+from mo_net.train.augment import affine_transform2D
 
 # MNIST-specific constants
 N_DIGITS: Final[int] = 10
@@ -97,27 +99,27 @@ def infer(
     model = Model.load(model_path)
 
     Y_train_pred = model.predict(X_train)
-    Y_train_true = np.argmax(Y_train, axis=1)
+    Y_train_true = jnp.argmax(Y_train, axis=1)
     logger.info(
-        f"Training Set Accuracy: {np.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
+        f"Training Set Accuracy: {jnp.sum(Y_train_pred == Y_train_true) / len(Y_train_pred)}"
     )
 
     X_test, Y_test = load_data(test_dataset_url)
     Y_test_pred = model.predict(X_test)
-    Y_test_true = np.argmax(Y_test, axis=1)
+    Y_test_true = jnp.argmax(Y_test, axis=1)
     logger.info(
-        f"Test Set Accuracy: {np.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)}"
+        f"Test Set Accuracy: {jnp.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)}"
     )
 
-    precision = np.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)
-    recall = np.sum(Y_test_true == Y_test_pred) / len(Y_test_true)
+    precision = jnp.sum(Y_test_pred == Y_test_true) / len(Y_test_pred)
+    recall = jnp.sum(Y_test_true == Y_test_pred) / len(Y_test_true)
     f1_score = 2 * precision * recall / (precision + recall)
     logger.info(f"F1 Score: {f1_score}")
 
     plt.figure(figsize=(15, 8))
     plt.suptitle("Mislabelled Examples (Sample)", fontsize=16)
 
-    sample_indices = sample(np.where(Y_test_true != Y_test_pred)[0], 25)
+    sample_indices = sample(jnp.where(Y_test_true != Y_test_pred)[0], 25)
     for idx, i in enumerate(sample_indices):
         plt.subplot(8, 5, idx + 1)
         plt.imshow(X_test[i].reshape(MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE), cmap="gray")
@@ -125,15 +127,15 @@ def infer(
         plt.axis("off")
     plt.subplot(8, 1, (6, 8))
     unique_labels = list(range(N_DIGITS))
-    counts_pred = [np.sum(Y_test_pred == label) for label in unique_labels]
-    counts_true = [np.sum(Y_test_true == label) for label in unique_labels]
+    counts_pred = [jnp.sum(Y_test_pred == label) for label in unique_labels]
+    counts_true = [jnp.sum(Y_test_true == label) for label in unique_labels]
     counts_correct = [
-        np.sum((Y_test_true == Y_test_pred) & (Y_test_true == label))
+        jnp.sum((Y_test_true == Y_test_pred) & (Y_test_true == label))
         for label in unique_labels
     ]
 
     bar_width = 0.25
-    x = np.arange(len(unique_labels))
+    x = jnp.arange(len(unique_labels))
 
     plt.bar(x - bar_width, counts_pred, bar_width, label="Predicted")
     plt.bar(x, counts_true, bar_width, label="True")
@@ -167,13 +169,20 @@ def infer(
     default=False,
 )
 def sample_data(*, dataset_url: str, with_transformed: bool):
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+    key = jax.random.PRNGKey(seed)
     X_train = load_data(dataset_url)[0]
     sample_indices = sample(range(len(X_train)), 25)
+    transform = affine_transform2D(
+        x_size=MNIST_IMAGE_SIZE,
+        y_size=MNIST_IMAGE_SIZE,
+    )
+    key = jax.random.split(key)[0]
     if with_transformed:
-        for i in sample_indices:
-            X_train[i] = affine_transform(
-                X_train[i], MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE
-            )
+        X_train = X_train.at[sample_indices].set(
+            jax.vmap(transform, in_axes=0, out_axes=0)(X_train[sample_indices], key)
+        )
     X_train = X_train.reshape(-1, MNIST_IMAGE_SIZE, MNIST_IMAGE_SIZE)
     for idx, i in enumerate(sample_indices):
         plt.subplot(5, 5, idx + 1)

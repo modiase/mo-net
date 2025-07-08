@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import reduce
 from itertools import pairwise
 
-import numpy as np
+import jax
 from more_itertools import first, last
 
 from mo_net.model.layer.base import (
@@ -164,7 +164,7 @@ class Output(Base):
             input_activations=super().forward_prop(input_activations=input_activations)
         )
 
-    def backward_prop(self, *, Y_true: np.ndarray) -> D[Activations]:
+    def backward_prop(self, *, Y_true: jax.Array) -> D[Activations]:
         return reduce(
             lambda dZ, layer: layer.backward_prop(dZ=dZ),
             reversed(self._layers),

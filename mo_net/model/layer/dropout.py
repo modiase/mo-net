@@ -5,7 +5,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypedDict
 
-import numpy as np
+import jax
+import jax.numpy as jnp
 
 from mo_net.model.layer.base import Hidden
 from mo_net.protos import Activations, D, Dimensions
@@ -35,10 +36,11 @@ class Dropout(Hidden):
                 input_dimensions=self.input_dimensions,
                 keep_prob=self.keep_prob,
                 training=training,
+                key=jax.random.PRNGKey(0),
             )
 
     class Cache(TypedDict):
-        mask: np.ndarray | None
+        mask: jnp.ndarray | None
         input_activations: Activations | None
 
     def __init__(
@@ -46,6 +48,7 @@ class Dropout(Hidden):
         *,
         input_dimensions: Dimensions,
         keep_prob: float,
+        key: jax.Array,
         training: bool = False,
     ):
         super().__init__(
@@ -53,6 +56,17 @@ class Dropout(Hidden):
             output_dimensions=input_dimensions,
         )
         self._training = training
+        self._key = key
+        self._backward_prop_fn = (
+            self._backward_prop_training
+            if training and keep_prob < 1.0
+            else self._backward_prop_non_training
+        )
+        self._forward_prop_fn = (
+            self._forward_prop_training
+            if training and keep_prob < 1.0
+            else self._forward_prop_non_training
+        )
 
         if not 0.0 < keep_prob <= 1.0:
             raise ValueError(f"keep_prob must be in (0, 1], got {keep_prob}")
@@ -63,24 +77,36 @@ class Dropout(Hidden):
             "input_activations": None,
         }
 
-    def _forward_prop(self, *, input_activations: Activations) -> Activations:
-        if self._keep_prob == 1.0 or not self._training:
-            return input_activations
+    def _forward_prop_training(self, *, input_activations: Activations) -> Activations:
         self._cache["input_activations"] = input_activations
 
-        mask = np.random.binomial(1, self._keep_prob, size=input_activations.shape)
+        self._key, subkey = jax.random.split(self._key)
+        mask = jax.random.bernoulli(
+            subkey, self._keep_prob, shape=input_activations.shape
+        ).astype(jnp.float32)
         self._cache["mask"] = mask
 
         return Activations(input_activations * mask / self._keep_prob)
 
-    def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        if self._keep_prob == 1.0 or not self._training:
-            return dZ
+    def _forward_prop_non_training(
+        self, *, input_activations: Activations
+    ) -> Activations:
+        return input_activations
 
+    def _forward_prop(self, *, input_activations: Activations) -> Activations:
+        return self._forward_prop_fn(input_activations=input_activations)
+
+    def _backward_prop_training(self, *, dZ: D[Activations]) -> D[Activations]:
         if self._cache["mask"] is None:
             raise ValueError("Mask not set during forward pass.")
 
         return dZ * self._cache["mask"] / self._keep_prob
+
+    def _backward_prop_non_training(self, *, dZ: D[Activations]) -> D[Activations]:
+        return dZ
+
+    def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
+        return self._backward_prop_fn(dZ=dZ)
 
     def serialize(self) -> Dropout.Serialized:
         return Dropout.Serialized(
@@ -94,16 +120,19 @@ class Dropout(Hidden):
         model: Model,
         keep_probs: Sequence[float],
         training: bool,
+        key: jax.Array,
     ) -> None:
         if len(keep_probs) != len(model.hidden_modules):
             raise ValueError(
                 f"Number of keep probabilities ({len(keep_probs)}) must match the number of hidden modules ({len(model.hidden_modules)})"
             )
         for module, keep_prob in zip(model.hidden_modules, keep_probs, strict=True):
+            key, subkey = jax.random.split(key)
             module.append_layer(
                 Dropout(
                     input_dimensions=module.output_dimensions,
                     keep_prob=keep_prob,
                     training=training,
+                    key=subkey,
                 )
             )

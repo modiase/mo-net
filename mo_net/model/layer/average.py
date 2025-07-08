@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence, TypedDict
 
-import numpy as np
+import jax.numpy as jnp
 
 from mo_net.model.layer.base import Hidden
 from mo_net.protos import Activations, D, Dimensions
@@ -20,8 +20,9 @@ class Average(Hidden):
             self,
             *,
             training: bool = False,
+            freeze_parameters: bool = False,
         ) -> Average:
-            del training  # unused
+            del training, freeze_parameters  # unused
             return Average(
                 input_dimensions=self.input_dimensions,
                 axis=self.axis,
@@ -58,7 +59,7 @@ class Average(Hidden):
     def _forward_prop(self, *, input_activations: Activations) -> Activations:
         self._cache["input_shape"] = input_activations.shape
         return Activations(
-            np.mean(
+            jnp.mean(
                 input_activations,
                 axis=tuple(ax + 1 for ax in self._axis),
                 keepdims=False,
@@ -66,17 +67,18 @@ class Average(Hidden):
         )
 
     def _backward_prop(self, *, dZ: D[Activations]) -> D[Activations]:
-        s = self._cache["input_shape"]
-        if s is None:
+        if self._cache["input_shape"] is None:
             raise ValueError("Input shape not cached during forward pass.")
-        a = tuple(ax + 1 for ax in self._axis)
-        e = list(dZ.shape)  # type: ignore[attr-defined]
-        for ax in sorted(a):
-            e.insert(ax, 1)
-        g = np.broadcast_to(np.reshape(dZ, e), s)
-        for ax in a:
-            g = g / s[ax]
-        return Activations(g)
+
+        expanded_dZ = dZ
+        for ax, factor in zip(
+            sorted(ax + 1 for ax in self._axis),
+            tuple(self._cache["input_shape"][ax + 1] for ax in self._axis),
+            strict=True,
+        ):
+            expanded_dZ = jnp.expand_dims(expanded_dZ, ax) / factor
+
+        return Activations(jnp.broadcast_to(expanded_dZ, self._cache["input_shape"]))
 
     @property
     def axis(self) -> tuple[int, ...]:

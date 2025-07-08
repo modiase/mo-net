@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import functools
-import random
 import re
 import time
 from collections import Counter, defaultdict
@@ -12,18 +11,25 @@ from pathlib import Path
 from typing import Callable, ParamSpec, TypeVar, assert_never, cast
 
 import click
+import jax
+import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
-import numpy as np
 from loguru import logger
 from more_itertools import windowed
 
 from mo_net.data import DATA_DIR
-from mo_net.device import print_device_info, set_default_device
+from mo_net.device import (
+    DEVICE_TYPES,
+    DeviceType,
+    print_device_info,
+    set_default_device,
+)
+from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
-from mo_net.model.layer.output import SoftmaxOutputLayer
+from mo_net.model.layer.output import SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.optimizer.base import Base as BaseOptimizer
@@ -65,9 +71,9 @@ class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
         return (
             0.5
             * self._lambda
-            * np.sum(self._layer.parameters.embeddings**2)
+            * jnp.sum(self._layer.parameters.embeddings**2)
             / self._batch_size
-        )
+        ).item()
 
     def __call__(self) -> float:
         return self.compute_regularisation_loss()
@@ -185,7 +191,7 @@ def all_windows(
 
 def get_training_set(
     tokenized_sentences: Collection[Sequence[int]], context_size: int, vocab_size: int
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     context, target = zip(
         *[
             (
@@ -202,7 +208,7 @@ def get_training_set(
         ],
         strict=True,
     )
-    return np.array(context), np.eye(vocab_size)[list(target)]
+    return jnp.array(context), jnp.array(list(target))
 
 
 class CBOWModel(Model):
@@ -218,11 +224,13 @@ class CBOWModel(Model):
     def create(
         cls,
         *,
-        vocab_size: int,
-        embedding_dim: int,
         context_size: int,
+        embedding_dim: int,
+        key: jax.Array,
         tracing_enabled: bool = False,
+        vocab_size: int,
     ) -> CBOWModel:
+        key1, key2 = jax.random.split(key, 3)
         return cls(
             input_dimensions=(context_size * 2,),
             hidden=(
@@ -232,10 +240,8 @@ class CBOWModel(Model):
                             input_dimensions=(context_size * 2,),
                             output_dimensions=(context_size * 2, embedding_dim),
                             vocab_size=vocab_size,
-                            parameters=Embedding.Parameters.xavier(
-                                vocab_size, embedding_dim
-                            ),
                             store_output_activations=tracing_enabled,
+                            key=key1,
                         ),
                         Average(
                             input_dimensions=(context_size * 2, embedding_dim),
@@ -249,13 +255,14 @@ class CBOWModel(Model):
                     Linear(
                         input_dimensions=(embedding_dim,),
                         output_dimensions=(vocab_size,),
-                        parameters=Linear.Parameters.xavier(
-                            (embedding_dim,), (vocab_size,)
-                        ),
+                        parameters_init_fn=lambda dim_in,
+                        dim_out: Linear.Parameters.xavier(dim_in, dim_out, key=key2),
                         store_output_activations=tracing_enabled,
                     ),
                 ),
-                output_layer=SoftmaxOutputLayer(input_dimensions=(vocab_size,)),
+                output_layer=SparseCategoricalSoftmaxOutputLayer(
+                    input_dimensions=(vocab_size,)
+                ),
             ),
         )
 
@@ -264,7 +271,7 @@ class CBOWModel(Model):
         return cast(Embedding, self.hidden_modules[0].layers[0])
 
     @property
-    def embeddings(self) -> np.ndarray:
+    def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
 
@@ -278,7 +285,9 @@ class PredictModel(CBOWModel):
         return "Autoregressive Prediction Model based on CBOW"
 
     @classmethod
-    def from_cbow(cls, *, cbow_model: CBOWModel, context_width: int) -> PredictModel:
+    def from_cbow(
+        cls, *, cbow_model: CBOWModel, context_width: int, key: jax.Array
+    ) -> PredictModel:
         """Create a PredictModel from a trained CBOW model for autoregressive generation"""
         embedding_layer = cbow_model.embedding_layer
         vocab_size = embedding_layer.vocab_size
@@ -287,9 +296,10 @@ class PredictModel(CBOWModel):
         new_embedding_layer = Embedding(
             input_dimensions=(context_width,),
             output_dimensions=(context_width, embedding_dim),
-            vocab_size=vocab_size,
+            key=key,
             parameters=embedding_layer.parameters,
             store_output_activations=False,
+            vocab_size=vocab_size,
         )
 
         return cls(
@@ -379,7 +389,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     )
     @click.option(
         "--device",
-        type=click.Choice(["cpu", "gpu", "mps", "auto"]),
+        type=click.Choice(DEVICE_TYPES),
         help="Device to use for training (auto will select the best available)",
         default="auto",
     )
@@ -410,13 +420,12 @@ def train(
     model_output_path: Path | None,
     log_level: LogLevel,
     vocab_size: int,
-    device: str,
+    device: DeviceType,
 ):
     """Train a CBOW model on Shakespeare text"""
     setup_logging(log_level)
 
-    # Configure JAX device
-    set_default_device(device)  # type: ignore[arg-type]
+    set_default_device(device)
     print_device_info()
 
     sentences = (
@@ -439,12 +448,17 @@ def train(
     logger.info(f"Context size: {context_size}")
     logger.info(f"Training samples: {len(X_train)}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+    key = jax.random.PRNGKey(seed)
+
     if model_path is None:
         model = CBOWModel.create(
-            vocab_size=len(vocab),
-            embedding_dim=embedding_dim,
             context_size=context_size,
+            embedding_dim=embedding_dim,
+            key=key,
             tracing_enabled=False,
+            vocab_size=len(vocab),
         )
     else:
         model = CBOWModel.load(model_path, training=True)
@@ -462,6 +476,7 @@ def train(
         num_epochs=num_epochs,
         quiet=False,
         regulariser_lambda=lambda_,
+        seed=seed,
         trace_logging=False,
         train_set_size=len(X_train),
         warmup_epochs=warmup_epochs,
@@ -475,6 +490,8 @@ def train(
     Y_val = Y_train[train_size:]
 
     seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+
     run = TrainingRun(seed=seed, name=f"cbow_run_{seed}", backend=SqliteBackend())
     optimizer = get_optimizer("adam", model, training_parameters)
     EmbeddingWeightDecayRegulariser.attach(
@@ -493,6 +510,8 @@ def train(
         optimizer=optimizer,
         run=run,
         training_parameters=training_parameters,
+        loss_fn=sparse_cross_entropy,
+        key=jax.random.PRNGKey(seed),
     )
 
     logger.info(f"Starting CBOW training with {len(X_train_split)} training samples")
@@ -548,14 +567,18 @@ def infer(
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+
     vocab_path = model_path.with_suffix(".vocab")
     if not vocab_path.exists():
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
     vocab = Vocab.deserialize(vocab_path)
 
+    key, subkey = jax.random.split(jax.random.PRNGKey(seed))
     cbow_model = CBOWModel.load(model_path, training=False)
     predict_model = PredictModel.from_cbow(
-        cbow_model=cbow_model, context_width=context_width
+        cbow_model=cbow_model, context_width=context_width, key=subkey
     )
 
     tokens = [clean_token(token) for token in prompt.split() if clean_token(token)]
@@ -571,21 +594,26 @@ def infer(
     predicted_tokens = []
 
     for _ in range(predict_tokens):
-        logits = (predict_model.forward_prop(np.array(context)) / temperature).squeeze()
+        key, subkey = jax.random.split(key)
+        logits = (
+            predict_model.forward_prop(jnp.array(context)) / temperature
+        ).squeeze()
         logits[vocab.unknown_token_id] = float("-inf")
-        probs = np.exp(logits - np.max(logits)) / np.sum(
-            np.exp(logits - np.max(logits))
+        probs = jnp.exp(logits - jnp.max(logits)) / jnp.sum(
+            jnp.exp(logits - jnp.max(logits))
         )
-        sorted_indices = np.argsort(probs)[::-1]
-        cumulative_probs = np.cumsum(probs[sorted_indices])
+        sorted_indices = jnp.argsort(probs)[::-1]
+        cumulative_probs = jnp.cumsum(probs[sorted_indices])
         cutoff_idx = (
-            np.where(cumulative_probs >= top_p)[0][0]
-            if len(np.where(cumulative_probs >= top_p)[0]) > 0
+            jnp.where(cumulative_probs >= top_p)[0][0]
+            if len(jnp.where(cumulative_probs >= top_p)[0]) > 0
             else len(sorted_indices) - 1
         )
         valid_indices = sorted_indices[: cutoff_idx + 1]
-        valid_probs = probs[valid_indices] / np.sum(probs[valid_indices])
-        predicted_token_id = np.random.choice(valid_indices, p=valid_probs)
+        valid_probs = probs[valid_indices] / jnp.sum(probs[valid_indices])
+        predicted_token_id = jax.random.choice(
+            subkey, valid_indices, shape=(), p=valid_probs
+        ).item()
         predicted_tokens.append(vocab.id_to_token[predicted_token_id])
         context = context[1:] + [predicted_token_id]
 
@@ -617,6 +645,9 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
+    seed = time.time_ns() // 1000
+    logger.info(f"Using seed: {seed}")
+
     vocab_path = model_path.with_suffix(".vocab")
     if not vocab_path.exists():
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
@@ -624,7 +655,13 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     vocab = Vocab.deserialize(vocab_path)
     model = CBOWModel.load(model_path, training=False)
 
-    random_words = random.sample(list(vocab.vocab), min(num_words, len(vocab)))
+    word_indices = jax.random.choice(
+        jax.random.PRNGKey(seed),
+        len(vocab.vocab),
+        shape=(min(num_words, len(vocab)),),
+        replace=False,
+    )
+    random_words = [list(vocab.vocab)[int(i)] for i in word_indices]
 
     click.echo(f"Showing similarities for {len(random_words)} random words:")
     click.echo()
@@ -640,8 +677,8 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
             if other_word != word:
                 other_id = vocab[other_word]
                 other_embedding = model.embeddings[other_id]
-                similarity = np.dot(word_embedding, other_embedding) / (
-                    np.linalg.norm(word_embedding) * np.linalg.norm(other_embedding)
+                similarity = jnp.dot(word_embedding, other_embedding) / (
+                    jnp.linalg.norm(word_embedding) * jnp.linalg.norm(other_embedding)
                 )
                 similarities.append((other_word, similarity))
         similarities.sort(key=lambda x: x[1], reverse=True)
