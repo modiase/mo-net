@@ -37,7 +37,7 @@ from mo_net.train.trainer.trainer import (
     BasicTrainer,
     TrainingFailed,
     TrainingSuccessful,
-    get_optimizer,
+    get_optimiser,
 )
 
 P = ParamSpec("P")
@@ -471,11 +471,11 @@ def train(
         X_val = X_val.reshape(-1, 1)
 
     run = TrainingRun(seed=seed, name=f"cbow_run_{seed}", backend=SqliteBackend())
-    optimizer = get_optimizer("adam", model, training_parameters)
+    optimiser = get_optimiser("adam", model, training_parameters)
     EmbeddingWeightDecayRegulariser.attach(
         lambda_=lambda_,
         batch_size=batch_size,
-        optimizer=optimizer,
+        optimiser=optimiser,
         model=cast(CBOWModel | SkipGramModel, model),
     )
 
@@ -485,7 +485,7 @@ def train(
         X_val=X_val,
         Y_val=Y_val,
         model=model,
-        optimizer=optimizer,
+        optimiser=optimiser,
         run=run,
         training_parameters=training_parameters,
         loss_fn=sparse_cross_entropy,

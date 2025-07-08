@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
 from mo_net.model.model import Model
-from mo_net.optimizer.base import Base as BaseOptimizer
+from mo_net.optimiser.base import Base as BaseOptimizer
 from mo_net.protos import TrainingStepHandler, d
 
 
@@ -48,7 +48,7 @@ class WeightDecayRegulariser(TrainingStepHandler):
         *,
         lambda_: float,
         batch_size: int,
-        optimizer: BaseOptimizer,
+        optimiser: BaseOptimizer,
         model: Model,
     ) -> None:
         for layer in chain.from_iterable(module.layers for module in model.modules):
@@ -57,7 +57,7 @@ class WeightDecayRegulariser(TrainingStepHandler):
             layer_regulariser = WeightDecayRegulariser(
                 lambda_=lambda_, batch_size=batch_size, layer=layer
             )
-            optimizer.register_after_compute_update_handler(
+            optimiser.register_after_compute_update_handler(
                 layer_regulariser.after_compute_update
             )
             model.register_loss_contributor(layer_regulariser)
@@ -102,10 +102,10 @@ class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
         *,
         lambda_: float,
         batch_size: int,
-        optimizer: BaseOptimizer,
+        optimiser: BaseOptimizer,
         model: HasEmbeddingLayer,
     ) -> None:
-        optimizer.register_after_compute_update_handler(
+        optimiser.register_after_compute_update_handler(
             EmbeddingWeightDecayRegulariser(
                 lambda_=lambda_, batch_size=batch_size, layer=model.embedding_layer
             ).after_compute_update
