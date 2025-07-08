@@ -364,9 +364,6 @@ class BasicTrainer:
                     )
                 last_log_time = time.time()
 
-        if L_val is None:
-            L_val = self._compute_loss(X=self._X_val, Y_true=self._Y_val)
-
         self._run.log_iteration(
             epoch=self._training_parameters.num_epochs,
             batch=self._training_parameters.total_batches,
