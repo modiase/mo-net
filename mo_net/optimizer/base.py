@@ -122,7 +122,3 @@ class Null(Base[Config]):
     @property
     def learning_rate(self) -> float:
         return self._config.learning_rate
-
-
-def cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> jnp.ndarray:
-    return -jnp.sum(Y_true * jnp.log(jnp.clip(Y_pred, 1e-15, 1 - 1e-15)))
