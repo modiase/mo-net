@@ -64,7 +64,8 @@ class WeightDecayRegulariser(TrainingStepHandler):
 
 
 class HasEmbeddingLayer(Protocol):
-    embedding_layer: Embedding
+    @property
+    def embedding_layer(self) -> Embedding: ...
 
 
 class EmbeddingWeightDecayRegulariser(TrainingStepHandler):
