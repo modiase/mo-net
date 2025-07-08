@@ -83,7 +83,7 @@ def test_linear_forward_prop(test_case: ForwardPropTestCase):
     layer = Linear(
         input_dimensions=test_case.input_dimensions,
         output_dimensions=test_case.output_dimensions,
-        parameters=test_case.parameters,
+        parameters_init_fn=lambda *_: test_case.parameters,
     )
     assert jnp.allclose(
         layer.forward_prop(input_activations=Activations(test_case.input_activations)),
@@ -167,7 +167,7 @@ def test_linear_backward_prop(test_case: BackwardPropTestCase):
     layer = Linear(
         input_dimensions=test_case.input_dimensions,
         output_dimensions=test_case.output_dimensions,
-        parameters=test_case.parameters,
+        parameters_init_fn=lambda *_: test_case.parameters,
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
@@ -224,7 +224,7 @@ def test_linear_parameter_update(test_case: ParameterUpdateTestCase):
     layer = Linear(
         input_dimensions=test_case.input_dimensions,
         output_dimensions=test_case.output_dimensions,
-        parameters=test_case.initial_parameters,
+        parameters_init_fn=lambda *_: test_case.initial_parameters,
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
@@ -241,7 +241,7 @@ def identity_layer() -> Linear:
     return Linear(
         input_dimensions=(3,),
         output_dimensions=(3,),
-        parameters=Linear.Parameters.eye((3,)),
+        parameters_init_fn=lambda *_: Linear.Parameters.eye((3,)),
     )
 
 
@@ -250,7 +250,7 @@ def simple_layer() -> Linear:
     return Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=jnp.array([[2.0, 0.0], [0.0, 3.0]]), biases=jnp.array([1.0, -1.0])
         ),
     )
@@ -279,7 +279,7 @@ def test_linear_gradient_clipping():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=jnp.array([[1.0, 0.0], [0.0, 1.0]]), biases=jnp.array([0.0, 0.0])
         ),
         clip_gradients=True,
@@ -307,7 +307,7 @@ def test_linear_frozen_parameters():
     layer = Linear(
         input_dimensions=(1,),
         output_dimensions=(1,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=jnp.array([[1.0]]), biases=jnp.array([0.0])
         ),
         freeze_parameters=True,
@@ -347,7 +347,9 @@ def test_linear_serialization_deserialization():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(42)
+        ),
     )
 
     # First do a forward and backward pass to populate gradients
@@ -377,12 +379,16 @@ def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
     layer_1 = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(42)
+        ),
     )
     layer_2 = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(43)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(43)
+        ),
     )
 
     # First do a forward and backward pass to populate gradients
@@ -401,7 +407,9 @@ def test_linear_error_on_backward_prop_without_forward():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(42)
+        ),
     )
     with pytest.raises(
         ValueError, match="Input activations not set during forward pass"
@@ -413,7 +421,9 @@ def test_linear_error_on_update_without_gradients():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(42)
+        ),
     )
     with pytest.raises(ValueError, match="Gradient not set during backward pass"):
         layer.update_parameters()
@@ -431,7 +441,7 @@ def test_linear_initialization_methods(init_method, input_dim, output_dim):
     layer = Linear(
         input_dimensions=input_dim,
         output_dimensions=output_dim,
-        parameters=partial(init_method, key=random.PRNGKey(42)),
+        parameters_init_fn=partial(init_method, key=random.PRNGKey(42)),
     )
 
     assert layer.parameters.weights.shape == (input_dim[0], output_dim[0])
@@ -444,7 +454,9 @@ def test_linear_mathematical_properties():
     layer = Linear(
         input_dimensions=(3,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(weights=W, biases=jnp.array([0.0, 0.0])),
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=W, biases=jnp.array([0.0, 0.0])
+        ),
     )
 
     x1, x2 = jnp.array([[1.0, 2.0, 3.0]]), jnp.array([[4.0, 5.0, 6.0]])
@@ -459,7 +471,9 @@ def test_linear_mathematical_properties():
     layer_with_bias = Linear(
         input_dimensions=(3,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(weights=W, biases=jnp.array([1.0, -1.0])),
+        parameters_init_fn=lambda *_: Linear.Parameters(
+            weights=W, biases=jnp.array([1.0, -1.0])
+        ),
     )
 
     x = jnp.array([[1.0, 2.0, 3.0]])
@@ -473,7 +487,7 @@ def test_linear_zero_input():
     layer = Linear(
         input_dimensions=(3,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=jnp.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
             biases=jnp.array([1.0, -1.0]),
         ),
@@ -489,7 +503,9 @@ def test_linear_large_batch():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(3,),
-        parameters=Linear.Parameters.xavier((2,), (3,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (3,), key=random.PRNGKey(42)
+        ),
     )
 
     # Split key for different random operations
@@ -509,7 +525,7 @@ def test_linear_gradient_accumulation():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(1,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=jnp.array([[1.0], [1.0]]), biases=jnp.array([0.0])
         ),
         clip_gradients=False,
@@ -530,7 +546,7 @@ def test_linear_weight_and_bias_shapes():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(3,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=random.normal(key, (2, 3)), biases=random.normal(key, (3,))
         ),
     )
@@ -541,7 +557,7 @@ def test_linear_weight_and_bias_shapes():
         Linear(
             input_dimensions=(2,),
             output_dimensions=(3,),
-            parameters=Linear.Parameters(
+            parameters_init_fn=lambda *_: Linear.Parameters(
                 weights=random.normal(key, (3, 2)), biases=random.normal(key, (3,))
             ),
         )
@@ -550,7 +566,7 @@ def test_linear_weight_and_bias_shapes():
         Linear(
             input_dimensions=(2,),
             output_dimensions=(3,),
-            parameters=Linear.Parameters(
+            parameters_init_fn=lambda *_: Linear.Parameters(
                 weights=random.normal(key, (2, 3)), biases=random.normal(key, (2,))
             ),
         )
@@ -560,7 +576,7 @@ def test_linear_numerical_stability():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters(
+        parameters_init_fn=lambda *_: Linear.Parameters(
             weights=jnp.array([[1e-8, 1e8], [1e8, 1e-8]]), biases=jnp.array([1e-8, 1e8])
         ),
         clip_gradients=False,
@@ -579,7 +595,9 @@ def test_linear_output_storage_option(store_output):
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(42)
+        ),
         store_output_activations=store_output,
     )
 
@@ -595,7 +613,9 @@ def test_linear_output_storage_option(store_output):
 def test_linear_constructor_edge_cases():
     layer = Linear(
         input_dimensions=(3,),
-        parameters=Linear.Parameters.xavier((3,), (3,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (3,), (3,), key=random.PRNGKey(42)
+        ),
     )
     assert layer.input_dimensions == (3,)
     assert layer.output_dimensions == (3,)
@@ -613,7 +633,9 @@ def test_linear_gradient_operation_interface():
     layer = Linear(
         input_dimensions=(2,),
         output_dimensions=(2,),
-        parameters=Linear.Parameters.xavier((2,), (2,), key=random.PRNGKey(42)),
+        parameters_init_fn=lambda *_: Linear.Parameters.xavier(
+            (2,), (2,), key=random.PRNGKey(42)
+        ),
     )
 
     called = False

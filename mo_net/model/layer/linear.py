@@ -202,9 +202,9 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         return cls(
             input_dimensions=dim,
             output_dimensions=dim,
-            parameters=cls.Parameters.of(
-                W=jnp.zeros((one(dim), one(dim))),
-                B=(jnp.ones(one(dim)) * bias if isinstance(bias, float) else bias),
+            parameters_init_fn=lambda dim_in, dim_out: cls.Parameters.of(
+                W=jnp.zeros((one(dim_in), one(dim_out))),
+                B=(jnp.ones(one(dim_out)) * bias if isinstance(bias, float) else bias),
             ),
         )
 
@@ -213,7 +213,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         return cls(
             input_dimensions=dim,
             output_dimensions=dim,
-            parameters=cls.Parameters.eye(dim),
+            parameters_init_fn=lambda _, __: cls.Parameters.eye(dim),
         )
 
     @dataclass(frozen=True, kw_only=True)
@@ -234,7 +234,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
                 layer_id=self.layer_id,
                 input_dimensions=self.input_dimensions,
                 output_dimensions=self.output_dimensions,
-                parameters=self.parameters,
+                parameters_init_fn=lambda _, __: self.parameters,
                 freeze_parameters=freeze_parameters,
             )
 
@@ -247,7 +247,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         input_dimensions: Dimensions,
         layer_id: str | None = None,
         output_dimensions: Dimensions | None = None,
-        parameters: ParametersType | Callable[[Dimensions, Dimensions], ParametersType],
+        parameters_init_fn: Callable[[Dimensions, Dimensions], ParametersType],
         store_output_activations: bool = False,  # Only used for tracing
         weight_max_norm: float = 1.0,
     ):
@@ -266,10 +266,8 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             self._clip_gradient_impl if clip_gradients else self._no_clip_gradient
         )
 
-        if callable(parameters):
-            self._parameters = parameters(input_dimensions, output_dimensions)
-        else:
-            self._parameters = parameters
+        self._parameters_init_fn = parameters_init_fn
+        self._parameters = parameters_init_fn(input_dimensions, output_dimensions)
 
         if self._parameters.weights.shape != (
             one(input_dimensions),
@@ -341,7 +339,9 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         )
 
     def reinitialise(self) -> None:
-        raise NotImplementedError("Linear layer does not support reinitialisation.")
+        self._parameters = self._parameters_init_fn(
+            self._input_dimensions, self._output_dimensions
+        )
 
     def serialize(self) -> Linear.Serialized:
         return self.Serialized(

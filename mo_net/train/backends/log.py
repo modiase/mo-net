@@ -1,11 +1,9 @@
 import threading
 from collections.abc import MutableSequence, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from queue import Queue
 from typing import IO, Protocol
 from urllib.parse import urlparse
 
@@ -150,7 +148,6 @@ class SqliteBackend(LoggingBackend):
         self._batch_size = batch_size
         self._max_queue_size = max_queue_size
         self._pending_entries: MutableSequence[LogEntry] = []
-        self._log_queue = Queue(maxsize=max_queue_size)
 
     @property
     def connection_string(self) -> str:
@@ -217,11 +214,9 @@ class SqliteBackend(LoggingBackend):
         if not self._session or not self._current_run:
             raise RuntimeError("No active run. Call start_run() first.")
 
-        if self._log_queue.qsize() >= self._max_queue_size:
+        if len(self._pending_entries) >= self._max_queue_size:
             logger.warning("Log queue is full. Dropping log entry.")
             return
-
-        self._log_queue.put(None)
 
         self._executor.submit(
             self._log_iteration_sync,
@@ -243,9 +238,8 @@ class SqliteBackend(LoggingBackend):
                 if len(self._pending_entries) >= self._batch_size:
                     self._flush_batch(self._pending_entries, run_id=run_id)
                     self._pending_entries.clear()
-        finally:
-            with suppress():
-                self._log_queue.get_nowait()
+        except Exception as e:
+            logger.error(f"Error logging iteration: {e}")
 
     def _flush_batch(self, entries: Sequence[LogEntry], run_id: int) -> None:
         try:
