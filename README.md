@@ -15,7 +15,7 @@ understanding the underlying maths and reading papers.
 
 ```shell
 uv sync
-uv run python samples/mnist train
+uv run python samples/mnist/cnn.py train
 ```
 
 ## Features
