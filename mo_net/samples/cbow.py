@@ -230,6 +230,7 @@ class CBOWModel(Model):
         tracing_enabled: bool = False,
         vocab_size: int,
     ) -> CBOWModel:
+        key1, key2 = jax.random.split(key, 3)
         return cls(
             input_dimensions=(context_size * 2,),
             hidden=(
@@ -239,10 +240,8 @@ class CBOWModel(Model):
                             input_dimensions=(context_size * 2,),
                             output_dimensions=(context_size * 2, embedding_dim),
                             vocab_size=vocab_size,
-                            parameters=Embedding.Parameters.xavier(
-                                vocab_size, embedding_dim
-                            ),
                             store_output_activations=tracing_enabled,
+                            key=key1,
                         ),
                         Average(
                             input_dimensions=(context_size * 2, embedding_dim),
@@ -257,9 +256,7 @@ class CBOWModel(Model):
                         input_dimensions=(embedding_dim,),
                         output_dimensions=(vocab_size,),
                         parameters_init_fn=lambda dim_in,
-                        dim_out: Linear.Parameters.xavier(
-                            dim_in, dim_out, key=jax.random.split(key)[0]
-                        ),
+                        dim_out: Linear.Parameters.xavier(dim_in, dim_out, key=key2),
                         store_output_activations=tracing_enabled,
                     ),
                 ),
@@ -288,7 +285,9 @@ class PredictModel(CBOWModel):
         return "Autoregressive Prediction Model based on CBOW"
 
     @classmethod
-    def from_cbow(cls, *, cbow_model: CBOWModel, context_width: int) -> PredictModel:
+    def from_cbow(
+        cls, *, cbow_model: CBOWModel, context_width: int, key: jax.Array
+    ) -> PredictModel:
         """Create a PredictModel from a trained CBOW model for autoregressive generation"""
         embedding_layer = cbow_model.embedding_layer
         vocab_size = embedding_layer.vocab_size
@@ -297,9 +296,10 @@ class PredictModel(CBOWModel):
         new_embedding_layer = Embedding(
             input_dimensions=(context_width,),
             output_dimensions=(context_width, embedding_dim),
-            vocab_size=vocab_size,
+            key=key,
             parameters=embedding_layer.parameters,
             store_output_activations=False,
+            vocab_size=vocab_size,
         )
 
         return cls(
@@ -575,9 +575,10 @@ def infer(
         raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
     vocab = Vocab.deserialize(vocab_path)
 
+    key, subkey = jax.random.split(jax.random.PRNGKey(seed))
     cbow_model = CBOWModel.load(model_path, training=False)
     predict_model = PredictModel.from_cbow(
-        cbow_model=cbow_model, context_width=context_width
+        cbow_model=cbow_model, context_width=context_width, key=subkey
     )
 
     tokens = [clean_token(token) for token in prompt.split() if clean_token(token)]
@@ -592,7 +593,6 @@ def infer(
     )
     predicted_tokens = []
 
-    key, _ = jax.random.split(jax.random.PRNGKey(seed))
     for _ in range(predict_tokens):
         key, subkey = jax.random.split(key)
         logits = (

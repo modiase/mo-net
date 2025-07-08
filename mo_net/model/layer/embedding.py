@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import IO, Self
 
+import jax
 import jax.numpy as jnp
 import jax.random as random
 from jax import jit
@@ -74,21 +75,18 @@ class Parameters(SupportsGradientOperations):
         return self.__class__(embeddings=self.embeddings**scalar)
 
     @classmethod
-    def random(cls, vocab_size: int, embedding_dim: int) -> Self:
-        key = random.PRNGKey(42)
+    def random(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
         return cls(embeddings=random.normal(key, (vocab_size, embedding_dim)))
 
     @classmethod
-    def xavier(cls, vocab_size: int, embedding_dim: int) -> Self:
-        key = random.PRNGKey(42)
+    def xavier(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
         embeddings = random.normal(key, (vocab_size, embedding_dim)) * jnp.sqrt(
             1 / vocab_size
         )
         return cls(embeddings=embeddings)
 
     @classmethod
-    def he(cls, vocab_size: int, embedding_dim: int) -> Self:
-        key = random.PRNGKey(42)
+    def he(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
         embeddings = random.normal(key, (vocab_size, embedding_dim)) * jnp.sqrt(
             2 / vocab_size
         )
@@ -154,6 +152,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 vocab_size=self.vocab_size,
                 parameters=self.parameters,
                 freeze_parameters=freeze_parameters,
+                key=jax.random.PRNGKey(0),
             )
 
     def __init__(
@@ -162,10 +161,13 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         clip_gradients: bool = True,
         freeze_parameters: bool = False,
         input_dimensions: Dimensions,
+        key: jax.Array,
         layer_id: str | None = None,
         output_dimensions: Dimensions,
         parameters: ParametersType | None = None,
-        parameters_init_fn: Callable[[int, int], ParametersType] = Parameters.xavier,
+        parameters_init_fn: Callable[
+            [int, int, jax.Array], ParametersType
+        ] = Parameters.xavier,
         store_output_activations: bool = False,
         vocab_size: int,
         weight_max_norm: float = 1.0,
@@ -175,12 +177,12 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
         )
+        self._freeze_parameters = freeze_parameters
+        self._key = key
         self._parameters_init_fn = parameters_init_fn
         self._store_output_activations = store_output_activations
-        self._freeze_parameters = freeze_parameters
         self._weight_max_norm = weight_max_norm
 
-        # Assign the appropriate gradient clipping function
         self._clip_gradient_fn = (
             self._clip_gradient_impl if clip_gradients else self._no_clip_gradient
         )
@@ -200,10 +202,11 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             )
 
         self._vocab_size = vocab_size
+        self._key, subkey = jax.random.split(self._key)
         self._parameters = (
             parameters
             if parameters is not None
-            else self._parameters_init_fn(vocab_size, embedding_dim)
+            else self._parameters_init_fn(vocab_size, embedding_dim, subkey)
         )
         self._cache: CacheType = {
             "input_indices": None,
@@ -224,12 +227,14 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         if (indices := self._cache["input_indices"]) is None:
             raise ValueError("Input indices not set during forward pass.")
 
-        dE = jnp.zeros_like(self._parameters.embeddings)
-        dE = dE.at[indices].add(dZ)
-
-        dE = self._clip_gradient_fn(dE, self._weight_max_norm)
-
-        self._cache["dP"] = d(self.Parameters(embeddings=dE))
+        self._cache["dP"] = d(
+            self.Parameters(
+                embeddings=self._clip_gradient_fn(
+                    jnp.zeros_like(self._parameters.embeddings).at[indices].add(dZ),
+                    self._weight_max_norm,
+                )
+            )
+        )
         return dZ
 
     def empty_gradient(self) -> D[ParametersType]:
@@ -244,7 +249,8 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             if len(self.output_dimensions) > 1
             else one(self.output_dimensions)
         )
-        self._parameters = self._parameters_init_fn(vocab_size, embedding_dim)
+        self._key, subkey = jax.random.split(self._key)
+        self._parameters = self._parameters_init_fn(vocab_size, embedding_dim, subkey)
 
     def serialize(self) -> Embedding.Serialized:
         return self.Serialized(

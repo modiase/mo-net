@@ -102,9 +102,10 @@ class ForwardPropTestCase:
 def test_embedding_forward_prop(test_case: ForwardPropTestCase):
     layer = Embedding(
         input_dimensions=test_case.input_dimensions,
+        key=random.PRNGKey(42),
         output_dimensions=test_case.output_dimensions,
-        vocab_size=test_case.vocab_size,
         parameters=test_case.parameters,
+        vocab_size=test_case.vocab_size,
     )
     assert jnp.allclose(
         layer.forward_prop(input_activations=Activations(test_case.input_activations)),
@@ -202,11 +203,12 @@ class BackwardPropTestCase:
 )
 def test_embedding_backward_prop(test_case: BackwardPropTestCase):
     layer = Embedding(
-        input_dimensions=test_case.input_dimensions,
-        output_dimensions=test_case.output_dimensions,
-        vocab_size=test_case.vocab_size,
-        parameters=test_case.parameters,
         clip_gradients=False,
+        input_dimensions=test_case.input_dimensions,
+        key=random.PRNGKey(42),
+        output_dimensions=test_case.output_dimensions,
+        parameters=test_case.parameters,
+        vocab_size=test_case.vocab_size,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
     layer.backward_prop(dZ=test_case.dZ)
@@ -287,11 +289,12 @@ class ParameterUpdateTestCase:
 )
 def test_embedding_parameter_update(test_case: ParameterUpdateTestCase):
     layer = Embedding(
-        input_dimensions=test_case.input_dimensions,
-        output_dimensions=test_case.output_dimensions,
-        vocab_size=test_case.vocab_size,
-        parameters=test_case.initial_parameters,
         clip_gradients=False,
+        input_dimensions=test_case.input_dimensions,
+        key=random.PRNGKey(42),
+        output_dimensions=test_case.output_dimensions,
+        parameters=test_case.initial_parameters,
+        vocab_size=test_case.vocab_size,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
     layer.backward_prop(dZ=test_case.dZ)
