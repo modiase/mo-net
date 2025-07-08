@@ -310,9 +310,9 @@ class Model(ModelBase):
 
     def dump(self, out: IO[bytes] | Path) -> None:
         with (
-            contextlib.nullcontext(out)
+            open(out, "wb")
             if isinstance(out, Path)
-            else contextlib.nullcontext() as io
+            else contextlib.nullcontext(out) as io
         ):
             pickle.dump(
                 self.Serialized(
