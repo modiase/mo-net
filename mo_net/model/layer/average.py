@@ -74,6 +74,7 @@ class Average(Hidden):
         for ax, factor in zip(
             sorted(ax + 1 for ax in self._axis),
             tuple(self._cache["input_shape"][ax + 1] for ax in self._axis),
+            strict=True,
         ):
             expanded_dZ = jnp.expand_dims(expanded_dZ, ax) / factor
 
