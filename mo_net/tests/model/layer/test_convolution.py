@@ -83,6 +83,7 @@ def test_convolution_2d_output_shape(test_case: OutputShapeTestCase):
         input_dimensions=test_case.input_dimensions,
         kernel_size=test_case.kernel_size,
         n_kernels=test_case.n_kernels,
+        kernel_init_fn=Convolution2D.Parameters.ones,
     )
     output = layer.forward_prop(input_activations=test_case.input_activations)  # type: ignore[arg-type]
     assert output.shape == test_case.expected_output_shape
@@ -354,7 +355,12 @@ def test_convolution_2d_backward_prop(test_case: BackwardPropTestCase):
 
 def test_convolution_2d_gradient_operation():
     """Test that Convolution2D layer implements GradLayer interface."""
-    layer = Convolution2D(input_dimensions=(1, 3, 3), kernel_size=2, n_kernels=1)
+    layer = Convolution2D(
+        input_dimensions=(1, 3, 3),
+        kernel_size=2,
+        n_kernels=1,
+        kernel_init_fn=Convolution2D.Parameters.ones,
+    )
     assert isinstance(layer, GradLayer)
 
 

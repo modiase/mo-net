@@ -1,6 +1,7 @@
 import io
 import pickle
 
+import jax
 import jax.numpy as jnp
 import pytest
 from more_itertools import one
@@ -12,7 +13,10 @@ from mo_net.model.module.base import Hidden
 
 
 def test_model_initialisation_of_mlp_has_correct_dimensions():
-    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    model = Model.mlp_of(
+        module_dimensions=((2,), (2,), (2,)),
+        key=jax.random.PRNGKey(42),
+    )
 
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
@@ -96,7 +100,10 @@ def test_forward_prop_linear_model(factor: int, dX: jnp.ndarray):
 
 
 def test_serialize_deserialize():
-    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    model = Model.mlp_of(
+        module_dimensions=((2,), (2,), (2,)),
+        key=jax.random.PRNGKey(42),
+    )
     X = jnp.ones((1, one(model.input_dimensions)))
 
     X_prop_before = model.forward_prop(X)
@@ -113,7 +120,10 @@ def test_serialize_deserialize():
 
 
 def test_gradient_size():
-    model = Model.mlp_of(module_dimensions=((2,), (2,), (2,)))
+    model = Model.mlp_of(
+        module_dimensions=((2,), (2,), (2,)),
+        key=jax.random.PRNGKey(42),
+    )
     assert model.parameter_count == 2 * 6  # 2 x (4 weights, 2 biases)
     assert model.grad_layers[0].parameter_nbytes == 6 * N_BYTES_PER_FLOAT
     assert model.grad_layers[1].parameter_nbytes == 6 * N_BYTES_PER_FLOAT

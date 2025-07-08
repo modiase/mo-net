@@ -134,7 +134,7 @@ class Model(ModelBase):
         match normalisation_type:
             case NormalisationType.LAYER:
 
-                def _factory(
+                def _norm_factory(
                     input_dimensions: Dimensions, output_dimensions: Dimensions
                 ) -> Hidden:
                     nonlocal key
@@ -148,7 +148,7 @@ class Model(ModelBase):
                         key=subkey,
                     )
 
-                ModuleFactory = _factory
+                ModuleFactory = _norm_factory
             case NormalisationType.BATCH:
                 if batch_size is None:
                     raise ValueError(
@@ -163,11 +163,21 @@ class Model(ModelBase):
                     ),
                 )
             case NormalisationType.NONE:
-                ModuleFactory = partial(
-                    Dense,
-                    activation_fn=activation_fn,
-                    store_output_activations=tracing_enabled,
-                )
+
+                def _dense_factory(
+                    input_dimensions: Dimensions, output_dimensions: Dimensions
+                ) -> Hidden:
+                    nonlocal key
+                    key, subkey = jax.random.split(key)
+                    return Dense(
+                        input_dimensions=input_dimensions,
+                        output_dimensions=output_dimensions,
+                        activation_fn=activation_fn,
+                        store_output_activations=tracing_enabled,
+                        key=subkey,
+                    )
+
+                ModuleFactory = _dense_factory
             case never:
                 assert_never(never)
 
