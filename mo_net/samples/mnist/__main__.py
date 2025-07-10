@@ -16,7 +16,6 @@ from mo_net.model import Model
 from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.train.augment import affine_transform2D
 
-# MNIST-specific constants
 N_DIGITS: Final[int] = 10
 MNIST_IMAGE_SIZE: Final[int] = 28
 
@@ -97,6 +96,7 @@ def infer(
         sys.exit(1)
 
     model = Model.load(model_path)
+    X_train = X_train.reshape(X_train.shape[0], *model.input_layer.input_dimensions)
 
     Y_train_pred = model.predict(X_train)
     Y_train_true = jnp.argmax(Y_train, axis=1)
@@ -105,6 +105,7 @@ def infer(
     )
 
     X_test, Y_test = load_data(test_dataset_url)
+    X_test = X_test.reshape(X_test.shape[0], *model.input_layer.input_dimensions)
     Y_test_pred = model.predict(X_test)
     Y_test_true = jnp.argmax(Y_test, axis=1)
     logger.info(
