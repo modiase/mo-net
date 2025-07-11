@@ -3,7 +3,7 @@ import os
 import sys
 from collections.abc import Collection, Mapping
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 import jax
 from loguru import logger
@@ -146,7 +146,7 @@ def print_device_info() -> None:
 
 
 def parse_device_arg() -> DeviceType:
-    device_type = "auto"
+    device_type: DeviceType = "auto"
 
     if "--device" in sys.argv:
         device_index = sys.argv.index("--device")
@@ -154,7 +154,10 @@ def parse_device_arg() -> DeviceType:
             device_index + 1 < len(sys.argv)
             and sys.argv[device_index + 1] in DEVICE_TYPES
         ):
-            device_type = sys.argv[device_index + 1]
+            if (dev := sys.argv[device_index + 1]) in DEVICE_TYPES:
+                device_type = cast(DeviceType, dev)
+            else:
+                raise ValueError(f"Invalid device type: {dev}.")
             del sys.argv[device_index + 1]
         del sys.argv[device_index]
 

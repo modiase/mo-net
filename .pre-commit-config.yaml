@@ -10,3 +10,19 @@ repos:
         args:
           - -c
           - "fd -e py -x ruff format -q"
+      - id: typecheck
+        name: typecheck
+        entry: bash
+        language: system
+        pass_filenames: false
+        stages: [commit]
+        additional_dependencies: []
+        always_run: false
+        require_serial: true
+        args:
+          - -c
+          - |
+            set -e
+            if [ "$(git branch --show-current)" = "main" ]; then
+              uv run task typecheck
+            fi
