@@ -11,10 +11,7 @@ from loguru import logger
 
 from mo_net.data import DATA_DIR
 from mo_net.device import (
-    DEVICE_TYPES,
-    DeviceType,
     print_device_info,
-    set_default_device,
 )
 from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
@@ -245,12 +242,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=1e-4,
     )
     @click.option(
-        "--device",
-        type=click.Choice(DEVICE_TYPES),
-        help="Device to use for training (auto will select the best available)",
-        default="auto",
-    )
-    @click.option(
         "--train-split",
         type=float,
         help="Training split ratio",
@@ -280,12 +271,10 @@ def train(
     model_path: Path | None,
     model_output_path: Path | None,
     log_level: LogLevel,
-    device: DeviceType,
     train_split: float,
 ):
     setup_logging(log_level)
 
-    set_default_device(device)
     print_device_info()
 
     from mo_net.data import SplitConfig, load_data

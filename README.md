@@ -76,7 +76,7 @@ uv run train --device cpu    # CPU only
 ### Python API
 
 ```python
-from mo_net.device import set_default_device, print_device_info
+from mo_net import set_default_device, print_device_info
 
 # Set device before creating models or training
 set_default_device("auto")  # or "gpu", "cpu"
@@ -103,7 +103,7 @@ This will show:
 1. **Memory Management**: JAX pre-allocates GPU memory by default. To share GPU with other processes:
 
    ```python
-   from mo_net.device import enable_gpu_memory_growth
+   from mo_net import enable_gpu_memory_growth
    enable_gpu_memory_growth()
    ```
 

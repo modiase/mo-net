@@ -17,17 +17,12 @@ import jax
 import jax.numpy as jnp
 from loguru import logger
 
+from mo_net import print_device_info
 from mo_net.data import (
     DEFAULT_TRAIN_SPLIT,
     OUTPUT_PATH,
     SplitConfig,
     load_data,
-)
-from mo_net.device import (
-    DEVICE_TYPES,
-    DeviceType,
-    print_device_info,
-    set_default_device,
 )
 from mo_net.functions import (
     get_loss_fn,
@@ -122,12 +117,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=str,
         help="Set the url to the dataset",
         default=None,
-    )
-    @click.option(
-        "--device",
-        type=click.Choice(DEVICE_TYPES),
-        help="Device to use for training (auto will select the best available)",
-        default="auto",
     )
     @click.option(
         "-n",
@@ -333,7 +322,6 @@ def train(
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
     batch_size: int | None,
     dataset_url: str | None,
-    device: DeviceType,
     dims: Sequence[int],
     dropout_keep_probs: Sequence[float],
     history_max_len: int,
@@ -359,7 +347,6 @@ def train(
     warmup_epochs: int,
     workers: int,
 ) -> TrainingResult:
-    set_default_device(device)
     if not quiet:
         print_device_info()
 

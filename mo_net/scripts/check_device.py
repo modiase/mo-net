@@ -6,7 +6,7 @@ import subprocess
 import jax
 from loguru import logger
 
-from mo_net.device import get_platform_to_device, print_device_info
+from mo_net import get_platform_to_device, print_device_info
 
 
 def check_cuda_availability():
