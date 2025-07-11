@@ -15,7 +15,8 @@ repos:
         entry: bash
         language: system
         pass_filenames: false
-        stages: [commit]
+        files: \.(py)$
+        stages: [pre-commit]
         additional_dependencies: []
         always_run: false
         require_serial: true
