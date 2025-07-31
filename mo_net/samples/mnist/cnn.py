@@ -32,7 +32,7 @@ from mo_net.train.trainer.trainer import (
     BasicTrainer,
     TrainingFailed,
     TrainingSuccessful,
-    get_optimizer,
+    get_optimiser,
 )
 
 P = ParamSpec("P")
@@ -324,7 +324,7 @@ def train(
     Y_val = Y_train[train_size:]
 
     run = TrainingRun(seed=seed, name=f"cnn_run_{seed}", backend=SqliteBackend())
-    optimizer = get_optimizer("adam", model, training_parameters)
+    optimiser = get_optimiser("adam", model, training_parameters)
 
     trainer = BasicTrainer(
         X_train=X_train_split,
@@ -337,7 +337,7 @@ def train(
         ),
         loss_fn=sparse_cross_entropy,
         model=model,
-        optimizer=optimizer,
+        optimiser=optimiser,
         run=run,
         training_parameters=training_parameters,
     )

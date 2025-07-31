@@ -43,7 +43,7 @@ from mo_net.train.trainer.trainer import (
     TrainingFailed,
     TrainingResult,
     TrainingSuccessful,
-    get_optimizer,
+    get_optimiser,
 )
 
 P = ParamSpec("P")
@@ -99,9 +99,9 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     )
     @click.option(
         "-o",
-        "--optimizer-type",
+        "--optimiser-type",
         type=click.Choice(["adam", "none", "rmsprop"]),
-        help="The type of optimizer to use",
+        help="The type of optimiser to use",
         default="adam",
     )
     @click.option(
@@ -336,7 +336,7 @@ def train(
     no_monitoring: bool,
     normalisation_type: NormalisationType,
     num_epochs: int,
-    optimizer_type: OptimizerType,
+    optimiser_type: OptimizerType,
     only_misclassified_examples: bool,
     quiet: bool,
     regulariser_lambda: float,
@@ -404,7 +404,7 @@ def train(
         seed=seed,
         backend=parse_connection_string(logging_backend_connection_string),
     )
-    optimizer = get_optimizer(optimizer_type, model, training_parameters)
+    optimiser = get_optimiser(optimiser_type, model, training_parameters)
 
     if only_misclassified_examples:
         Y_train_pred = model.predict(X_train)
@@ -434,7 +434,7 @@ def train(
         Y_val=Y_val,
         disable_shutdown=training_parameters.workers != 0,
         model=model,
-        optimizer=optimizer,
+        optimiser=optimiser,
         run=run,
         start_epoch=start_epoch,
         training_parameters=training_parameters,

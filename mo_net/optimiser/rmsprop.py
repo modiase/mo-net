@@ -7,8 +7,8 @@ from loguru import logger
 
 from mo_net.constants import EPSILON
 from mo_net.model.model import Model
-from mo_net.optimizer.base import Base
-from mo_net.optimizer.scheduler import Scheduler
+from mo_net.optimiser.base import Base
+from mo_net.optimiser.scheduler import Scheduler
 from mo_net.protos import GradLayer
 
 DEFAULT_BETA: Final[float] = 0.9
@@ -25,7 +25,7 @@ type ConfigType = Config
 
 
 class RMSProp(Base[Config]):
-    """RMSProp optimizer for adaptive learning rates.
+    """RMSProp optimiser for adaptive learning rates.
 
     RMSProp adapts the learning rate by using a moving average of squared gradients
     to normalize the gradient. This helps with training stability, especially for
