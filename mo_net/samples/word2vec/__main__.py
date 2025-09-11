@@ -12,12 +12,8 @@ import jax.numpy as jnp
 from loguru import logger
 from more_itertools import windowed
 
+from mo_net import DEVICE_TYPES, DeviceType, print_device_info
 from mo_net.data import DATA_DIR
-from mo_net.device import (
-    DEVICE_TYPES,
-    DeviceType,
-    print_device_info,
-)
 from mo_net.functions import LossFn, sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
