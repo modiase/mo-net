@@ -12,12 +12,8 @@ import jax.numpy as jnp
 from loguru import logger
 from more_itertools import windowed
 
+from mo_net import print_device_info
 from mo_net.data import DATA_DIR
-from mo_net.device import (
-    DEVICE_TYPES,
-    DeviceType,
-    print_device_info,
-)
 from mo_net.functions import LossFn, sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
@@ -294,12 +290,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=4,
     )
     @click.option(
-        "--device",
-        type=click.Choice(DEVICE_TYPES),
-        help="Device to use for training (auto will select the best available)",
-        default="auto",
-    )
-    @click.option(
         "--embedding-dim",
         type=int,
         help="Embedding dimension",
@@ -384,7 +374,6 @@ def train(
     *,
     batch_size: int,
     context_size: int,
-    device: DeviceType,
     embedding_dim: int,
     lambda_: float,
     learning_rate: float,
