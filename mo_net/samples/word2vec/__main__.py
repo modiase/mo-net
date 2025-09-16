@@ -487,6 +487,14 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Warmup epochs",
         default=5,
     )
+    @click.option(
+        "--include",
+        "include_words",
+        type=str,
+        multiple=True,
+        help="Words to force include in vocabulary (can be used multiple times)",
+        default=(),
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -506,6 +514,7 @@ def train(
     batch_size: int,
     context_size: int,
     embedding_dim: int,
+    include_words: tuple[str, ...],
     lambda_: float,
     learning_rate: float,
     log_level: LogLevel,
@@ -545,7 +554,9 @@ def train(
             [vocab[token] for token in sentence] for sentence in sentences if sentence
         ]
     else:
-        vocab, tokenized_sentences = Vocab.english_sentences(max_vocab_size=vocab_size)
+        vocab, tokenized_sentences = Vocab.english_sentences(
+            max_vocab_size=vocab_size, forced_words=include_words
+        )
         match model_type:
             case "cbow":
                 model = CBOWModel.create(

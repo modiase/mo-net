@@ -62,14 +62,19 @@ class Vocab:
 
     @classmethod
     def from_sentences(
-        cls, sentences: Collection[Sentence], max_size: int
+        cls,
+        sentences: Collection[Sentence],
+        max_size: int,
+        forced_words: Collection[str] = (),
     ) -> tuple[Vocab, Collection[TokenizedSentence]]:
-        most_common_tokens = [
+        most_common_tokens = {
             token
             for token, _ in Counter(
                 token for sentence in sentences if sentence for token in sentence
             ).most_common(max_size)
-        ]
+        }
+        for word in forced_words:
+            most_common_tokens.add(word)
 
         vocab_tuple = tuple(most_common_tokens)
         unknown_token_id = len(vocab_tuple)
@@ -112,8 +117,13 @@ class Vocab:
         *,
         limit: int = 100000,
         max_vocab_size: int = 1000,
+        forced_words: Collection[str] = (),
     ) -> tuple[Vocab, Collection[TokenizedSentence]]:
-        return cls.from_sentences(get_english_sentences(limit), max_size=max_vocab_size)
+        return cls.from_sentences(
+            get_english_sentences(limit),
+            max_size=max_vocab_size,
+            forced_words=forced_words,
+        )
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Self:
