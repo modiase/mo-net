@@ -71,7 +71,7 @@ class _Base(ABC):
         if input_activations.shape[1:] != self.input_dimensions:
             raise ValueError(
                 f"Input activations shape {input_activations.shape[1:]} does not match "
-                f"input dimensions {self.input_dimensions}."
+                f"input dimensions {self.input_dimensions} in layer {self}."
             )
         return self._forward_prop(input_activations=input_activations)
 

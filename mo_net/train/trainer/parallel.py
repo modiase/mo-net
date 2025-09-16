@@ -631,8 +631,8 @@ class ParallelTrainer(BasicTrainer):
         with log_time("Training resume setup: {time_taken:.4f}s"):
             self._start_epoch = start_epoch
             self._model = Model.load(open(model_checkpoint_path, "rb"), training=True)
-            self._optimizer.set_model(self._model)
-            self._optimizer.restore()
+            self._optimiser.set_model(self._model)
+            self._optimiser.restore()
             if self._monitor is not None:
                 self._monitor.reset(restore_history=True)
 
@@ -708,7 +708,7 @@ class ParallelTrainer(BasicTrainer):
                         lambda_=self._training_parameters.regulariser_lambda,
                         batch_size=self._X_train.shape[0],
                         model=self._model,
-                        optimizer=self._optimizer,
+                        optimiser=self._optimiser,
                     )
 
             with log_time("Shared memory creation: {time_taken:.4f}s"):
@@ -831,8 +831,8 @@ class ParallelTrainer(BasicTrainer):
                         self._model
                     )
 
-                with log_time("Leader optimizer compute: {time_taken:.4f}s"):
-                    self._optimizer.compute_update()
+                with log_time("Leader optimiser compute: {time_taken:.4f}s"):
+                    self._optimiser.compute_update()
 
                 with log_time("Leader update broadcast: {time_taken:.4f}s"):
                     update = self._model.get_gradient_caches()

@@ -222,9 +222,9 @@ async def validate(**kwargs) -> None:
 @training_options
 @click.option(
     "-o",
-    "--optimizer-type",
+    "--optimiser-type",
     type=click.Choice(["adam", "none", "rmsprop"]),
-    help="The type of optimizer to use",
+    help="The type of optimiser to use",
     default="adam",
 )
 def main(**kwargs) -> None:

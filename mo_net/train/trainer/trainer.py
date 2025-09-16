@@ -1,3 +1,4 @@
+import signal
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, nullcontext
@@ -7,6 +8,7 @@ from typing import Any, ContextManager, Final, Literal, assert_never
 
 import jax
 import jax.numpy as jnp
+from InquirerPy import inquirer
 from loguru import logger
 from tqdm import tqdm
 
@@ -14,11 +16,11 @@ from mo_net.config import TrainingParameters
 from mo_net.data import RUN_PATH
 from mo_net.functions import LossFn, TransformFn
 from mo_net.model.model import Model
-from mo_net.optimizer import Base, OptimizerConfigT
-from mo_net.optimizer.adam import AdaM
-from mo_net.optimizer.base import Null
-from mo_net.optimizer.rmsprop import RMSProp
-from mo_net.optimizer.scheduler import CosineScheduler, WarmupScheduler
+from mo_net.optimiser import Base, OptimizerConfigT
+from mo_net.optimiser.adam import AdaM
+from mo_net.optimiser.base import Null
+from mo_net.optimiser.rmsprop import RMSProp
+from mo_net.optimiser.scheduler import CosineScheduler, WarmupScheduler
 from mo_net.protos import SupportsGradientOperations, UpdateGradientType
 from mo_net.train.batcher import IndexBatcher
 from mo_net.train.exceptions import CheckFailed
@@ -48,12 +50,12 @@ type TrainingResult = TrainingSuccessful | TrainingFailed
 type OptimizerType = Literal["adam", "none"]
 
 
-def get_optimizer(
-    optimizer_type: OptimizerType,
+def get_optimiser(
+    optimiser_type: OptimizerType,
     model: Model,
     training_parameters: TrainingParameters,
 ) -> Base[Any]:
-    match optimizer_type:
+    match optimiser_type:
         case "adam":
             return AdaM(
                 model=model,
@@ -101,7 +103,7 @@ class BasicTrainer:
         *,
         disable_shutdown: bool = False,
         model: Model,
-        optimizer: Base[OptimizerConfigT],
+        optimiser: Base[OptimizerConfigT],
         run: TrainingRun,
         training_parameters: TrainingParameters,
         transform_fn: TransformFn | None = None,
@@ -119,7 +121,7 @@ class BasicTrainer:
         self._model = model
         self._monitor: Monitor | None = None
         self._start_epoch = start_epoch if start_epoch is not None else 0
-        self._optimizer = optimizer
+        self._optimiser = optimiser
         self._training_parameters = training_parameters
         self._X_train = X_train
         self._Y_train = Y_train
@@ -140,6 +142,8 @@ class BasicTrainer:
         self._on_shutdown_handlers: Sequence[Callable[[], None]] = (
             lambda: self._run.end_run(),
         )
+        self._interrupt_requested = False
+        self._original_sigint_handler = None
 
     def subscribe_to_after_training_step(
         self,
@@ -153,12 +157,90 @@ class BasicTrainer:
     def subscribe_to_shutdown(self, handler: Callable[[], None]) -> None:
         self._on_shutdown_handlers = (*self._on_shutdown_handlers, handler)
 
+    def _sigint_handler(self, signum: int, frame: Any) -> None:
+        """Handle SIGINT (Ctrl+C) by setting interrupt flag."""
+        self._interrupt_requested = True
+        self._logger.info(
+            "SIGINT received. Training will be interrupted at the next safe point."
+        )
+
+    def _setup_sigint_handler(self) -> None:
+        """Set up SIGINT handler for graceful interruption."""
+        self._original_sigint_handler = signal.signal(  # type: ignore[assignment]
+            signal.SIGINT, self._sigint_handler
+        )
+
+    def _restore_sigint_handler(self) -> None:
+        """Restore original SIGINT handler."""
+        if self._original_sigint_handler is not None:
+            signal.signal(signal.SIGINT, self._original_sigint_handler)
+
+    def _handle_interrupt(self) -> TrainingResult | None:
+        """Handle interrupt request by prompting user for action."""
+        if not self._interrupt_requested:
+            return None
+
+        self._interrupt_requested = False  # Reset flag
+
+        self._logger.info("Training interrupted by user. Prompting for action...")
+
+        try:
+            choice = inquirer.select(
+                message="Training has been interrupted. What would you like to do?",
+                choices=[
+                    {
+                        "name": "🔄 Continue training",
+                        "value": "continue",
+                    },
+                    {
+                        "name": "✅ Terminate training (success)",
+                        "value": "success",
+                    },
+                    {
+                        "name": "❌ Terminate training (failure)",
+                        "value": "failure",
+                    },
+                ],
+                default="continue",
+            ).execute()
+
+            if choice == "continue":
+                self._logger.info("Continuing training...")
+                return None
+            elif choice == "success":
+                self._logger.info("Terminating training with success status...")
+                return TrainingSuccessful(
+                    model_checkpoint_path=self._model_checkpoint_path,
+                )
+            elif choice == "failure":
+                self._logger.info("Terminating training with failure status...")
+                return TrainingFailed(
+                    model_checkpoint_path=self._model_checkpoint_path,
+                    message="Training terminated by user request",
+                    model_checkpoint_save_epoch=self._L_val_min_epoch,
+                )
+            else:
+                # Fallback to continue if something unexpected happens
+                self._logger.warning("Unexpected choice, continuing training...")
+                return None
+
+        except (EOFError, KeyboardInterrupt):
+            # Handle Ctrl+D or second Ctrl+C
+            self._logger.info("Terminating training with failure status...")
+            return TrainingFailed(
+                model_checkpoint_path=self._model_checkpoint_path,
+                message="Training terminated by user request (EOF/KeyboardInterrupt)",
+                model_checkpoint_save_epoch=self._L_val_min_epoch,
+            )
+
     def _create_training_loop_context(self) -> ContextManager[None]:
         @contextmanager
         def _training_loop_context() -> Iterator[None]:
             try:
+                self._setup_sigint_handler()
                 yield
             finally:
+                self._restore_sigint_handler()
                 for handler in self._on_shutdown_handlers:
                     try:
                         handler()
@@ -200,8 +282,8 @@ class BasicTrainer:
         self._model = Model.load(model_checkpoint_path, training=True)
         if self._monitor is not None:
             self._monitor.reset(restore_history=True)
-        self._optimizer.set_model(self._model)
-        self._optimizer.restore()
+        self._optimiser.set_model(self._model)
+        self._optimiser.restore()
 
         with self._create_training_loop_context():
             return self._training_loop()
@@ -210,7 +292,7 @@ class BasicTrainer:
         self._logger.info(
             f"Training model {self._model.__class__.__name__}"
             f" for {self._training_parameters.num_epochs=} iterations"
-            f" using optimizer {self._optimizer.__class__.__name__}."
+            f" using optimiser {self._optimiser.__class__.__name__}."
         )
         self._logger.info(f"{self._model.print()}")
         self._logger.info(
@@ -267,7 +349,7 @@ class BasicTrainer:
 
     def _before_training_loop(self) -> None:
         if self._training_parameters.max_restarts > 0:
-            self._optimizer.snapshot()
+            self._optimiser.snapshot()
 
     def _training_loop(self) -> TrainingResult:
         last_log_time = time.time()
@@ -290,6 +372,8 @@ class BasicTrainer:
             bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
             disable=self._training_parameters.quiet,
         ):
+            if interrupt_result := self._handle_interrupt():
+                return interrupt_result
             with self._create_training_step_context():
                 batch_indices = next(self._batcher)
                 X_train_batch = self._X_train[batch_indices]
@@ -344,12 +428,15 @@ class BasicTrainer:
                         model_checkpoint_save_epoch=self._L_val_min_epoch,
                     )
 
+                if interrupt_result := self._handle_interrupt():
+                    return interrupt_result
+
             self._run.log_iteration(
                 epoch=self._training_parameters.current_epoch(i),
                 batch=i + 1,
                 batch_loss=L_batch,
                 val_loss=L_val,
-                learning_rate=self._optimizer.learning_rate,
+                learning_rate=self._optimiser.learning_rate,
             )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
@@ -358,7 +445,7 @@ class BasicTrainer:
                         f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
                         + (
                             f", {report}"
-                            if (report := self._optimizer.report()) != ""
+                            if (report := self._optimiser.report()) != ""
                             else ""
                         )
                     )
@@ -369,7 +456,7 @@ class BasicTrainer:
             batch=self._training_parameters.total_batches,
             batch_loss=L_batch,
             val_loss=L_val,
-            learning_rate=self._optimizer.learning_rate,
+            learning_rate=self._optimiser.learning_rate,
         )
         return TrainingSuccessful(
             model_checkpoint_path=self._model_checkpoint_path,
@@ -383,7 +470,7 @@ class BasicTrainer:
         Sequence[SupportsGradientOperations],
         Sequence[SupportsGradientOperations],
     ]:
-        gradient, update = self._optimizer.training_step(
+        gradient, update = self._optimiser.training_step(
             X_train_batch=X_train_batch,
             Y_train_batch=Y_train_batch,
             return_gradients=True,
