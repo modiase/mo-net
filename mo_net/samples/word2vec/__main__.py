@@ -3,9 +3,11 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import pickle
 import time
 import zipfile
 from collections.abc import Collection, Iterator, Sequence
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never, cast
@@ -27,7 +29,13 @@ from mo_net.model.layer.linear import Linear
 from mo_net.model.layer.output import OutputLayer, SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
-from mo_net.protos import Activations, D, Dimensions, NormalisationType
+from mo_net.protos import (
+    Activations,
+    D,
+    Dimensions,
+    NormalisationType,
+    SupportsDeserialize,
+)
 from mo_net.regulariser.weight_decay import EmbeddingWeightDecayRegulariser
 from mo_net.samples.word2vec.vocab import Vocab, get_english_sentences, get_training_set
 from mo_net.train import TrainingParameters
@@ -64,6 +72,12 @@ def all_windows(
 
 
 class CBOWModel(Model):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        input_dimensions: tuple[int, ...]
+        hidden_modules: tuple[SupportsDeserialize, ...]
+        output_module: SupportsDeserialize
+
     @classmethod
     def get_name(cls) -> str:
         return "cbow"
@@ -126,8 +140,59 @@ class CBOWModel(Model):
     def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
+    def dump(self, out: BytesIO | Path) -> None:
+        with (
+            open(out, "wb")
+            if isinstance(out, Path)
+            else contextlib.nullcontext(out) as io
+        ):
+            pickle.dump(
+                self.Serialized(
+                    input_dimensions=tuple(self.input_layer.input_dimensions),
+                    hidden_modules=tuple(
+                        module.serialize() for module in self.hidden_modules
+                    ),
+                    output_module=self.output_module.serialize(),
+                ),
+                io,
+            )
+
+    @classmethod
+    def load(
+        cls,
+        source: BytesIO | Path,
+        training: bool = False,
+        freeze_parameters: bool = False,
+    ) -> CBOWModel:
+        if isinstance(source, Path):
+            with open(source, "rb") as f:
+                serialized = pickle.load(f)
+        else:
+            serialized = pickle.load(source)
+        if not isinstance(serialized, cls.Serialized):
+            raise ValueError(f"Invalid serialized model: {serialized}")
+        return cls(
+            input_dimensions=serialized.input_dimensions,
+            hidden=tuple(
+                module.deserialize(
+                    training=training, freeze_parameters=freeze_parameters
+                )
+                for module in serialized.hidden_modules
+            ),
+            output=serialized.output_module.deserialize(
+                training=training, freeze_parameters=freeze_parameters
+            ),
+        )
+
 
 class SkipGramModel(Model):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        input_dimensions: tuple[int, ...]
+        hidden_modules: tuple[SupportsDeserialize, ...]
+        output_module: SupportsDeserialize
+        negative_samples: int
+
     def __init__(
         self,
         *,
@@ -239,6 +304,58 @@ class SkipGramModel(Model):
     @property
     def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
+
+    def dump(self, out: BytesIO | Path) -> None:
+        with (
+            open(out, "wb")
+            if isinstance(out, Path)
+            else contextlib.nullcontext(out) as io
+        ):
+            pickle.dump(
+                self.Serialized(
+                    input_dimensions=tuple(self.input_layer.input_dimensions),
+                    hidden_modules=tuple(
+                        module.serialize() for module in self.hidden_modules
+                    ),
+                    output_module=self.output_module.serialize(),
+                    negative_samples=self._negative_samples,
+                ),
+                io,
+            )
+
+    @classmethod
+    def load(
+        cls,
+        source: BytesIO | Path,
+        training: bool = False,
+        freeze_parameters: bool = False,
+        key: jax.Array | None = None,
+    ) -> SkipGramModel:
+        if key is None:
+            key = jax.random.PRNGKey(0)
+
+        if isinstance(source, Path):
+            with open(source, "rb") as f:
+                serialized = pickle.load(f)
+        else:
+            serialized = pickle.load(source)
+        if not isinstance(serialized, cls.Serialized):
+            raise ValueError(f"Invalid serialized model: {serialized}")
+
+        return cls(
+            input_dimensions=serialized.input_dimensions,
+            hidden=tuple(
+                module.deserialize(
+                    training=training, freeze_parameters=freeze_parameters
+                )
+                for module in serialized.hidden_modules
+            ),
+            output=serialized.output_module.deserialize(
+                training=training, freeze_parameters=freeze_parameters
+            ),
+            key=key,
+            negative_samples=serialized.negative_samples,
+        )
 
 
 class PredictModel(CBOWModel):
@@ -407,7 +524,14 @@ def train(
     if model_path is not None:
         with zipfile.ZipFile(model_path, "r") as zf:
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
-                model = Model.load(mf, training=True)
+                with zf.open(METADATA_ZIP_INTERNAL_PATH) as md:
+                    metadata = json.loads(md.read().decode("utf-8"))
+                    loaded_model_type = metadata.get("type", "cbow")
+
+                if loaded_model_type == "skipgram":
+                    model = SkipGramModel.load(mf, training=True, key=key)
+                else:
+                    model = CBOWModel.load(mf, training=True)
                 vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
         sentences = get_english_sentences()
         tokenized_sentences = [
@@ -571,7 +695,9 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
                 match model_type:
                     case "skipgram":
-                        model = SkipGramModel.load(mf, training=False)
+                        model = SkipGramModel.load(
+                            mf, training=False, key=jax.random.PRNGKey(seed)
+                        )
                     case "cbow":
                         model = CBOWModel.load(mf, training=False)
                     case never:
