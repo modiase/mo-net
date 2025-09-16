@@ -10,7 +10,7 @@ from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never, cast
+from typing import IO, Callable, Final, Literal, ParamSpec, TypeVar, assert_never, cast
 
 import click
 import jax
@@ -37,7 +37,12 @@ from mo_net.protos import (
     SupportsDeserialize,
 )
 from mo_net.regulariser.weight_decay import EmbeddingWeightDecayRegulariser
-from mo_net.samples.word2vec.vocab import Vocab, get_english_sentences, get_training_set
+from mo_net.samples.word2vec.vocab import (
+    TokenizedSentence,
+    Vocab,
+    get_english_sentences,
+    get_training_set,
+)
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
@@ -140,7 +145,7 @@ class CBOWModel(Model):
     def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
-    def dump(self, out: BytesIO | Path) -> None:
+    def dump(self, out: IO[bytes] | Path) -> None:
         with (
             open(out, "wb")
             if isinstance(out, Path)
@@ -160,7 +165,7 @@ class CBOWModel(Model):
     @classmethod
     def load(
         cls,
-        source: BytesIO | Path,
+        source: IO[bytes] | Path,
         training: bool = False,
         freeze_parameters: bool = False,
     ) -> CBOWModel:
@@ -305,7 +310,7 @@ class SkipGramModel(Model):
     def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
-    def dump(self, out: BytesIO | Path) -> None:
+    def dump(self, out: IO[bytes] | Path) -> None:
         with (
             open(out, "wb")
             if isinstance(out, Path)
@@ -326,7 +331,7 @@ class SkipGramModel(Model):
     @classmethod
     def load(
         cls,
-        source: BytesIO | Path,
+        source: IO[bytes] | Path,
         training: bool = False,
         freeze_parameters: bool = False,
         key: jax.Array | None = None,
@@ -529,12 +534,14 @@ def train(
                     loaded_model_type = metadata.get("type", "cbow")
 
                 if loaded_model_type == "skipgram":
-                    model = SkipGramModel.load(mf, training=True, key=key)
+                    model: CBOWModel | SkipGramModel = SkipGramModel.load(
+                        mf, training=True, key=key
+                    )
                 else:
                     model = CBOWModel.load(mf, training=True)
                 vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
         sentences = get_english_sentences()
-        tokenized_sentences = [
+        tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
         ]
     else:
@@ -695,7 +702,7 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
                 match model_type:
                     case "skipgram":
-                        model = SkipGramModel.load(
+                        model: CBOWModel | SkipGramModel = SkipGramModel.load(
                             mf, training=False, key=jax.random.PRNGKey(seed)
                         )
                     case "cbow":
