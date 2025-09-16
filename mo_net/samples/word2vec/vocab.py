@@ -13,13 +13,8 @@ import msgpack  # type: ignore[import-untyped]
 
 from mo_net.resources import get_resource
 
-
-def get_english_sentences(limit: int = 100000) -> Collection[str]:
-    return (
-        get_resource("s3://mo-net-resources/english-sentences.txt")
-        .read_text()
-        .split("\n")
-    )[:limit]
+type Sentence = Sequence[str]
+type TokenizedSentence = Sequence[int]
 
 
 @dataclass(slots=True, frozen=True)
@@ -67,35 +62,35 @@ class Vocab:
 
     @classmethod
     def from_sentences(
-        cls, sentences: Collection[str], max_size: int
+        cls, sentences: Collection[Sentence], max_size: int
     ) -> tuple[Vocab, Collection[Sequence[int]]]:
         most_common_tokens = [
             token
             for token, _ in Counter(
-                token
-                for sentence in sentences
-                if sentence
-                for token in sentence.split()
+                token for sentence in sentences if sentence for token in sentence
             ).most_common(max_size)
         ]
 
         vocab_tuple = tuple(most_common_tokens)
         unknown_token_id = len(vocab_tuple)
         return (
-            vocab := cls(
-                vocab=vocab_tuple,
-                token_to_id={token: i for i, token in enumerate(vocab_tuple)},
-                id_to_token=defaultdict(
-                    lambda: "<unknown>",
-                    {i: token for i, token in enumerate(vocab_tuple)},
-                ),
-                unknown_token_id=unknown_token_id,
-            )
-        ), [
-            [vocab[token] for token in sentence.split()]
-            for sentence in sentences
-            if sentence
-        ]
+            (
+                vocab := cls(
+                    vocab=vocab_tuple,
+                    token_to_id={token: i for i, token in enumerate(vocab_tuple)},
+                    id_to_token=defaultdict(
+                        lambda: "<unknown>",
+                        {i: token for i, token in enumerate(vocab_tuple)},
+                    ),
+                    unknown_token_id=unknown_token_id,
+                )
+            ),
+            [
+                [vocab[token] for token in sentence]
+                for sentence in sentences
+                if sentence
+            ],
+        )
 
     def __len__(self) -> int:
         return len(self.vocab) + 1
@@ -135,7 +130,7 @@ class Vocab:
 
 
 def get_training_set(
-    tokenized_sentences: Collection[Sequence[int]], context_size: int
+    tokenized_sentences: Collection[TokenizedSentence], context_size: int
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     context, target = zip(
         *[
@@ -154,3 +149,157 @@ def get_training_set(
         strict=True,
     )
     return jnp.array(context), jnp.array(list(target))
+
+
+def get_stop_words() -> Collection[str]:
+    return {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "by",
+        "for",
+        "from",
+        "has",
+        "he",
+        "in",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "that",
+        "the",
+        "to",
+        "was",
+        "will",
+        "with",
+        "i",
+        "me",
+        "my",
+        "myself",
+        "we",
+        "our",
+        "ours",
+        "ourselves",
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+        "him",
+        "his",
+        "himself",
+        "she",
+        "her",
+        "hers",
+        "herself",
+        "they",
+        "them",
+        "their",
+        "theirs",
+        "themselves",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "this",
+        "these",
+        "those",
+        "am",
+        "were",
+        "being",
+        "have",
+        "had",
+        "having",
+        "do",
+        "does",
+        "did",
+        "doing",
+        "would",
+        "should",
+        "could",
+        "can",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "ought",
+        "but",
+        "if",
+        "or",
+        "because",
+        "until",
+        "while",
+        "about",
+        "against",
+        "between",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "up",
+        "down",
+        "out",
+        "off",
+        "over",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "any",
+        "both",
+        "each",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "s",
+        "t",
+        "just",
+        "now",
+        "also",
+        "however",
+        "although",
+        "though",
+        "since",
+        "unless",
+        "whether",
+        "many",
+    }
+
+
+def get_english_sentences(limit: int = 100000) -> Collection[Sentence]:
+    stop_words = get_stop_words()
+    return [
+        [word for word in sentence.split() if word not in stop_words]
+        for sentence in (
+            get_resource("s3://mo-net-resources/english-sentences.txt")
+            .read_text()
+            .split("\n")[:limit]
+        )
+    ]

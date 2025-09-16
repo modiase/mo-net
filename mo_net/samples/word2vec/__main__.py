@@ -411,9 +411,7 @@ def train(
                 vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
         sentences = get_english_sentences()
         tokenized_sentences = [
-            [vocab[token] for token in sentence.split()]
-            for sentence in sentences
-            if sentence
+            [vocab[token] for token in sentence] for sentence in sentences if sentence
         ]
     else:
         vocab, tokenized_sentences = Vocab.english_sentences(max_vocab_size=vocab_size)
