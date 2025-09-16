@@ -1,0 +1,2 @@
+#!/usr/bin/env -S bash -eu
+uv run python $(git rev-parse --show-toplevel)/mo_net/samples/word2vec "$@"
