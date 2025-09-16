@@ -17,12 +17,11 @@
         
         python = pkgs.python313;
         
-        # CUDA libraries - use the correct package paths
         cudaLibs = with pkgs; [
           cudatoolkit
           cudaPackages.cudnn
           cudaPackages.nccl
-        ];
+        ] ++ lib.optional stdenv.isLinux linuxPackages.nvidia_x11;
         
         # Non-CUDA system libraries
         systemLibs = with pkgs; [
@@ -86,9 +85,6 @@
           ] ++ systemLibs ++ cudaLibs;
           
           shellHook = ''
-            # Set up library paths including CUDA libraries for JAX
-            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:''${LD_LIBRARY_PATH:-}"
-            
             # CUDA environment variables for JAX
             export CUDA_PATH="${pkgs.cudatoolkit}"
             export CUDA_ROOT="${pkgs.cudatoolkit}"
@@ -99,6 +95,10 @@
             
             # XLA flags for GPU data directory
             export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgs.cudatoolkit}/lib"
+            
+            # Set up library paths with NVIDIA driver libraries prioritized for JAX
+            # Use the specific NVIDIA driver version that matches the kernel (570.153.02)
+            export LD_LIBRARY_PATH="/nix/store/6rf8qnkp4m5h5x9byf5srphcdjdp5r5j-nvidia-x11-570.153.02-6.12.35/lib:${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:''${LD_LIBRARY_PATH:-}"
             
             # Set PKG_CONFIG_PATH for building packages
             export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" (systemLibs ++ cudaLibs)}:$PKG_CONFIG_PATH"
