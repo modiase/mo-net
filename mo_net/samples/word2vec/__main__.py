@@ -302,7 +302,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--embedding-dim",
         type=int,
         help="Embedding dimension",
-        default=128,
+        default=32,
     )
     @click.option(
         "--lambda",
