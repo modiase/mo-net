@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import functools
+import json
 import time
+import zipfile
 from collections.abc import Collection, Iterator, Sequence
+from io import BytesIO
 from pathlib import Path
-from typing import Callable, Literal, ParamSpec, TypeVar, assert_never, cast
+from typing import Callable, Final, Literal, ParamSpec, TypeVar, assert_never, cast
 
 import click
 import jax
@@ -25,7 +29,7 @@ from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import Activations, D, Dimensions, NormalisationType
 from mo_net.regulariser.weight_decay import EmbeddingWeightDecayRegulariser
-from mo_net.samples.word2vec.vocab import Vocab, get_training_set
+from mo_net.samples.word2vec.vocab import Vocab, get_english_sentences, get_training_set
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
@@ -38,6 +42,11 @@ from mo_net.train.trainer.trainer import (
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+MODEL_ZIP_INTERNAL_PATH: Final = "model.pkl"
+VOCAB_ZIP_INTERNAL_PATH: Final = "vocab.msgpack"
+METADATA_ZIP_INTERNAL_PATH: Final = "metadata.json"
 
 
 def all_windows(
@@ -391,24 +400,23 @@ def train(
 
     print_device_info()
 
-    vocab, tokenized_sentences = Vocab.english_sentences(max_vocab_size=vocab_size)
-
-    X_train, Y_train = get_training_set(tokenized_sentences, context_size)
-    if model_type == "skipgram":
-        Y_train, X_train = X_train, Y_train
-
-    logger.info(f"Vocabulary size: {len(vocab)}")
-    logger.info(f"Embedding dimension: {embedding_dim}")
-    logger.info(f"Context size: {context_size}")
-    logger.info(f"Training samples: {len(X_train)}")
-
     seed = time.time_ns() // 1000
     logger.info(f"Using seed: {seed}")
     key = jax.random.PRNGKey(seed)
 
     if model_path is not None:
-        model = Model.load(model_path, training=True)
+        with zipfile.ZipFile(model_path, "r") as zf:
+            with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
+                model = Model.load(mf, training=True)
+                vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
+        sentences = get_english_sentences()
+        tokenized_sentences = [
+            [vocab[token] for token in sentence.split()]
+            for sentence in sentences
+            if sentence
+        ]
     else:
+        vocab, tokenized_sentences = Vocab.english_sentences(max_vocab_size=vocab_size)
         match model_type:
             case "cbow":
                 model = CBOWModel.create(
@@ -428,6 +436,15 @@ def train(
                 )
             case never:
                 assert_never(never)
+
+    X_train, Y_train = get_training_set(tokenized_sentences, context_size)
+    if model_type == "skipgram":
+        Y_train, X_train = X_train, Y_train
+
+    logger.info(f"Vocabulary size: {len(vocab)}")
+    logger.info(f"Embedding dimension: {embedding_dim}")
+    logger.info(f"Context size: {context_size}")
+    logger.info(f"Training samples: {len(X_train)}")
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -491,12 +508,28 @@ def train(
     match result:
         case TrainingSuccessful():
             if model_output_path is None:
-                model_output_path = DATA_DIR / "output" / f"{run.name}.pkl"
-            result.model_checkpoint_path.rename(model_output_path)
-            logger.info(f"Training completed. Model saved to: {model_output_path}")
-            vocab_path = model_output_path.with_suffix(".vocab")
-            vocab_path.write_bytes(vocab.serialize())
-            logger.info(f"Vocabulary saved to: {vocab_path}")
+                model_output_path = DATA_DIR / "output" / f"{run.name}.zip"
+
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(
+                zip_buffer, "w", compression=zipfile.ZIP_DEFLATED
+            ) as zf:
+                model_buffer = BytesIO()
+                model.dump(model_buffer)
+                zf.writestr(MODEL_ZIP_INTERNAL_PATH, model_buffer.getvalue())
+                zf.writestr(VOCAB_ZIP_INTERNAL_PATH, vocab.serialize())
+                zf.writestr(
+                    METADATA_ZIP_INTERNAL_PATH,
+                    json.dumps({"type": model_type}).encode("utf-8"),
+                )
+
+            model_output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(model_output_path, "wb") as f:
+                f.write(zip_buffer.getvalue())
+
+            logger.info(f"Training completed. Model zip saved to: {model_output_path}")
+            with contextlib.suppress(Exception):
+                result.model_checkpoint_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
         case TrainingFailed():
             logger.error(f"Training failed: {result.message}")
         case never_2:
@@ -530,12 +563,30 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
     seed = time.time_ns() // 1000
     logger.info(f"Using seed: {seed}")
 
-    vocab_path = model_path.with_suffix(".vocab")
-    if not vocab_path.exists():
-        raise click.ClickException(f"Vocabulary file not found: {vocab_path}")
+    try:
+        with zipfile.ZipFile(model_path, "r") as zf:
+            vocab_bytes = zf.read(VOCAB_ZIP_INTERNAL_PATH)
+            with zf.open(METADATA_ZIP_INTERNAL_PATH) as md:
+                metadata = json.loads(md.read().decode("utf-8"))
+                model_type = metadata.get("type", "cbow")
 
-    vocab = Vocab.deserialize(vocab_path)
-    model = CBOWModel.load(model_path, training=False)
+            with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
+                match model_type:
+                    case "skipgram":
+                        model = SkipGramModel.load(mf, training=False)
+                    case "cbow":
+                        model = CBOWModel.load(mf, training=False)
+                    case never:
+                        assert_never(never)
+    except KeyError as e:
+        raise click.ClickException(
+            f"Missing file in zip: {e.args[0]}. Expected {MODEL_ZIP_INTERNAL_PATH}, {VOCAB_ZIP_INTERNAL_PATH} and optionally {METADATA_ZIP_INTERNAL_PATH}"
+        )
+    except zipfile.BadZipFile as e:
+        logger.exception(f"Invalid zip file: {model_path}", e)
+        raise click.ClickException(f"Invalid zip file: {model_path}")
+
+    vocab = Vocab.from_bytes(vocab_bytes)
 
     word_indices = jax.random.choice(
         jax.random.PRNGKey(seed),
