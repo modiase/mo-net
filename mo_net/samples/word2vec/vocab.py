@@ -63,7 +63,7 @@ class Vocab:
     @classmethod
     def from_sentences(
         cls, sentences: Collection[Sentence], max_size: int
-    ) -> tuple[Vocab, Collection[Sequence[int]]]:
+    ) -> tuple[Vocab, Collection[TokenizedSentence]]:
         most_common_tokens = [
             token
             for token, _ in Counter(
@@ -112,7 +112,7 @@ class Vocab:
         *,
         limit: int = 100000,
         max_vocab_size: int = 1000,
-    ) -> tuple[Vocab, Collection[Sequence[int]]]:
+    ) -> tuple[Vocab, Collection[TokenizedSentence]]:
         return cls.from_sentences(get_english_sentences(limit), max_size=max_vocab_size)
 
     @classmethod
