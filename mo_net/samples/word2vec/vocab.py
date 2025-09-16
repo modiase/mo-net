@@ -6,7 +6,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Counter
+from typing import Counter, Self
 
 import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
@@ -119,6 +119,19 @@ class Vocab:
         max_vocab_size: int = 1000,
     ) -> tuple[Vocab, Collection[Sequence[int]]]:
         return cls.from_sentences(get_english_sentences(limit), max_size=max_vocab_size)
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> Self:
+        obj = msgpack.unpackb(data)
+        return cls(
+            vocab=tuple(obj["vocab"]),
+            token_to_id=obj["token_to_id"],
+            id_to_token=defaultdict(
+                lambda: "<unknown>",
+                {i: token for token, i in obj["token_to_id"].items()},
+            ),
+            unknown_token_id=obj.get("unknown_token_id", len(obj["vocab"])),
+        )
 
 
 def get_training_set(
