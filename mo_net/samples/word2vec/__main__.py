@@ -197,7 +197,7 @@ class SkipGramModel(Model):
         self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
     ) -> float:
         Y_pred = self.forward_prop(X)
-        return jnp.mean(loss_fn(Y_pred, Y_true.flatten())).item() + sum(
+        return loss_fn(Y_pred, Y_true.flatten()) + sum(
             contributor() for contributor in self.loss_contributors
         )
 
@@ -459,13 +459,7 @@ def train(
         X_train_split = X_train_split.reshape(-1, 1)
         X_val = X_val.reshape(-1, 1)
 
-<<<<<<< HEAD
-    run = TrainingRun(seed=seed, name=f"cbow_run_{seed}", backend=SqliteBackend())
-=======
-    run = TrainingRun(
-        seed=seed, name=f"{model_type}_run_{seed}", backend=SqliteBackend()
-    )
->>>>>>> 459ec90 (Parametrise model type in name)
+    run = TrainingRun(seed=seed, name="cbow_run_", backend=SqliteBackend())
     optimiser = get_optimiser("adam", model, training_parameters)
     EmbeddingWeightDecayRegulariser.attach(
         lambda_=lambda_,
