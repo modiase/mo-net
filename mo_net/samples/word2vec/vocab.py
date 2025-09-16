@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Counter, Self
+from typing import Self
 
 import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
@@ -263,6 +263,7 @@ def get_stop_words() -> Collection[str]:
         "under",
         "again",
         "further",
+        "the",
         "then",
         "once",
         "here",
@@ -304,9 +305,8 @@ def get_stop_words() -> Collection[str]:
 
 
 def get_english_sentences(limit: int = 100000) -> Collection[Sentence]:
-    stop_words = get_stop_words()
     return [
-        [word for word in sentence.split() if word not in stop_words]
+        [word.lower() for word in sentence.split() if word not in get_stop_words()]
         for sentence in (
             get_resource("s3://mo-net-resources/english-sentences.txt")
             .read_text()

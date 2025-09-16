@@ -6,7 +6,7 @@ import json
 import pickle
 import time
 import zipfile
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -535,6 +535,7 @@ def train(
     logger.info(f"Using seed: {seed}")
     key = jax.random.PRNGKey(seed)
 
+    include_words = tuple(word.lower() for word in include_words)
     if model_path is not None:
         with zipfile.ZipFile(model_path, "r") as zf:
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
@@ -676,27 +677,7 @@ def train(
             assert_never(never_2)
 
 
-@cli.command("sample", help="Show word similarities for random words")
-@click.option(
-    "--model-path",
-    type=Path,
-    required=True,
-    help="Path to the trained model",
-)
-@click.option(
-    "--num-words",
-    type=int,
-    default=10,
-    help="Number of random words to check",
-)
-@click.option(
-    "--num-similarities",
-    type=int,
-    default=5,
-    help="Number of similar words to show per word",
-)
-def sample(model_path: Path, num_words: int, num_similarities: int):
-    """Show word similarities for random words from the corpus"""
+def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, Vocab]:
     if not model_path.exists():
         raise click.ClickException(f"Model file not found: {model_path}")
 
@@ -728,34 +709,175 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
         logger.exception(f"Invalid zip file: {model_path}", e)
         raise click.ClickException(f"Invalid zip file: {model_path}")
 
-    vocab = Vocab.from_bytes(vocab_bytes)
+    return model, Vocab.from_bytes(vocab_bytes)
 
-    word_indices = jax.random.choice(
-        jax.random.PRNGKey(seed),
-        len(vocab.vocab),
-        shape=(min(num_words, len(vocab)),),
-        replace=False,
+
+def compute_similarity(vector1: jnp.ndarray, vector2: jnp.ndarray) -> float:
+    return float(
+        jnp.dot(vector1, vector2)
+        / (jnp.linalg.norm(vector1) * jnp.linalg.norm(vector2))
     )
-    random_words = [list(vocab.vocab)[int(i)] for i in word_indices]
+
+
+def parse_and_calculate_expression(
+    expr: str, model: CBOWModel | SkipGramModel, vocab: Vocab
+) -> tuple[jnp.ndarray, str]:
+    if "=" not in expr:
+        raise ValueError("Expression must contain '=' to specify target word")
+
+    left_side, target_word = expr.split("=", 1)
+    target_word = target_word.strip().lower()
+    tokens = [token.lower() for token in left_side.strip().split()]
+    if len(tokens) < 2:
+        raise ValueError("Expression must have at least one word and one operation")
+
+    if tokens[0] not in vocab.vocab:
+        raise ValueError(f"Word '{tokens[0]}' not found in vocabulary")
+
+    result_vector = model.embeddings[vocab[tokens[0]]]
+
+    i = 1
+    while i < len(tokens):
+        if i + 1 >= len(tokens):
+            raise ValueError("Operation must be followed by a word")
+
+        op, word = tokens[i], tokens[i + 1]
+        if word not in vocab.vocab:
+            raise ValueError(f"Word '{word}' not found in vocabulary")
+
+        word_vector = model.embeddings[vocab[word]]
+        match op:
+            case "+":
+                result_vector = result_vector + word_vector
+            case "-":
+                result_vector = result_vector - word_vector
+            case _:
+                raise ValueError(
+                    f"Unsupported operation: '{op}'. Only '+' and '-' are supported"
+                )
+
+        i += 2
+
+    return result_vector, target_word
+
+
+def find_most_similar_words(
+    target_vector: jnp.ndarray,
+    model: CBOWModel | SkipGramModel,
+    vocab: Vocab,
+) -> Mapping[str, tuple[int, float]]:
+    similarities = [
+        (word, compute_similarity(target_vector, model.embeddings[vocab[word]]))
+        for word in vocab.vocab
+    ]
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    return {
+        word: (i, similarity) for i, (word, similarity) in enumerate(similarities, 1)
+    }
+
+
+@cli.command("calc", help="Calculate word arithmetic expressions")
+@click.option(
+    "--model-path",
+    type=Path,
+    required=True,
+    help="Path to the trained model",
+)
+@click.option(
+    "--expr",
+    type=str,
+    required=True,
+    help="Expression to calculate (e.g., 'king - man + woman = queen')",
+)
+@click.option(
+    "--num-results",
+    type=int,
+    default=5,
+    help="Number of similar words to show",
+)
+def calculate(model_path: Path, expr: str, num_results: int):
+    model, vocab = load_model_and_vocab(model_path)
+
+    try:
+        result_vector, target_word = parse_and_calculate_expression(expr, model, vocab)
+        similarities = find_most_similar_words(result_vector, model, vocab)
+
+        click.echo(f"Expression: {expr}")
+        click.echo(f"Target word: {target_word}")
+        click.echo()
+        click.echo("Most similar words to result:")
+        for word, (rank, similarity) in list(similarities.items())[:num_results]:
+            click.echo(f"{rank=}, {word=}, {similarity=:.4f}")
+
+        click.echo()
+        click.echo(f"Similarity to target word: {similarities[target_word][1]:.4f}")
+        click.echo(
+            f"Rank of target word: {similarities[target_word][0]}/{len(vocab.vocab)}"
+        )
+
+        click.echo()
+        click.echo("Similarity to 5 other random words:")
+        key, subkey = jax.random.split(jax.random.PRNGKey(time.time_ns() // 1000))
+
+        for _ in range(5):
+            subkey, new_key = jax.random.split(subkey)
+            word_idx = jax.random.randint(new_key, (), 0, len(vocab.vocab))
+            word = list(vocab.vocab)[int(word_idx)]
+            rank = similarities[word][0]
+            similarity = similarities[word][1]
+            click.echo(f"{rank=}, {word=}, {similarity=:.4f}")
+
+    except ValueError as e:
+        raise click.ClickException(f"Invalid expression: {e}")
+
+
+@cli.command("sample", help="Show word similarities for random words")
+@click.option(
+    "--model-path",
+    type=Path,
+    required=True,
+    help="Path to the trained model",
+)
+@click.option(
+    "--num-words",
+    type=int,
+    default=10,
+    help="Number of random words to check",
+)
+@click.option(
+    "--num-similarities",
+    type=int,
+    default=5,
+    help="Number of similar words to show per word",
+)
+def sample(model_path: Path, num_words: int, num_similarities: int):
+    model, vocab = load_model_and_vocab(model_path)
+
+    random_words = [
+        list(vocab.vocab)[int(i)]
+        for i in jax.random.choice(
+            jax.random.PRNGKey(time.time_ns() // 1000),
+            len(vocab.vocab),
+            shape=(min(num_words, len(vocab)),),
+            replace=False,
+        )
+    ]
 
     click.echo(f"Showing similarities for {len(random_words)} random words:")
     click.echo()
 
     for word in random_words:
-        word_id = vocab[word]
-        word_embedding = model.embeddings[word_id]
+        word_embedding = model.embeddings[vocab[word]]
+        click.echo(f"'{word}' (ID: {vocab[word]}):")
 
-        click.echo(f"'{word}' (ID: {word_id}):")
-
-        similarities = []
-        for other_word in vocab.vocab:
-            if other_word != word:
-                other_id = vocab[other_word]
-                other_embedding = model.embeddings[other_id]
-                similarity = jnp.dot(word_embedding, other_embedding) / (
-                    jnp.linalg.norm(word_embedding) * jnp.linalg.norm(other_embedding)
-                )
-                similarities.append((other_word, similarity))
+        similarities = [
+            (
+                other_word,
+                compute_similarity(word_embedding, model.embeddings[vocab[other_word]]),
+            )
+            for other_word in vocab.vocab
+            if other_word != word
+        ]
         similarities.sort(key=lambda x: x[1], reverse=True)
         for similar_word, similarity in similarities[:num_similarities]:
             click.echo(f"    {similar_word}: {similarity:.4f}")
