@@ -3,12 +3,13 @@ from typing import assert_never
 
 import jax
 
+from mo_net.functions import ActivationFn
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm import BatchNorm
 from mo_net.model.layer.layer_norm import LayerNorm
 from mo_net.model.layer.linear import Linear
 from mo_net.model.module.base import Hidden
-from mo_net.protos import ActivationFn, Dimensions
+from mo_net.protos import Dimensions
 
 
 @dataclass(kw_only=True, frozen=True)

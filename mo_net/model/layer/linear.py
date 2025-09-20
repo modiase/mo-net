@@ -13,13 +13,12 @@ from jax import jit
 from more_itertools import one
 
 from mo_net.constants import EPSILON
-from mo_net.functions import identity
+from mo_net.functions import ActivationFn, identity
 from mo_net.model.layer.base import (
     BadLayerId,
     ParametrisedHidden,
 )
 from mo_net.protos import (
-    ActivationFn,
     Activations,
     D,
     Dimensions,
@@ -140,7 +139,19 @@ class Parameters(SupportsGradientOperations):
         key: jax.Array,
     ) -> Self:
         key1, key2 = jax.random.split(key)
-        if activation_fn in (jax.nn.relu, jax.nn.leaky_relu):
+        # Check if it's a ReLU or LeakyReLU activation
+        if hasattr(activation_fn, "__class__") and activation_fn.__class__.__name__ in (
+            "ReLU",
+            "LeakyReLU",
+        ):
+            return cls.he(dim_in, dim_out, key=key1)
+        # Check if it's a Tanh or Identity activation
+        elif hasattr(
+            activation_fn, "__class__"
+        ) and activation_fn.__class__.__name__ in ("Tanh", "Identity"):
+            return cls.xavier(dim_in, dim_out, key=key2)
+        # Fallback for old function-based activations
+        elif activation_fn in (jax.nn.relu, jax.nn.leaky_relu):
             return cls.he(dim_in, dim_out, key=key1)
         elif activation_fn in (jax.nn.tanh, identity):
             return cls.xavier(dim_in, dim_out, key=key2)

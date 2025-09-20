@@ -64,6 +64,8 @@ def _run_fold(split_index: int, *, tmp_dir: Path, **kwargs) -> TrainingResult | 
     kwargs["seed"] = split_index
     kwargs["train_split_index"] = split_index
     kwargs["workers"] = 0
+    kwargs["disable_signal_handling"] = True
+
     try:
         return train(**kwargs)
     except Exception as e:
@@ -178,8 +180,9 @@ async def validate(**kwargs) -> None:
                     ]
                 )
 
+                successful_runs = [r for r in results if r is not None]
                 logger.info(
-                    f"Cross-validation finished. {len([r for r in enumerate(results) if r is not None])}/{n_splits} runs were successful."
+                    f"Cross-validation finished. {len(successful_runs)}/{n_splits} runs were successful."
                 )
 
                 min_val_losses = jnp.array(
@@ -220,13 +223,6 @@ async def validate(**kwargs) -> None:
 
 @click.command(help="Run cross-validation")
 @training_options
-@click.option(
-    "-o",
-    "--optimiser-type",
-    type=click.Choice(["adam", "none", "rmsprop"]),
-    help="The type of optimiser to use",
-    default="adam",
-)
 def main(**kwargs) -> None:
     """Synchronous wrapper for the async validate function."""
     asyncio.run(validate(**kwargs))

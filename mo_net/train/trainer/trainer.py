@@ -166,6 +166,8 @@ class BasicTrainer:
 
     def _setup_sigint_handler(self) -> None:
         """Set up SIGINT handler for graceful interruption."""
+        if self._disable_shutdown:
+            return
         self._original_sigint_handler = signal.signal(  # type: ignore[assignment]
             signal.SIGINT, self._sigint_handler
         )

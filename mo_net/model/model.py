@@ -5,7 +5,6 @@ import functools
 import pickle
 from collections.abc import Callable, Mapping, MutableSequence
 from dataclasses import dataclass
-from functools import partial
 from itertools import chain
 from operator import itemgetter
 from pathlib import Path
@@ -23,6 +22,7 @@ import jax.numpy as jnp
 from more_itertools import first, last, pairwise
 
 from mo_net.functions import (
+    ActivationFn,
     LossFn,
     identity,
 )
@@ -37,7 +37,6 @@ from mo_net.model.module.base import Base, Hidden, Output
 from mo_net.model.module.dense import Dense
 from mo_net.model.module.norm import BatchNormOptions, LayerNormOptions, Norm
 from mo_net.protos import (
-    ActivationFn,
     Activations,
     D,
     Dimensions,
@@ -155,14 +154,24 @@ class Model(ModelBase):
                     raise ValueError(
                         "Batch size must be provided when using batch normalisation."
                     )
-                ModuleFactory = partial(
-                    Norm,
-                    activation_fn=activation_fn,
-                    store_output_activations=tracing_enabled,
-                    options=BatchNormOptions(
-                        momentum=0.9,
-                    ),
-                )
+
+                def _batch_norm_factory(
+                    input_dimensions: Dimensions, output_dimensions: Dimensions
+                ) -> Hidden:
+                    nonlocal key
+                    key, subkey = jax.random.split(key)
+                    return Norm(
+                        input_dimensions=input_dimensions,
+                        output_dimensions=output_dimensions,
+                        activation_fn=activation_fn,
+                        store_output_activations=tracing_enabled,
+                        options=BatchNormOptions(
+                            momentum=0.9,
+                        ),
+                        key=subkey,
+                    )
+
+                ModuleFactory = _batch_norm_factory
             case NormalisationType.NONE:
 
                 def _dense_factory(

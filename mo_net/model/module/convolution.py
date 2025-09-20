@@ -2,20 +2,21 @@ import functools
 
 import jax.nn
 
+from mo_net.functions import ActivationFn, ReLU
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm.batch_norm_2d import BatchNorm2D
 from mo_net.model.layer.convolution import Convolution2D
 from mo_net.model.layer.pool import MaxPooling2D
 from mo_net.model.layer.reshape import Flatten
 from mo_net.model.module.base import Hidden
-from mo_net.protos import ActivationFn, Dimensions
+from mo_net.protos import Dimensions
 
 
 class Convolution(Hidden):
     def __init__(
         self,
         *,
-        activation_fn: ActivationFn = jax.nn.relu,
+        activation_fn: ActivationFn = ReLU(),
         flatten_output: bool = False,
         input_dimensions: Dimensions,
         kernel_size: int | tuple[int, int],

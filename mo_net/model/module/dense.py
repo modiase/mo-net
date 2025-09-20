@@ -1,9 +1,10 @@
 import jax
 
+from mo_net.functions import ActivationFn
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.linear import Linear
 from mo_net.model.module.base import Hidden
-from mo_net.protos import ActivationFn, Dimensions
+from mo_net.protos import Dimensions
 
 
 class Dense(Hidden):

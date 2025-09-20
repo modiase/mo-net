@@ -25,12 +25,13 @@ from mo_net.data import (
     load_data,
 )
 from mo_net.functions import (
+    ActivationFn,
     get_loss_fn,
     parse_activation_fn,
 )
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
-from mo_net.protos import ActivationFn, NormalisationType
+from mo_net.protos import NormalisationType
 from mo_net.train import (
     TrainingParameters,
 )
@@ -319,7 +320,7 @@ def cli_train(*args, **kwargs) -> TrainingResult:
 
 def train(
     *,
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray],
+    activation_fn: ActivationFn[jnp.ndarray],
     batch_size: int | None,
     dataset_url: str | None,
     dims: Sequence[int],
@@ -346,6 +347,7 @@ def train(
     train_split_index: int,
     warmup_epochs: int,
     workers: int,
+    disable_signal_handling: bool = False,
 ) -> TrainingResult:
     if not quiet:
         print_device_info()
@@ -432,7 +434,7 @@ def train(
         X_val=X_val,
         Y_train=Y_train,
         Y_val=Y_val,
-        disable_shutdown=training_parameters.workers != 0,
+        disable_shutdown=training_parameters.workers != 0 or disable_signal_handling,
         model=model,
         optimiser=optimiser,
         run=run,
