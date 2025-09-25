@@ -8,6 +8,7 @@
 <select id="run-selector" class="run-dropdown" onchange="navigateToRun()">
     <option value="">Select Run...</option>
 </select>
+<button class="nav-link" onclick="refreshData()">Refresh Data</button>
 {% endblock %}
 
 {% block extra_css %}
@@ -15,7 +16,6 @@
 {% endblock %}
 
 {% block content %}
-<button class="refresh-btn" onclick="refreshData()">Refresh Data</button>
 <div id="status" class="status"></div>
 <div class="stats-grid" id="stats-grid"></div>
 
@@ -173,17 +173,14 @@ function updateStats(data) {
 function calculateRunningAverageBatchesPerSecond(data) {
     if (!data || data.length < 2) return 0;
     
-    // Use data from the last 5 minutes or last 10 data points, whichever is smaller
     const now = new Date();
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
     
-    // Filter to recent data points (last 5 minutes) and ensure we have timestamps
     const recentData = data
         .filter(d => d.timestamp && new Date(d.timestamp) >= fiveMinutesAgo)
         .slice(-10); // Also limit to last 10 points to avoid too much data
     
     if (recentData.length < 2) {
-        // If not enough recent data, use last few points regardless of time
         const lastPoints = data.slice(-Math.min(5, data.length));
         if (lastPoints.length < 2) return 0;
         return calculateBatchRate(lastPoints);
@@ -195,7 +192,6 @@ function calculateRunningAverageBatchesPerSecond(data) {
 function calculateBatchRate(dataPoints) {
     if (dataPoints.length < 2) return 0;
     
-    // Sort by timestamp to ensure proper order
     const sortedData = dataPoints
         .filter(d => d.timestamp && d.batch !== undefined)
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -209,12 +205,10 @@ function calculateBatchRate(dataPoints) {
     const endTime = new Date(last.timestamp);
     const timeDiffSeconds = (endTime - startTime) / 1000;
     
-    // Avoid division by zero and ensure meaningful time difference
     if (timeDiffSeconds <= 0) return 0;
     
     const batchDiff = last.batch - first.batch;
     
-    // Ensure we're making progress (batches should increase)
     if (batchDiff <= 0) return 0;
     
     return batchDiff / timeDiffSeconds;
@@ -248,7 +242,7 @@ function plotLossChart(data) {
             type: 'scatter',
             mode: 'lines+markers',
             name: 'Batch Loss',
-            line: { color: '#1f77b4', width: 2 },
+            line: { color: '#e2984f', width: 2 },
             marker: { size: 4 }
         },
         {
@@ -257,7 +251,7 @@ function plotLossChart(data) {
             type: 'scatter',
             mode: 'lines+markers',
             name: 'Validation Loss',
-            line: { color: '#ff7f0e', width: 2 },
+            line: { color: '#e5ad76', width: 2 },
             marker: { size: 4 }
         },
         {
@@ -266,14 +260,16 @@ function plotLossChart(data) {
             type: 'scatter',
             mode: 'lines',
             name: 'Monotonic Validation Loss',
-            line: { color: '#2ca02c', width: 3, dash: 'dash' }
+            line: { color: '#28a745', width: 3, dash: 'dash' }
         }
     ], {
         xaxis: { title: 'Epoch' },
         yaxis: { title: 'Loss', type: 'log' },
         hovermode: 'x unified',
         legend: { x: 0, y: 1 },
-        margin: { l: 60, r: 20, t: 20, b: 60 }
+        margin: { l: 60, r: 20, t: 20, b: 60 },
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        paper_bgcolor: 'rgba(0,0,0,0)'
     }, { responsive: true });
 }
 
@@ -285,13 +281,15 @@ function plotLearningRate(data) {
         type: 'scatter',
         mode: 'lines+markers',
         name: 'Learning Rate',
-        line: { color: '#d62728', width: 2 },
+        line: { color: '#ecc299', width: 2 },
         marker: { size: 4 }
     }], {
         xaxis: { title: 'Epoch' },
         yaxis: { title: 'Learning Rate' },
         hovermode: 'x unified',
-        margin: { l: 60, r: 20, t: 20, b: 60 }
+        margin: { l: 60, r: 20, t: 20, b: 60 },
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        paper_bgcolor: 'rgba(0,0,0,0)'
     }, { responsive: true });
 }
 
@@ -314,13 +312,15 @@ function plotTimeline(data) {
         type: 'scatter',
         mode: 'lines+markers',
         name: 'Validation Loss over Time',
-        line: { color: '#9467bd', width: 2 },
+        line: { color: '#f2d7bb', width: 2 },
         marker: { size: 4 }
     }], {
         xaxis: { title: 'Time' },
         yaxis: { title: 'Validation Loss', type: 'log' },
         hovermode: 'x unified',
-        margin: { l: 60, r: 20, t: 20, b: 60 }
+        margin: { l: 60, r: 20, t: 20, b: 60 },
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        paper_bgcolor: 'rgba(0,0,0,0)'
     }, { responsive: true });
 }
 
