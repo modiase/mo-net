@@ -114,6 +114,8 @@ class BasicTrainer:
         Y_val: jnp.ndarray,
         loss_fn: LossFn,
         key: jnp.ndarray,
+        output_path: Path | None = None,
+        monotonic: bool = False,
     ) -> None:
         key1, key2 = jax.random.split(key, 2)
         self._disable_shutdown = disable_shutdown
@@ -127,6 +129,8 @@ class BasicTrainer:
         self._Y_train = Y_train
         self._transform = transform_fn
         self._loss_fn = loss_fn
+        self._output_path = output_path
+        self._monotonic = monotonic
         self._logger = logger.bind(name="trainer")
         self._batcher = IndexBatcher(
             train_set_size=X_train.shape[0],
@@ -305,11 +309,14 @@ class BasicTrainer:
             total_batches=self._training_parameters.total_batches,
             total_epochs=self._training_parameters.num_epochs,
         )
-        self._model_checkpoint_path = Path(
-            str((RUN_PATH / self._run.id).with_suffix(".pkl")).replace(
-                "_model_training_log", ""
+        if self._output_path is not None:
+            self._model_checkpoint_path = self._output_path
+        else:
+            self._model_checkpoint_path = Path(
+                str((RUN_PATH / self._run.id).with_suffix(".pkl")).replace(
+                    "_model_training_log", ""
+                )
             )
-        )
         self._run.log_training_parameters(
             training_parameters=self._training_parameters.model_dump_json()
         )
@@ -418,9 +425,12 @@ class BasicTrainer:
                 L_val = self._model.compute_loss(
                     X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
                 )
-                if L_val < self._L_val_min:
-                    self._L_val_min = L_val
-                    self._L_val_min_epoch = self._training_parameters.current_epoch(i)
+                if not self._monotonic or L_val < self._L_val_min:
+                    if L_val < self._L_val_min:
+                        self._L_val_min = L_val
+                        self._L_val_min_epoch = self._training_parameters.current_epoch(
+                            i
+                        )
                     self._model.dump(self._model_checkpoint_path)
 
                 if (post_epoch_check := self._post_epoch(L_val)) is not None:

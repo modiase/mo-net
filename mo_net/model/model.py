@@ -306,6 +306,45 @@ class Model(ModelBase):
         activations = self.output_module.forward_prop(input_activations=activations)
         return activations
 
+    def forward_prop_to(self, X: jnp.ndarray, layer_index: str) -> jnp.ndarray:
+        """
+        Forward propagate input to a specific layer and return its activations.
+
+        Args:
+            X: Input data
+            layer_index: String in format "m" (mth module) or "m:n" (nth layer in mth module)
+
+        Returns:
+            Activations from the specified layer
+        """
+        parts = layer_index.split(":")
+        if len(parts) > 2:
+            raise ValueError(
+                f"Invalid layer_index format '{layer_index}'. Expected 'm' or 'm:n' where m,n are integers."
+            )
+
+        layer_idx = -1
+        if len(parts) == 2:
+            module_idx_str, layer_idx_str = parts
+            module_idx = int(module_idx_str)
+            layer_idx = int(layer_idx_str)
+        else:
+            module_idx = int(parts[0])
+        # TODO(#34): We should find a way to forward propagate to a specific layer
+        # without forwarding the entire model
+        self.forward_prop(X)
+
+        target_layer = list(chain(self.hidden_modules, (self.output_module,)))[
+            module_idx
+        ].layers[layer_idx]
+        if (
+            hasattr(target_layer, "_cache")
+            and "input_activations" in target_layer._cache
+        ):
+            return target_layer._cache["input_activations"]
+
+        raise ValueError(f"No cached activations found for layer {layer_index}")
+
     def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
         dZ = self.output_module.backward_prop(Y_true=Y_true)
         for module in reversed(self.hidden_modules):
@@ -443,6 +482,39 @@ class Model(ModelBase):
     @property
     def output(self) -> Output:
         return self._output_module
+
+    def __getitem__(self, index: str):
+        """
+        Access layers/modules using string indexing.
+
+        Args:
+            index: String in format "m" (mth module) or "m:n" (nth layer in mth module)
+
+        Returns:
+            The requested layer or module
+
+        Examples:
+            model["0"] -> first hidden module
+            model["1:2"] -> second layer in second module
+        """
+        parts = index.split(":")
+        if len(parts) > 2:
+            raise ValueError(
+                f"Invalid index format '{index}'. Expected 'm' or 'm:n' where m,n are integers."
+            )
+
+        layer_idx = None
+        if len(parts) == 2:
+            module_idx_str, layer_idx_str = parts
+            module_idx = int(module_idx_str)
+            layer_idx = int(layer_idx_str)
+        else:
+            module_idx = int(parts[0])
+
+        if layer_idx is None:
+            return self.hidden_modules[module_idx]
+        else:
+            return self.hidden_modules[module_idx].layers[layer_idx]
 
 
 type Regulariser = Callable[[Model], None]

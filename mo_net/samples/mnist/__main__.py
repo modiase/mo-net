@@ -14,6 +14,9 @@ from mo_net.data import DATA_DIR, SplitConfig, load_data
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
 from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
+from mo_net.samples.mnist.cnn import cli as cnn_cli
+from mo_net.samples.mnist.mlp import cli as mlp_cli
+from mo_net.samples.mnist.mlp_decoder import cli as mlp_decoder_cli
 from mo_net.train.augment import affine_transform2D
 
 N_DIGITS: Final[int] = 10
@@ -45,6 +48,11 @@ def dataset_split_options(f):
 def mnist_cli():
     """MNIST-specific CLI commands."""
     pass
+
+
+mnist_cli.add_command(mlp_cli, name="mlp")
+mnist_cli.add_command(cnn_cli, name="cnn")
+mnist_cli.add_command(mlp_decoder_cli, name="mlp_decoder")
 
 
 @mnist_cli.command(help="Run inference using the model", name="infer")

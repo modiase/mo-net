@@ -30,11 +30,20 @@ def sparse_cross_entropy(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> float:
     ).item()
 
 
-def get_loss_fn(name: Literal["cross_entropy", "sparse_cross_entropy"]) -> LossFn:
+def mse_loss(Y_pred: jnp.ndarray, Y_true: jnp.ndarray) -> float:
+    """Mean Squared Error loss function for reconstruction tasks."""
+    return jnp.mean((Y_pred - Y_true) ** 2).item()
+
+
+def get_loss_fn(
+    name: Literal["cross_entropy", "sparse_cross_entropy", "mse"],
+) -> LossFn:
     if name == "cross_entropy":
         return cross_entropy
     elif name == "sparse_cross_entropy":
         return sparse_cross_entropy
+    elif name == "mse":
+        return mse_loss
     else:
         raise ValueError(f"Unknown loss function: {name}")
 
@@ -91,13 +100,23 @@ class Softmax:
         return jnp.ones_like(x)  # type: ignore[return-value]
 
 
+class Sigmoid:
+    def __call__(self, x: ArrayT) -> ArrayT:
+        return jax.nn.sigmoid(x)  # type: ignore[return-value]
+
+    @staticmethod
+    def deriv(x: ArrayT) -> ArrayT:
+        return jax.nn.sigmoid(x) * (1 - jax.nn.sigmoid(x))  # type: ignore[return-value]
+
+
 identity = Identity()
 ACTIVATION_FUNCTIONS: Mapping[str, ActivationFn[jnp.ndarray]] = {
-    "relu": ReLU(),
-    "tanh": Tanh(),
-    "softmax": Softmax(),
-    "leaky_relu": LeakyReLU(),
     "identity": identity,
+    "leaky_relu": LeakyReLU(),
+    "relu": ReLU(),
+    "sigmoid": Sigmoid(),
+    "softmax": Softmax(),
+    "tanh": Tanh(),
 }
 
 

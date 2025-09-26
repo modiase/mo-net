@@ -122,6 +122,55 @@ class RawOutputLayer(SoftmaxOutputLayer):
         return input_activations
 
 
+class MseOutputLayer(OutputLayer):
+    @dataclass(frozen=True, kw_only=True)
+    class Serialized:
+        input_dimensions: tuple[int, ...]
+
+        def deserialize(
+            self,
+            *,
+            training: bool = False,
+            freeze_parameters: bool = False,
+        ) -> MseOutputLayer:
+            del freeze_parameters  # unused
+            return MseOutputLayer(
+                input_dimensions=self.input_dimensions,
+                training=training,
+            )
+
+    def __init__(self, *, input_dimensions: Dimensions, training: bool = True):
+        super().__init__(input_dimensions=input_dimensions)
+        self._training = training
+
+    def _forward_prop(
+        self,
+        *,
+        input_activations: Activations,
+    ) -> Activations:
+        if self._training:
+            self._cache["output_activations"] = input_activations
+        return input_activations
+
+    def _backward_prop(
+        self,
+        *,
+        Y_true: jnp.ndarray,
+    ) -> D[Activations]:
+        if (output_activations := self._cache["output_activations"]) is None:
+            raise ValueError("Output activations not set during forward pass.")
+
+        batch_size = output_activations.shape[0]
+        return 2.0 * (output_activations - Y_true) / batch_size
+
+    @property
+    def output_dimensions(self) -> Dimensions:
+        return self._input_dimensions
+
+    def serialize(self) -> MseOutputLayer.Serialized:
+        return self.Serialized(input_dimensions=tuple(self._input_dimensions))
+
+
 class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:

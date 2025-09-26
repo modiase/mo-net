@@ -11,7 +11,7 @@ from loguru import logger
 
 from mo_net import print_device_info
 from mo_net.data import DATA_DIR
-from mo_net.functions import sparse_cross_entropy
+from mo_net.functions import get_activation_fn, sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.activation import Activation
 from mo_net.model.layer.batch_norm.batch_norm_2d import BatchNorm2D
@@ -90,7 +90,7 @@ class CNNModel(Model):
                         ),
                         Activation(
                             input_dimensions=bn1.output_dimensions,
-                            activation_fn=jax.nn.relu,
+                            activation_fn=get_activation_fn("relu"),
                         ),
                         pool1 := MaxPooling2D(
                             input_dimensions=bn1.output_dimensions,
@@ -115,7 +115,7 @@ class CNNModel(Model):
                         ),
                         Activation(
                             input_dimensions=bn2.output_dimensions,
-                            activation_fn=jax.nn.relu,
+                            activation_fn=get_activation_fn("relu"),
                         ),
                         pool2 := MaxPooling2D(
                             input_dimensions=bn2.output_dimensions,
@@ -140,7 +140,7 @@ class CNNModel(Model):
                         ),
                         Activation(
                             input_dimensions=bn3.output_dimensions,
-                            activation_fn=jax.nn.relu,
+                            activation_fn=get_activation_fn("relu"),
                         ),
                         pool3 := MaxPooling2D(
                             input_dimensions=bn3.output_dimensions,
@@ -170,7 +170,7 @@ class CNNModel(Model):
                     ),
                     Activation(
                         input_dimensions=dense.output_dimensions,
-                        activation_fn=jax.nn.relu,
+                        activation_fn=get_activation_fn("relu"),
                     ),
                     Linear(
                         input_dimensions=(512,),

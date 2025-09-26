@@ -33,6 +33,7 @@ dependencies = [
   "jax>=0.6.2",
   "jaxlib>=0.6.2",
   "jax-cuda12-plugin>=0.6.2; sys_platform != 'darwin'",
+  "plotly>=6.3.0",
 ]
 
 [dependency-groups]
@@ -65,6 +66,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "scipy"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "plotly"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "plotly.graph_objects"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "plotly.subplots"
 ignore_missing_imports = true
 
 [tool.setuptools]
