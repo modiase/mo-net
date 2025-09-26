@@ -176,6 +176,12 @@ body {
     text-align: center;
     box-shadow: 0 2px 4px rgba(226,152,79,0.15);
     border-left: 4px solid var(--color-primary);
+    transition: all 0.3s ease;
+}
+.stat-card:hover {
+    box-shadow: 0 4px 12px rgba(226,152,79,0.25);
+    transform: translateY(-2px);
+    transition: all 0.3s ease;
 }
 
 .stat-card.completed {
