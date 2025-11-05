@@ -43,6 +43,7 @@ dev = [
   "jupyter>=1.1.1",
   "line-profiler>=4.2.0",
   "pandas-stubs>=2.2.3.250308",
+  "pyright>=1.1.407",
   "pytest>=8.3.5",
   "ruff<1.0.0,>=0.9.7",
   "taskipy>=1.14.1",

@@ -12,18 +12,9 @@ repos:
           - "fd -e py -x ruff format -q"
       - id: typecheck
         name: typecheck
-        entry: bash
+        entry: uv run python mo_net/scripts/typecheck.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: \.(py)$
         stages: [pre-commit]
-        additional_dependencies: []
-        always_run: false
         require_serial: true
-        args:
-          - -c
-          - |
-            set -e
-            if [ "$(git branch --show-current)" = "main" ]; then
-              uv run task typecheck
-            fi
