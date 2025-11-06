@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 
 import jax.numpy as jnp
 import pytest
 
 from mo_net.model.layer.pool import MaxPooling2D
-from mo_net.protos import Activations, Dimensions
+from mo_net.protos import Activations, D, Dimensions
 
 TEST_INPUT: Final[jnp.ndarray] = jnp.ones(shape=(3, 3))
 
@@ -112,5 +112,5 @@ def test_max_pool_2d_backward_prop(test_case: BackpropTestCase):
         stride=test_case.stride,
     )
     pool_layer.forward_prop(Activations(test_case.X))
-    dX = pool_layer.backward_prop(test_case.dZ)
+    dX = pool_layer.backward_prop(cast(D[Activations], test_case.dZ))
     assert jnp.allclose(dX, test_case.expected)  # type: ignore[arg-type]

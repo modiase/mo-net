@@ -59,7 +59,7 @@ def prompt_for_run_selection(session) -> int:
         )
         choices.append({"name": display_name, "value": run.id})
 
-    run_id = inquirer.select(
+    run_id = inquirer.select(  # type: ignore[attr-defined]
         message="Select a training run to monitor:",
         choices=choices,
     ).execute()
@@ -141,7 +141,7 @@ def main(*, refresh: int, width: int, height: int):
 
             fig.x_label = "Epoch"
             fig.y_label = "Loss"
-            fig.title = f"Training Progress (Epoch {int(last_epoch)})"
+            fig.title = f"Training Progress (Epoch {int(last_epoch)})"  # type: ignore[attr-defined]
 
             print(fig.show())
 

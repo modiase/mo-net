@@ -3,9 +3,12 @@ import os
 import sys
 from collections.abc import Collection, Mapping
 from pathlib import Path
-from typing import Final, Literal, cast
+from typing import Any, Final, Literal, cast
 
 import jax
+
+# Type alias for jax.Device - pyright doesn't recognize it as a type
+Device = Any  # jax.Device
 from loguru import logger
 from more_itertools import first
 
@@ -52,7 +55,7 @@ def suppress_native_output():
                 os.close(devnull_fd)
 
 
-def get_platform_to_device() -> Mapping[str, Collection[jax.Device]]:
+def get_platform_to_device() -> Mapping[str, Collection[Device]]:
     with suppress_native_output():
         return {
             device_type: [d for d in jax.devices() if d.platform.lower() == device_type]
@@ -60,7 +63,7 @@ def get_platform_to_device() -> Mapping[str, Collection[jax.Device]]:
         }
 
 
-def select_device(device_type: DeviceType = "auto") -> jax.Device:
+def select_device(device_type: DeviceType = "auto") -> Device:
     if os.environ.get("JAX_FORCE_CPU"):
         logger.info("JAX_FORCE_CPU is set, using CPU.")
         return first(jax.devices("cpu"))

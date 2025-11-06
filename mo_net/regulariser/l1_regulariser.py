@@ -30,7 +30,7 @@ class L1Regulariser(TrainingStepHandler):
                 weights=self._lambda
                 * jnp.sign(self._layer.parameters.weights)
                 / self._batch_size,
-                biases=jnp.zeros_like(dP.biases),
+                biases=jnp.zeros_like(dP.biases),  # type: ignore[reportAttributeAccessIssue]
             )
         )
 

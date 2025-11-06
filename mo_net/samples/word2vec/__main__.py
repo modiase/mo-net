@@ -78,7 +78,7 @@ def all_windows(
 
 class CBOWModel(Model):
     @dataclass(frozen=True, kw_only=True)
-    class Serialized:
+    class Serialized:  # type: ignore[misc]  # Intentional override of parent's Serialized class
         input_dimensions: tuple[int, ...]
         hidden_modules: tuple[SupportsDeserialize, ...]
         output_module: SupportsDeserialize
@@ -145,11 +145,11 @@ class CBOWModel(Model):
     def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
-    def dump(self, out: IO[bytes] | Path) -> None:
+    def dump(self, io: IO[bytes] | Path) -> None:
         with (
-            open(out, "wb")
-            if isinstance(out, Path)
-            else contextlib.nullcontext(out) as io
+            open(io, "wb")
+            if isinstance(io, Path)
+            else contextlib.nullcontext(io) as file_io
         ):
             pickle.dump(
                 self.Serialized(
@@ -159,7 +159,7 @@ class CBOWModel(Model):
                     ),
                     output_module=self.output_module.serialize(),
                 ),
-                io,
+                file_io,
             )
 
     @classmethod
@@ -192,7 +192,7 @@ class CBOWModel(Model):
 
 class SkipGramModel(Model):
     @dataclass(frozen=True, kw_only=True)
-    class Serialized:
+    class Serialized:  # type: ignore[misc]  # Intentional override of parent's Serialized class
         input_dimensions: tuple[int, ...]
         hidden_modules: tuple[SupportsDeserialize, ...]
         output_module: SupportsDeserialize
@@ -310,11 +310,11 @@ class SkipGramModel(Model):
     def embeddings(self) -> jnp.ndarray:
         return self.embedding_layer.parameters.embeddings
 
-    def dump(self, out: IO[bytes] | Path) -> None:
+    def dump(self, io: IO[bytes] | Path) -> None:
         with (
-            open(out, "wb")
-            if isinstance(out, Path)
-            else contextlib.nullcontext(out) as io
+            open(io, "wb")
+            if isinstance(io, Path)
+            else contextlib.nullcontext(io) as file_io
         ):
             pickle.dump(
                 self.Serialized(
@@ -325,7 +325,7 @@ class SkipGramModel(Model):
                     output_module=self.output_module.serialize(),
                     negative_samples=self._negative_samples,
                 ),
-                io,
+                file_io,
             )
 
     @classmethod

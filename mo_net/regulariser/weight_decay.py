@@ -1,5 +1,5 @@
 from itertools import chain
-from typing import Protocol
+from typing import Protocol, cast
 
 import jax.numpy as jnp
 
@@ -24,11 +24,12 @@ class WeightDecayRegulariser(TrainingStepHandler):
         if dP is None:
             return
 
+        dP_params: Linear.Parameters = cast(Linear.Parameters, dP)  # type: ignore[valid-type]
         self._layer.cache["dP"] = d(  # type: ignore[index]
             dP
             + Linear.Parameters(
                 weights=self._lambda * self._layer.parameters.weights,
-                biases=jnp.zeros_like(dP.biases),
+                biases=jnp.zeros_like(dP_params.biases),
             )
         )
 

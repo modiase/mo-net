@@ -6,7 +6,7 @@ import tempfile
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, assert_never
+from typing import IO, assert_never, cast
 
 import click
 import jax
@@ -54,7 +54,7 @@ def save_and_show_plot(fig, output_path: Path | None, show: bool) -> None:
 
 class MLPDecoderModel(Model):
     @dataclass(frozen=True, kw_only=True)
-    class Serialized:
+    class Serialized:  # type: ignore[misc]  # Intentional override of parent's Serialized class
         input_dimensions: tuple[int, ...]
         hidden_modules: tuple[SupportsDeserialize, ...]
         output_module: SupportsDeserialize
@@ -117,11 +117,11 @@ class MLPDecoderModel(Model):
             ),
         )
 
-    def dump(self, out: IO[bytes] | Path) -> None:
+    def dump(self, io: IO[bytes] | Path) -> None:
         with (
-            open(out, "wb")
-            if isinstance(out, Path)
-            else contextlib.nullcontext(out) as io
+            open(io, "wb")
+            if isinstance(io, Path)
+            else contextlib.nullcontext(io) as file_io
         ):
             pickle.dump(
                 self.Serialized(
@@ -131,7 +131,7 @@ class MLPDecoderModel(Model):
                     ),
                     output_module=self.output_module.serialize(),
                 ),
-                io,
+                file_io,
             )
 
     @classmethod
@@ -488,7 +488,7 @@ def reconstruct(
             layer
             for module in decoder_model.modules
             for layer in module.layers
-            if hasattr(layer, "parameters") and hasattr(layer.parameters, "weights")
+            if isinstance(layer, Linear)
         ),
         None,
     )
@@ -524,9 +524,10 @@ def reconstruct(
         )
 
         if first_linear:
+            linear_layer = cast(Linear, first_linear)
             fig.add_trace(
                 go.Histogram(
-                    x=first_linear.parameters.weights[i].flatten(),
+                    x=linear_layer.parameters.weights[i].flatten(),
                     nbinsx=20,
                     name=f"Unit {i} Weights",
                     showlegend=False,
@@ -538,7 +539,7 @@ def reconstruct(
             fig.add_trace(
                 go.Heatmap(
                     z=np.tile(
-                        first_linear.parameters.weights[i].reshape(-1, 1), (1, 10)
+                        linear_layer.parameters.weights[i].reshape(-1, 1), (1, 10)
                     ),
                     colorscale="RdBu",
                     showscale=False,

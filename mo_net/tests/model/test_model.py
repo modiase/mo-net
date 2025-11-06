@@ -21,10 +21,11 @@ def test_model_initialisation_of_mlp_has_correct_dimensions():
     assert model.input_dimensions == (2,)
     assert model.output_dimensions == (2,)
 
-    assert model.hidden_modules[0].layers[0]._parameters.weights.shape == (2, 2)
-    assert model.hidden_modules[0].layers[0]._parameters.biases.shape == (2,)
-    assert model.output_module.layers[0]._parameters.weights.shape == (2, 2)
-    assert model.output_module.layers[0]._parameters.biases.shape == (2,)
+    # Intentionally accessing private _parameters for testing
+    assert model.hidden_modules[0].layers[0]._parameters.weights.shape == (2, 2)  # type: ignore[attr-defined]
+    assert model.hidden_modules[0].layers[0]._parameters.biases.shape == (2,)  # type: ignore[attr-defined]
+    assert model.output_module.layers[0]._parameters.weights.shape == (2, 2)  # type: ignore[attr-defined]
+    assert model.output_module.layers[0]._parameters.biases.shape == (2,)  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize("n_hidden_layers", [1, 2, 3])
@@ -108,8 +109,9 @@ def test_serialize_deserialize():
 
     X_prop_before = model.forward_prop(X)
     buffer = io.BytesIO()
+    # Intentionally setting private _layer_id for serialization testing
     for i, layer in enumerate(model.layers):
-        layer._layer_id = f"test_layer_for_serialization_{i}"
+        layer._layer_id = f"test_layer_for_serialization_{i}"  # type: ignore[attr-defined]
     buffer.write(pickle.dumps(model.serialize()))
     buffer.seek(0)
     deserialized = Model.load(buffer)

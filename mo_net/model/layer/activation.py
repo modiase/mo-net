@@ -12,6 +12,7 @@ from mo_net.protos import (
     D,
     Dimensions,
 )
+from typing import cast
 
 
 class Activation(Hidden):
@@ -59,7 +60,8 @@ class Activation(Hidden):
             raise ValueError("Input activations not set during forward pass.")
 
         derivative = self._activation_fn.deriv(input_activations)
-        return derivative * dZ
+        # derivative * dZ returns D[Activations] due to __rmul__ on D protocol
+        return cast(D[Activations], derivative * dZ)
 
     @property
     def input_dimensions(self) -> Dimensions:

@@ -40,6 +40,7 @@ class LoggingBackend(Protocol):
         total_epochs: int,
     ) -> str:
         """Create a new run using backend."""
+        ...
 
     def end_run(self, run_id: str) -> None:
         """End the run using backend."""

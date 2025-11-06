@@ -1,11 +1,12 @@
 from dataclasses import dataclass
+from typing import cast
 
 import jax.numpy as jnp
 import jax.random as random
 import pytest
 
 from mo_net.model.layer.batch_norm.batch_norm import BatchNorm, ParametersType
-from mo_net.protos import Activations, Dimensions
+from mo_net.protos import Activations, D, Dimensions
 
 key = random.PRNGKey(42)
 
@@ -210,19 +211,20 @@ def test_batch_norm_backward_prop(test_case: BackwardPropTestCase):
 
     key1, _ = random.split(key)
     dZ = random.normal(key1, (3, 2))
-    dX = layer.backward_prop(dZ=dZ)
+    dX = layer.backward_prop(dZ=cast(D[Activations], dZ))
 
-    assert jnp.allclose(dX, test_case.expected_dX, atol=1e-3), (  # type: ignore[arg-type]
+    assert jnp.allclose(cast(jnp.ndarray, dX), test_case.expected_dX, atol=1e-3), (
         f"dX incorrect: got {dX}, expected {test_case.expected_dX}"
     )
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"
-    assert jnp.allclose(-cached_dP.weights, test_case.expected_weights, atol=1e-3), (  # type: ignore[attr-defined]
-        f"weights incorrect: got {-cached_dP.weights}, expected {test_case.expected_weights}"  # type: ignore[attr-defined]
+    dP = cast(ParametersType, cached_dP)
+    assert jnp.allclose(-dP.weights, test_case.expected_weights, atol=1e-3), (
+        f"weights incorrect: got {-dP.weights}, expected {test_case.expected_weights}"
     )
-    assert jnp.allclose(-cached_dP.biases, test_case.expected_biases, atol=1e-3), (  # type: ignore[attr-defined]
-        f"biases incorrect: got {-cached_dP.biases}, expected {test_case.expected_biases}"  # type: ignore[attr-defined]
+    assert jnp.allclose(-dP.biases, test_case.expected_biases, atol=1e-3), (
+        f"biases incorrect: got {-dP.biases}, expected {test_case.expected_biases}"
     )
 
 
@@ -274,7 +276,7 @@ def test_batch_norm_parameter_update(test_case: ParameterUpdateTestCase):
     )
 
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    layer.backward_prop(dZ=test_case.dZ)
+    layer.backward_prop(dZ=cast(D[Activations], test_case.dZ))
     layer.update_parameters()
 
     assert jnp.allclose(
@@ -361,7 +363,7 @@ def test_batch_norm_error_on_backward_without_forward():
     with pytest.raises(
         RuntimeError, match="Mean is not populated during backward pass"
     ):
-        layer.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
+        layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0, 1.0]])))
 
 
 def test_batch_norm_error_on_update_without_gradients():
@@ -436,22 +438,24 @@ def test_batch_norm_gradient_flow():
 
     key1, _ = random.split(key)
     dZ = random.normal(key1, (3, 2))
-    dX = layer.backward_prop(dZ=dZ)
+    dX = layer.backward_prop(dZ=cast(D[Activations], dZ))
 
-    assert dX.shape == input_data.shape
-    assert jnp.isfinite(dX).all()
+    assert cast(jnp.ndarray, dX).shape == input_data.shape
+    assert jnp.isfinite(cast(jnp.ndarray, dX)).all()
     assert layer.cache["dP"] is not None
-    assert jnp.isfinite(layer.cache["dP"].weights).all()
-    assert jnp.isfinite(layer.cache["dP"].biases).all()
+    dP = cast(ParametersType, layer.cache["dP"])
+    assert jnp.isfinite(dP.weights).all()
+    assert jnp.isfinite(dP.biases).all()
 
 
 def test_batch_norm_empty_gradient():
     """Test empty gradient generation."""
     layer = BatchNorm(input_dimensions=(3,))
     empty_grad = layer.empty_gradient()
+    dP = cast(ParametersType, empty_grad)
 
-    assert jnp.allclose(empty_grad.weights, jnp.zeros(3))
-    assert jnp.allclose(empty_grad.biases, jnp.zeros(3))
+    assert jnp.allclose(dP.weights, jnp.zeros(3))
+    assert jnp.allclose(dP.biases, jnp.zeros(3))
 
 
 def test_batch_norm_parameter_count():

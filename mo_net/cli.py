@@ -10,6 +10,7 @@ from typing import (
     ParamSpec,
     TypeVar,
     assert_never,
+    cast,
 )
 
 import click
@@ -148,6 +149,9 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         ),
         help="Set the normalisation type",
         default=NormalisationType.LAYER.value,
+        callback=lambda _, __, value: NormalisationType(value)
+        if isinstance(value, str)
+        else NormalisationType.LAYER,
     )
     @click.option(
         "-k",
@@ -273,28 +277,59 @@ def get_model(
     if model_path is None:
         if len(dims) == 0:
             raise ValueError("Dims must be provided when training a new model.")
-        return Model.mlp_of(  # type: ignore[call-overload]
-            key=key,
-            module_dimensions=(
-                tuple(
-                    map(
-                        lambda d: (d,),
-                        [
-                            X_train.shape[1],
-                            *dims,
-                            Y_train.shape[
-                                1
-                            ],  # Output dimension should match number of classes
-                        ],
-                    )
+        if batch_size is not None:
+            # When batch_size is int, normalisation_type must be Literal[NormalisationType.BATCH]
+            if normalisation_type != NormalisationType.BATCH:
+                raise ValueError(
+                    f"When batch_size is provided, normalisation_type must be BATCH, got {normalisation_type}"
                 )
-            ),
-            activation_fn=activation_fn,
-            batch_size=batch_size,
-            normalisation_type=normalisation_type,
-            tracing_enabled=tracing_enabled,
-            dropout_keep_probs=dropout_keep_probs,
-        )
+            return Model.mlp_of(
+                key=key,
+                module_dimensions=(
+                    tuple(
+                        map(
+                            lambda d: (d,),
+                            [
+                                X_train.shape[1],
+                                *dims,
+                                Y_train.shape[
+                                    1
+                                ],  # Output dimension should match number of classes
+                            ],
+                        )
+                    )
+                ),
+                activation_fn=activation_fn,
+                batch_size=batch_size,
+                normalisation_type=cast(
+                    Literal[NormalisationType.BATCH], normalisation_type
+                ),
+                tracing_enabled=tracing_enabled,
+                dropout_keep_probs=dropout_keep_probs,
+            )
+        else:
+            return Model.mlp_of(  # type: ignore[call-overload]
+                key=key,
+                module_dimensions=(
+                    tuple(
+                        map(
+                            lambda d: (d,),
+                            [
+                                X_train.shape[1],
+                                *dims,
+                                Y_train.shape[
+                                    1
+                                ],  # Output dimension should match number of classes
+                            ],
+                        )
+                    )
+                ),
+                activation_fn=activation_fn,
+                batch_size=batch_size,
+                normalisation_type=normalisation_type,
+                tracing_enabled=tracing_enabled,
+                dropout_keep_probs=dropout_keep_probs,
+            )
     else:
         if len(dims) != 0:
             raise ValueError(

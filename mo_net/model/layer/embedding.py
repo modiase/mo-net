@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, Self
+from typing import IO, Self, cast
 
 import jax
 import jax.numpy as jnp
@@ -52,7 +52,7 @@ class Parameters(SupportsGradientOperations):
         match other:
             case float() | int():
                 return self.__class__(embeddings=other * self.embeddings)
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(embeddings=self.embeddings * other.embeddings)
             case _:
                 return NotImplemented
@@ -287,7 +287,8 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         self._write_header(buffer)
         if self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
-        buffer.write(memoryview(self._cache["dP"].embeddings))
+        dP = cast(ParametersType, self._cache["dP"])
+        buffer.write(memoryview(dP.embeddings))
 
     def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
@@ -296,7 +297,8 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
         if self._cache["dP"] is None:
             self._cache["dP"] = d(update)
         else:
-            self._cache["dP"] += d(update)
+            current_dP = cast(ParametersType, self._cache["dP"])
+            self._cache["dP"] = d(current_dP + update)
 
     @property
     def parameter_nbytes(self) -> int:

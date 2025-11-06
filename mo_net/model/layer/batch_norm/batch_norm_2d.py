@@ -27,90 +27,84 @@ class Parameters2D(SupportsGradientOperations):
     biases: jnp.ndarray  # Shape: (n_channels,)
 
     def __add__(self, other: Self | float | int) -> Self:
-        match other:
-            case float() | int():
-                return self.__class__(
-                    weights=self.weights + other,
-                    biases=self.biases + other,
-                )
-            case self.__class__():
-                return self.__class__(
-                    weights=self.weights + other.weights,
-                    biases=self.biases + other.biases,
-                )
-            case _:
-                return NotImplemented
+        if isinstance(other, (float, int)):
+            return self.__class__(
+                weights=self.weights + other,
+                biases=self.biases + other,
+            )
+        elif isinstance(other, self.__class__):
+            return self.__class__(
+                weights=self.weights + other.weights,
+                biases=self.biases + other.biases,
+            )
+        else:
+            return NotImplemented
 
-    def __radd__(self, other: Self | float | int) -> Self:
-        match other:
-            case float() | int():
-                return self.__class__(
-                    weights=other + self.weights,
-                    biases=other + self.biases,
-                )
-            case _:
-                return NotImplemented
+    def __radd__(self, other: Self | float | int) -> Self:  # type: ignore[reportIncompatibleMethodOverride]
+        if isinstance(other, (float, int)):
+            return self.__class__(
+                weights=other + self.weights,
+                biases=other + self.biases,
+            )
+        else:
+            return NotImplemented
 
-    def __neg__(self) -> Self:
+    def __neg__(self) -> Self:  # type: ignore[reportIncompatibleMethodOverride]
         return self.__class__(
             weights=-self.weights,
             biases=-self.biases,
         )
 
-    def __sub__(self, other: Self | float) -> Self:
-        match other:
-            case float() | int():
-                return self.__class__(
-                    weights=self.weights - other,
-                    biases=self.biases - other,
-                )
-            case self.__class__():
-                return self.__class__(
-                    weights=self.weights - other.weights,
-                    biases=self.biases - other.biases,
-                )
-            case _:
-                return NotImplemented
+    def __sub__(self, other: Self | float) -> Self:  # type: ignore[reportIncompatibleMethodOverride]
+        if isinstance(other, (float, int)):
+            return self.__class__(
+                weights=self.weights - other,
+                biases=self.biases - other,
+            )
+        elif isinstance(other, self.__class__):
+            return self.__class__(
+                weights=self.weights - other.weights,
+                biases=self.biases - other.biases,
+            )
+        else:
+            return NotImplemented
 
     def __mul__(self, other: float | Self) -> Self:
-        match other:
-            case float() | int():
-                return self.__class__(
-                    weights=self.weights * other,
-                    biases=self.biases * other,
-                )
-            case self.__class__():
-                return self.__class__(
-                    weights=self.weights * other.weights,
-                    biases=self.biases * other.biases,
-                )
-            case _:
-                return NotImplemented
+        if isinstance(other, (float, int)):
+            return self.__class__(
+                weights=self.weights * other,
+                biases=self.biases * other,
+            )
+        elif isinstance(other, self.__class__):
+            return self.__class__(
+                weights=self.weights * other.weights,
+                biases=self.biases * other.biases,
+            )
+        else:
+            return NotImplemented
 
     def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
 
-    def __truediv__(self, other: Self | float | int) -> Self:
-        match other:
-            case float() | int():
-                return self.__mul__(1 / other)
-            case self.__class__():
-                return self.__class__(
-                    weights=self.weights / other.weights,
-                    biases=self.biases / other.biases,
-                )
-            case _:
-                return NotImplemented
+    def __truediv__(self, other: Self | float | int) -> Self:  # type: ignore[reportIncompatibleMethodOverride]
+        if isinstance(other, (float, int)):
+            return self.__mul__(1 / other)
+        elif isinstance(other, self.__class__):
+            return self.__class__(
+                weights=self.weights / other.weights,
+                biases=self.biases / other.biases,
+            )
+        else:
+            return NotImplemented
 
-    def __pow__(self, other: float | int) -> Self:
-        match other:
-            case float() | int():
-                return self.__class__(
-                    weights=self.weights**other,
-                    biases=self.biases**other,
-                )
-            case _:
-                return NotImplemented
+    def __pow__(self, other: float | int) -> Self:  # type: ignore[reportIncompatibleMethodOverride]
+        if isinstance(other, (float, int)):
+            return self.__class__(
+                weights=self.weights**other,
+                biases=self.biases**other,
+            )
+        else:
+            return NotImplemented
 
     @classmethod
     def empty(cls, *, input_dimensions: Dimensions) -> Self:
@@ -299,12 +293,12 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             )
 
         dX_norm = dZ * self._parameters.weights[:, None, None]  # type: ignore[operator]
-        d_weights = jnp.sum(dZ * output_activations, axis=(0, 2, 3))
-        d_beta = jnp.sum(dZ, axis=(0, 2, 3))
+        d_weights = jnp.sum(cast(jnp.ndarray, dZ) * output_activations, axis=(0, 2, 3))
+        d_beta = jnp.sum(cast(jnp.ndarray, dZ), axis=(0, 2, 3))
 
         if self._training:
             self._cache["dP"] = d(
-                self.Parameters(
+                Parameters2D(
                     weights=-d_weights,
                     biases=-d_beta,
                 )
@@ -315,15 +309,16 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
             raise RuntimeError("batch size not set during forward pass.")
         spatial_size = input_activations.shape[2] * input_activations.shape[3]
 
+        dX_norm_array = cast(jnp.ndarray, dX_norm)
         d_batch_variance = -0.5 * jnp.sum(
-            dX_norm.reshape(batch_size, -1, spatial_size)
+            dX_norm_array.reshape(batch_size, -1, spatial_size)
             * (input_activations.reshape(batch_size, -1, spatial_size) - mean[:, None])
             * jnp.power(var[:, None] + EPSILON, -1.5),
             axis=(0, 2),
         )
 
         d_batch_mean = -jnp.sum(
-            dX_norm.reshape(batch_size, -1, spatial_size)
+            dX_norm_array.reshape(batch_size, -1, spatial_size)
             / jnp.sqrt(var[:, None] + EPSILON),
             axis=(0, 2),
         ) + d_batch_variance * jnp.sum(
@@ -333,7 +328,7 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
         ) / (batch_size * spatial_size)
 
         dX = (
-            dX_norm / jnp.sqrt(var[:, None, None] + EPSILON)
+            dX_norm_array / jnp.sqrt(var[:, None, None] + EPSILON)
             + d_batch_variance[:, None, None]
             * 2
             * (input_activations - mean[:, None, None])
@@ -344,14 +339,14 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
         return cast(D[Activations], dX)
 
     def empty_parameters(self) -> Parameters2D:
-        return self.Parameters(
+        return Parameters2D(
             weights=jnp.ones(self._input_dimensions[0]),
             biases=jnp.zeros(self._input_dimensions[0]),
         )
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
-            self.Parameters(
+            Parameters2D(
                 weights=jnp.zeros_like(self._parameters.weights),
                 biases=jnp.zeros_like(self._parameters.biases),
             )
@@ -380,8 +375,9 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
         self._write_header(buffer)
         if self._cache is None or self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
-        buffer.write(memoryview(self._cache["dP"].weights))
-        buffer.write(memoryview(self._cache["dP"].biases))
+        dP = cast(Parameters2D, self._cache["dP"])
+        buffer.write(memoryview(dP.weights))
+        buffer.write(memoryview(dP.biases))
 
     def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
@@ -390,4 +386,5 @@ class BatchNorm2D(ParametrisedHidden[ParametersType, CacheType]):
         if self._cache["dP"] is None:
             self._cache["dP"] = d(update)
         else:
-            self._cache["dP"] += d(update)
+            current_dP = cast(Parameters2D, self._cache["dP"])
+            self._cache["dP"] = d(current_dP + update)

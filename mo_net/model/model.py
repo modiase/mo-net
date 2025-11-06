@@ -337,11 +337,10 @@ class Model(ModelBase):
         target_layer = list(chain(self.hidden_modules, (self.output_module,)))[
             module_idx
         ].layers[layer_idx]
-        if (
-            hasattr(target_layer, "_cache")
-            and "input_activations" in target_layer._cache
-        ):
-            return target_layer._cache["input_activations"]
+        if hasattr(target_layer, "_cache"):
+            cache = getattr(target_layer, "_cache", None)
+            if cache is not None and "input_activations" in cache:
+                return cache["input_activations"]
 
         raise ValueError(f"No cached activations found for layer {layer_index}")
 
@@ -356,11 +355,17 @@ class Model(ModelBase):
             module.update_parameters()
         self.output_module.update_parameters()
 
-    def dump(self, out: IO[bytes] | Path) -> None:
+    @overload
+    def dump(self, io: IO[bytes]) -> None: ...
+
+    @overload
+    def dump(self, io: Path) -> None: ...
+
+    def dump(self, io: IO[bytes] | Path) -> None:
         with (
-            open(out, "wb")
-            if isinstance(out, Path)
-            else contextlib.nullcontext(out) as io
+            open(io, "wb")
+            if isinstance(io, Path)
+            else contextlib.nullcontext(io) as file_io
         ):
             pickle.dump(
                 self.Serialized(
@@ -370,7 +375,7 @@ class Model(ModelBase):
                     ),
                     output_module=self.output_module.serialize(),
                 ),
-                io,
+                file_io,
             )
 
     @classmethod

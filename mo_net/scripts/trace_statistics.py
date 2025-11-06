@@ -2,6 +2,7 @@ import re
 import signal
 import sys
 from pathlib import Path
+from typing import cast
 
 import click
 import h5py
@@ -35,43 +36,78 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
     """Plot histograms for the given iteration with related parameters grouped by rows."""
     plt.style.use("dark_background")
 
-    iteration_group = file[iteration_key]
+    iteration_item = file[iteration_key]
+    if not isinstance(iteration_item, h5py.Group):
+        return
+    iteration_group = iteration_item
 
     layer_count = 0
 
     if "weights" in iteration_group:
-        for layer_key in iteration_group["weights"]:
-            if isinstance(iteration_group["weights"][layer_key], h5py.Group):
-                layer_num = int(layer_key.split("_")[1])
-                layer_count = max(layer_count, layer_num + 1)
+        weights_item = iteration_group["weights"]
+        if isinstance(weights_item, h5py.Group):
+            for layer_key in weights_item:
+                if isinstance(layer_key, str) and isinstance(
+                    weights_item[layer_key], h5py.Group
+                ):
+                    parts = layer_key.split("_")
+                    if len(parts) > 1:
+                        layer_num = int(parts[1])
+                        layer_count = max(layer_count, layer_num + 1)
 
     if "gradients" in iteration_group:
-        for layer_key in iteration_group["gradients"]:
-            if isinstance(iteration_group["gradients"][layer_key], h5py.Group):
-                layer_num = int(layer_key.split("_")[1])
-                layer_count = max(layer_count, layer_num + 1)
+        gradients_item = iteration_group["gradients"]
+        if isinstance(gradients_item, h5py.Group):
+            for layer_key in gradients_item:
+                if isinstance(layer_key, str) and isinstance(
+                    gradients_item[layer_key], h5py.Group
+                ):
+                    parts = layer_key.split("_")
+                    if len(parts) > 1:
+                        layer_num = int(parts[1])
+                        layer_count = max(layer_count, layer_num + 1)
 
     if "updates" in iteration_group:
-        if "weights" in iteration_group["updates"]:
-            for layer_key in iteration_group["updates"]["weights"]:
-                if isinstance(
-                    iteration_group["updates"]["weights"][layer_key], h5py.Group
-                ):
-                    layer_num = int(layer_key.split("_")[1])
-                    layer_count = max(layer_count, layer_num + 1)
-        if "biases" in iteration_group["updates"]:
-            for layer_key in iteration_group["updates"]["biases"]:
-                if isinstance(
-                    iteration_group["updates"]["biases"][layer_key], h5py.Group
-                ):
-                    layer_num = int(layer_key.split("_")[1])
-                    layer_count = max(layer_count, layer_num + 1)
+        updates_item = iteration_group["updates"]
+        if isinstance(updates_item, h5py.Group):
+            if "weights" in updates_item:
+                weights_update_item = updates_item["weights"]
+                if isinstance(weights_update_item, h5py.Group):
+                    for layer_key in weights_update_item:
+                        if isinstance(layer_key, str) and isinstance(
+                            weights_update_item[layer_key], h5py.Group
+                        ):
+                            parts = layer_key.split("_")
+                            if len(parts) > 1:
+                                layer_num = int(parts[1])
+                                layer_count = max(layer_count, layer_num + 1)
+            if "biases" in updates_item:
+                biases_update_item = updates_item["biases"]
+                if isinstance(biases_update_item, h5py.Group):
+                    for layer_key in biases_update_item:
+                        if isinstance(layer_key, str) and isinstance(
+                            biases_update_item[layer_key], h5py.Group
+                        ):
+                            parts = layer_key.split("_")
+                            if len(parts) > 1:
+                                layer_num = int(parts[1])
+                                layer_count = max(layer_count, layer_num + 1)
 
-    has_weights = "weights" in iteration_group
-    has_biases = "biases" in iteration_group
-    has_raw_gradients = "raw_gradients" in iteration_group
-    has_activations = "activations" in iteration_group
-    has_updates = "updates" in iteration_group
+    has_weights = "weights" in iteration_group and isinstance(
+        iteration_group["weights"], h5py.Group
+    )
+    has_biases = "biases" in iteration_group and isinstance(
+        iteration_group["biases"], h5py.Group
+    )
+    has_raw_gradients = "raw_gradients" in iteration_group and isinstance(
+        iteration_group["raw_gradients"], h5py.Group
+    )
+    has_activations = "activations" in iteration_group and isinstance(
+        iteration_group["activations"], h5py.Group
+    )
+    has_updates = "updates" in iteration_group and isinstance(
+        iteration_group["updates"], h5py.Group
+    )
     n_rows = layer_count
     n_cols = 7  # weights, biases, weight gradients, bias gradients, weight updates, bias updates, activations
 
@@ -105,146 +141,208 @@ def plot_histograms(file: h5py.File, iteration_key: str) -> None:
         layer_key = f"layer_{layer_idx}"
 
         # Plot weights (column 1)
-        if has_weights and layer_key in iteration_group["weights"]:
-            layer = iteration_group["weights"][layer_key]
-            if "histogram_values" in layer and "histogram_bins" in layer:
-                ax = fig.add_subplot(gs[layer_idx, 0])
-                values = layer["histogram_values"][()]
-                bins = layer["histogram_bins"][()]
-                ax.bar(bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="red")
-                ax.set_title(f"Weights L{layer_idx}", fontsize=8)
-                ax.set_yscale("log")
-                ax.set_xlabel("Value")
-                ax.set_ylabel("Count (log)")
-                ax.grid(alpha=0.3)
-
-        # Plot biases (column 2)
-        if has_biases and layer_key in iteration_group["biases"]:
-            layer = iteration_group["biases"][layer_key]
-            if "histogram_values" in layer and "histogram_bins" in layer:
-                ax = fig.add_subplot(gs[layer_idx, 1])
-                values = layer["histogram_values"][()]
-                bins = layer["histogram_bins"][()]
-                ax.bar(
-                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="orange"
-                )
-                ax.set_title(f"Biases L{layer_idx}", fontsize=8)
-                ax.set_yscale("log")
-                ax.set_xlabel("Value")
-                ax.set_ylabel("Count (log)")
-                ax.grid(alpha=0.3)
-
-        # Plot weight gradients (column 3)
-        if has_raw_gradients and layer_key in iteration_group["raw_gradients"]:
-            gradient_layer = iteration_group["raw_gradients"][layer_key]
-            if (
-                "weights" in gradient_layer
-                and "histogram_values" in gradient_layer["weights"]
-            ):
-                ax = fig.add_subplot(gs[layer_idx, 2])
-                values = gradient_layer["weights"]["histogram_values"][()]
-                bins = gradient_layer["weights"]["histogram_bins"][()]
-                ax.bar(
-                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="yellow"
-                )
-                ax.set_title(f"Weight Gradients L{layer_idx}", fontsize=8)
-                ax.set_yscale("log")
-                ax.set_xlabel("Value")
-                ax.set_ylabel("Count (log)")
-                ax.grid(alpha=0.3)
-
-        # Plot bias gradients (column 4)
-        if has_raw_gradients and layer_key in iteration_group["raw_gradients"]:
-            gradient_layer = iteration_group["raw_gradients"][layer_key]
-            if (
-                "biases" in gradient_layer
-                and "histogram_values" in gradient_layer["biases"]
-            ):
-                ax = fig.add_subplot(gs[layer_idx, 3])
-                values = gradient_layer["biases"]["histogram_values"][()]
-                bins = gradient_layer["biases"]["histogram_bins"][()]
-                ax.bar(
-                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="green"
-                )
-                ax.set_title(f"Bias Gradients L{layer_idx}", fontsize=8)
-                ax.set_yscale("log")
-                ax.set_xlabel("Value")
-                ax.set_ylabel("Count (log)")
-                ax.grid(alpha=0.3)
-
-        # Plot weight updates (column 5)
-        if has_updates and "weights" in iteration_group["updates"]:
-            weights_update_group = iteration_group["updates"]["weights"]
-            if layer_key in weights_update_group:
-                update_layer = weights_update_group[layer_key]
-                if (
-                    "histogram_values" in update_layer
-                    and "histogram_bins" in update_layer
-                ):
-                    ax = fig.add_subplot(gs[layer_idx, 4])
-                    values = update_layer["histogram_values"][()]
-                    bins = update_layer["histogram_bins"][()]
+        if has_weights:
+            weights_group = cast(h5py.Group, iteration_group["weights"])
+            if layer_key in weights_group:
+                layer = cast(h5py.Group, weights_group[layer_key])
+                if "histogram_values" in layer and "histogram_bins" in layer:
+                    ax = fig.add_subplot(gs[layer_idx, 0])
+                    values = cast(h5py.Dataset, layer["histogram_values"])[()]
+                    bins = cast(h5py.Dataset, layer["histogram_bins"])[()]
                     ax.bar(
-                        bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="blue"
+                        bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="red"
                     )
-                    ax.set_title(f"Weight Updates L{layer_idx}", fontsize=8)
+                    ax.set_title(f"Weights L{layer_idx}", fontsize=8)
                     ax.set_yscale("log")
                     ax.set_xlabel("Value")
                     ax.set_ylabel("Count (log)")
                     ax.grid(alpha=0.3)
 
-        # Plot bias updates (column 6)
-        if has_updates and "biases" in iteration_group["updates"]:
-            biases_update_group = iteration_group["updates"]["biases"]
-            if layer_key in biases_update_group:
-                update_layer = biases_update_group[layer_key]
-                if (
-                    "histogram_values" in update_layer
-                    and "histogram_bins" in update_layer
-                ):
-                    ax = fig.add_subplot(gs[layer_idx, 5])
-                    values = update_layer["histogram_values"][()]
-                    bins = update_layer["histogram_bins"][()]
+        # Plot biases (column 2)
+        if has_biases:
+            biases_group = cast(h5py.Group, iteration_group["biases"])
+            if layer_key in biases_group:
+                layer = cast(h5py.Group, biases_group[layer_key])
+                if "histogram_values" in layer and "histogram_bins" in layer:
+                    ax = fig.add_subplot(gs[layer_idx, 1])
+                    values = cast(h5py.Dataset, layer["histogram_values"])[()]
+                    bins = cast(h5py.Dataset, layer["histogram_bins"])[()]
                     ax.bar(
                         bins[:-1],
                         values,
                         width=jnp.diff(bins),
                         alpha=0.7,
-                        color="violet",
+                        color="orange",
                     )
-                    ax.set_title(f"Bias Updates L{layer_idx}", fontsize=8)
+                    ax.set_title(f"Biases L{layer_idx}", fontsize=8)
                     ax.set_yscale("log")
                     ax.set_xlabel("Value")
                     ax.set_ylabel("Count (log)")
                     ax.grid(alpha=0.3)
 
+        # Plot weight gradients (column 3)
+        if has_raw_gradients:
+            raw_gradients_group = cast(h5py.Group, iteration_group["raw_gradients"])
+            if layer_key in raw_gradients_group:
+                gradient_layer = cast(h5py.Group, raw_gradients_group[layer_key])
+                if "weights" in gradient_layer:
+                    weights_grad_item = gradient_layer["weights"]
+                    if (
+                        isinstance(weights_grad_item, h5py.Group)
+                        and "histogram_values" in weights_grad_item
+                    ):
+                        ax = fig.add_subplot(gs[layer_idx, 2])
+                        values = cast(
+                            h5py.Dataset, weights_grad_item["histogram_values"]
+                        )[()]
+                        bins = cast(h5py.Dataset, weights_grad_item["histogram_bins"])[
+                            ()
+                        ]
+                        ax.bar(
+                            bins[:-1],
+                            values,
+                            width=jnp.diff(bins),
+                            alpha=0.7,
+                            color="yellow",
+                        )
+                        ax.set_title(f"Weight Gradients L{layer_idx}", fontsize=8)
+                        ax.set_yscale("log")
+                        ax.set_xlabel("Value")
+                        ax.set_ylabel("Count (log)")
+                        ax.grid(alpha=0.3)
+
+        # Plot bias gradients (column 4)
+        if has_raw_gradients:
+            raw_gradients_group = cast(h5py.Group, iteration_group["raw_gradients"])
+            if layer_key in raw_gradients_group:
+                gradient_layer = cast(h5py.Group, raw_gradients_group[layer_key])
+                if "biases" in gradient_layer:
+                    biases_grad_item = gradient_layer["biases"]
+                    if (
+                        isinstance(biases_grad_item, h5py.Group)
+                        and "histogram_values" in biases_grad_item
+                    ):
+                        ax = fig.add_subplot(gs[layer_idx, 3])
+                        values = cast(
+                            h5py.Dataset, biases_grad_item["histogram_values"]
+                        )[()]
+                        bins = cast(h5py.Dataset, biases_grad_item["histogram_bins"])[
+                            ()
+                        ]
+                        ax.bar(
+                            bins[:-1],
+                            values,
+                            width=jnp.diff(bins),
+                            alpha=0.7,
+                            color="green",
+                        )
+                        ax.set_title(f"Bias Gradients L{layer_idx}", fontsize=8)
+                        ax.set_yscale("log")
+                        ax.set_xlabel("Value")
+                        ax.set_ylabel("Count (log)")
+                        ax.grid(alpha=0.3)
+
+        # Plot weight updates (column 5)
+        if has_updates:
+            updates_group = cast(h5py.Group, iteration_group["updates"])
+            if "weights" in updates_group:
+                weights_update_item = updates_group["weights"]
+                if (
+                    isinstance(weights_update_item, h5py.Group)
+                    and layer_key in weights_update_item
+                ):
+                    update_layer = cast(h5py.Group, weights_update_item[layer_key])
+                    if (
+                        "histogram_values" in update_layer
+                        and "histogram_bins" in update_layer
+                    ):
+                        ax = fig.add_subplot(gs[layer_idx, 4])
+                        values = cast(h5py.Dataset, update_layer["histogram_values"])[
+                            ()
+                        ]
+                        bins = cast(h5py.Dataset, update_layer["histogram_bins"])[()]
+                        ax.bar(
+                            bins[:-1],
+                            values,
+                            width=jnp.diff(bins),
+                            alpha=0.7,
+                            color="blue",
+                        )
+                        ax.set_title(f"Weight Updates L{layer_idx}", fontsize=8)
+                        ax.set_yscale("log")
+                        ax.set_xlabel("Value")
+                        ax.set_ylabel("Count (log)")
+                        ax.grid(alpha=0.3)
+
+        # Plot bias updates (column 6)
+        if has_updates:
+            updates_group = cast(h5py.Group, iteration_group["updates"])
+            if "biases" in updates_group:
+                biases_update_item = updates_group["biases"]
+                if (
+                    isinstance(biases_update_item, h5py.Group)
+                    and layer_key in biases_update_item
+                ):
+                    update_layer = cast(h5py.Group, biases_update_item[layer_key])
+                    if (
+                        "histogram_values" in update_layer
+                        and "histogram_bins" in update_layer
+                    ):
+                        ax = fig.add_subplot(gs[layer_idx, 5])
+                        values = cast(h5py.Dataset, update_layer["histogram_values"])[
+                            ()
+                        ]
+                        bins = cast(h5py.Dataset, update_layer["histogram_bins"])[()]
+                        ax.bar(
+                            bins[:-1],
+                            values,
+                            width=jnp.diff(bins),
+                            alpha=0.7,
+                            color="violet",
+                        )
+                        ax.set_title(f"Bias Updates L{layer_idx}", fontsize=8)
+                        ax.set_yscale("log")
+                        ax.set_xlabel("Value")
+                        ax.set_ylabel("Count (log)")
+                        ax.grid(alpha=0.3)
+
         # Plot activations (column 7)
-        if has_activations and layer_key in iteration_group["activations"]:
-            activation_layer = iteration_group["activations"][layer_key]
-            if (
-                "histogram_values" in activation_layer
-                and "histogram_bins" in activation_layer
-            ):
-                ax = fig.add_subplot(gs[layer_idx, 6])
-                values = activation_layer["histogram_values"][()]
-                bins = activation_layer["histogram_bins"][()]
-                ax.bar(
-                    bins[:-1], values, width=jnp.diff(bins), alpha=0.7, color="indigo"
-                )
-                ax.set_title(f"Activations L{layer_idx}", fontsize=8)
-                ax.set_xlabel("Value")
-                ax.set_yscale("log")
-                ax.set_ylabel("Count")
-                ax.grid(alpha=0.3)
+        if has_activations:
+            activations_group = cast(h5py.Group, iteration_group["activations"])
+            if layer_key in activations_group:
+                activation_layer = cast(h5py.Group, activations_group[layer_key])
+                if (
+                    "histogram_values" in activation_layer
+                    and "histogram_bins" in activation_layer
+                ):
+                    ax = fig.add_subplot(gs[layer_idx, 6])
+                    values = cast(h5py.Dataset, activation_layer["histogram_values"])[
+                        ()
+                    ]
+                    bins = cast(h5py.Dataset, activation_layer["histogram_bins"])[()]
+                    ax.bar(
+                        bins[:-1],
+                        values,
+                        width=jnp.diff(bins),
+                        alpha=0.7,
+                        color="indigo",
+                    )
+                    ax.set_title(f"Activations L{layer_idx}", fontsize=8)
+                    ax.set_xlabel("Value")
+                    ax.set_yscale("log")
+                    ax.set_ylabel("Count")
+                    ax.grid(alpha=0.3)
+
+    from matplotlib.patches import Rectangle
 
     legend_entries = [
-        plt.Rectangle((0, 0), 1, 1, color="red", alpha=0.7),
-        plt.Rectangle((0, 0), 1, 1, color="orange", alpha=0.7),
-        plt.Rectangle((0, 0), 1, 1, color="yellow", alpha=0.7),
-        plt.Rectangle((0, 0), 1, 1, color="green", alpha=0.7),
-        plt.Rectangle((0, 0), 1, 1, color="blue", alpha=0.7),
-        plt.Rectangle((0, 0), 1, 1, color="violet", alpha=0.7),
-        plt.Rectangle((0, 0), 1, 1, color="indigo", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="red", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="orange", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="yellow", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="green", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="blue", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="violet", alpha=0.7),
+        Rectangle((0, 0), 1, 1, color="indigo", alpha=0.7),
     ]
     legend_labels = [
         "Weights",
@@ -360,7 +458,9 @@ def main(
                     sys.exit(1)
 
             logger.info(f"Statistics for {iteration_key}:")
-            print_group_statistics(f[iteration_key])
+            iteration_item = f[iteration_key]
+            if isinstance(iteration_item, h5py.Group):
+                print_group_statistics(iteration_item)
 
             plot_histograms(f, iteration_key)
 

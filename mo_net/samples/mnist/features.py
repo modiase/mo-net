@@ -293,7 +293,9 @@ def main():
         sys.exit(1)
 
     try:
+        key = jax.random.PRNGKey(42)
         input_vector, _, final_outputs = train_input_vector(
+            key=key,
             learning_rate=args.learning_rate,
             model_path=args.model_path,
             num_iterations=args.iterations,

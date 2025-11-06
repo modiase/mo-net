@@ -3,7 +3,7 @@ from __future__ import annotations
 import typing
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import jax
 import jax.numpy as jnp
@@ -100,7 +100,7 @@ class Dropout(Hidden):
         if self._cache["mask"] is None:
             raise ValueError("Mask not set during forward pass.")
 
-        return dZ * self._cache["mask"] / self._keep_prob
+        return cast(D[Activations], dZ * self._cache["mask"] / self._keep_prob)
 
     def _backward_prop_non_training(self, *, dZ: D[Activations]) -> D[Activations]:
         return dZ

@@ -197,7 +197,7 @@ class SharedMemoryManager:
         total_gradient_memory = 0
 
         for i in range(worker_count):
-            gradient_memory = mp.shared_memory.SharedMemory(
+            gradient_memory = mp.shared_memory.SharedMemory(  # type: ignore[attr-defined]
                 create=True, size=self._gradient_size_bytes
             )
             self._gradient_shared_memories.append(gradient_memory)
@@ -325,17 +325,18 @@ class SharedMemoryManager:
                 data_bytes = pickle.dumps(update)
                 data_bytes_len = len(data_bytes)
 
-            if (
-                _DATA_BYTES_LEN_OFFSET + data_bytes_len
-                > self._update_shared_memory.size
-            ):
-                raise RuntimeError(
-                    f"Update data too large for shared memory: {_DATA_BYTES_LEN_OFFSET + data_bytes_len} bytes > {self._update_shared_memory.size} bytes"
-                )
-
-            writer = self.IO(
-                self._update_shared_memory.buf, self._update_shared_memory.size
+            if self._update_shared_memory is None:
+                raise RuntimeError("Update shared memory not initialized")
+            update_shared_memory = self._update_shared_memory
+            assert update_shared_memory.buf is not None, (
+                "Shared memory buffer must be initialized"
             )
+
+            if _DATA_BYTES_LEN_OFFSET + data_bytes_len > update_shared_memory.size:
+                raise RuntimeError(
+                    f"Update data too large for shared memory: {_DATA_BYTES_LEN_OFFSET + data_bytes_len} bytes > {update_shared_memory.size} bytes"
+                )
+            writer = self.IO(update_shared_memory.buf, update_shared_memory.size)
             writer.write(
                 data_bytes_len.to_bytes(_DATA_BYTES_LEN_OFFSET, byteorder="little")
             )
@@ -362,22 +363,28 @@ class SharedMemoryManager:
 
             logger.trace("Worker reading updates")
 
+            if self._update_shared_memory is None:
+                raise RuntimeError("Update shared memory not initialized")
+            update_shared_memory = self._update_shared_memory
+            assert update_shared_memory.buf is not None, (
+                "Shared memory buffer must be initialized"
+            )
+
             data_bytes_len = int.from_bytes(
-                self._update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET],
+                update_shared_memory.buf[0:_DATA_BYTES_LEN_OFFSET],
                 byteorder="little",
             )
 
             if (
                 data_bytes_len <= 0
-                or data_bytes_len
-                > self._update_shared_memory.size - _DATA_BYTES_LEN_OFFSET
+                or data_bytes_len > update_shared_memory.size - _DATA_BYTES_LEN_OFFSET
             ):
                 raise RuntimeError(
                     f"Invalid data length received: {data_bytes_len} bytes"
                 )
 
             data = bytes(
-                self._update_shared_memory.buf[
+                update_shared_memory.buf[
                     _DATA_BYTES_LEN_OFFSET : _DATA_BYTES_LEN_OFFSET + data_bytes_len
                 ]
             )
@@ -484,8 +491,8 @@ def worker_process(
         logger.trace(f"Worker {worker_id} signaled ready, connecting to shared memory")
 
         with log_time(f"Worker {worker_id} shared memory setup: {{time_taken:.4f}}s"):
-            X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)
-            Y_shared_memory = mp.shared_memory.SharedMemory(Y_shared_memory_name)
+            X_shared_memory = mp.shared_memory.SharedMemory(X_shared_memory_name)  # type: ignore[attr-defined]
+            Y_shared_memory = mp.shared_memory.SharedMemory(Y_shared_memory_name)  # type: ignore[attr-defined]
 
             X_train: jnp.ndarray = jnp.ndarray(
                 shape=X_shared_memory_shape,
@@ -702,7 +709,7 @@ class ParallelTrainer(BasicTrainer):
 
             if self._training_parameters.regulariser_lambda > 0:
                 with log_time(
-                    f"Weight decay regulariser attachment (λ={self._training_parameters.regulariser_lambda}): {{time_taken:.4f}}s"
+                    f"Weight decay regulariser attachment (?={self._training_parameters.regulariser_lambda}): {{time_taken:.4f}}s"
                 ):
                     WeightDecayRegulariser.attach(
                         lambda_=self._training_parameters.regulariser_lambda,
@@ -712,13 +719,13 @@ class ParallelTrainer(BasicTrainer):
                     )
 
             with log_time("Shared memory creation: {time_taken:.4f}s"):
-                self._X_shared_memory = mp.shared_memory.SharedMemory(
+                self._X_shared_memory = mp.shared_memory.SharedMemory(  # type: ignore[attr-defined]
                     create=True, size=self._X_train.nbytes
                 )
-                self._Y_shared_memory = mp.shared_memory.SharedMemory(
+                self._Y_shared_memory = mp.shared_memory.SharedMemory(  # type: ignore[attr-defined]
                     create=True, size=self._Y_train.nbytes
                 )
-                self._update_shared_memory = mp.shared_memory.SharedMemory(
+                self._update_shared_memory = mp.shared_memory.SharedMemory(  # type: ignore[attr-defined]
                     create=True,
                     size=int(
                         self._model.parameter_n_bytes * 1.2
@@ -736,6 +743,8 @@ class ParallelTrainer(BasicTrainer):
                 )
 
             with log_time("Training data copy to shared memory: {time_taken:.4f}s"):
+                if self._X_shared_memory is None or self._Y_shared_memory is None:
+                    raise RuntimeError("Shared memory not initialized")
                 X_shared: jnp.ndarray = jnp.ndarray(
                     self._X_train.shape,
                     dtype=self._X_train.dtype,
@@ -765,6 +774,8 @@ class ParallelTrainer(BasicTrainer):
             )
 
             with log_time("SharedMemoryManager initialization: {time_taken:.4f}s"):
+                if self._update_shared_memory is None:
+                    raise RuntimeError("Update shared memory not initialized")
                 self._shared_memory_manager = SharedMemoryManager(
                     worker_count=self._training_parameters.workers,
                     gradient_n_bytes=self._model.parameter_n_bytes,
@@ -776,6 +787,12 @@ class ParallelTrainer(BasicTrainer):
             with log_time(
                 f"Worker process creation ({self._training_parameters.workers} workers): {{time_taken:.4f}}s"
             ):
+                assert self._X_shared_memory is not None, (
+                    "X shared memory must be initialized"
+                )
+                assert self._Y_shared_memory is not None, (
+                    "Y shared memory must be initialized"
+                )
                 self._processes = tuple(
                     ParallelTrainer.create_worker_process(
                         batch_size=self._training_parameters.batch_size

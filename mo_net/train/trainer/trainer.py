@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ContextManager, Final, Literal, assert_never
+from typing import Any, ContextManager, Final, Literal, assert_never, cast
 
 import jax
 import jax.numpy as jnp
@@ -191,7 +191,7 @@ class BasicTrainer:
         self._logger.info("Training interrupted by user. Prompting for action...")
 
         try:
-            choice = inquirer.select(
+            choice = inquirer.select(  # type: ignore[reportPrivateImportUsage]
                 message="Training has been interrupted. What would you like to do?",
                 choices=[
                     {
@@ -272,7 +272,9 @@ class BasicTrainer:
     def _revert_training_step(self) -> None:
         if self._last_update is None:
             raise ValueError("No update to revert.")
-        self._model.populate_caches([-update for update in self._last_update])
+        self._model.populate_caches(
+            cast(UpdateGradientType, [-update for update in self._last_update])
+        )
         self._model.update_parameters()
         self._last_update = None
 
@@ -365,6 +367,7 @@ class BasicTrainer:
         L_val = self._model.compute_loss(
             X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
         )
+        L_batch = 0.0
         for i in tqdm(
             range(
                 (

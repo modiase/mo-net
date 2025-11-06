@@ -20,6 +20,7 @@ from mo_net.protos import (
     SupportsDeserialize,
     SupportsGradientOperations,
     d,
+    d_op,
 )
 
 
@@ -47,7 +48,7 @@ class Parameters(SupportsGradientOperations):
         match other:
             case float() | int():
                 return self.__mul__(1 / other)
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=self.weights / other.weights,
                     biases=self.biases / other.biases,
@@ -62,7 +63,7 @@ class Parameters(SupportsGradientOperations):
                     weights=self.weights + other,
                     biases=self.biases + other,
                 )
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=self.weights + other.weights,
                     biases=self.biases + other.biases,
@@ -93,7 +94,7 @@ class Parameters(SupportsGradientOperations):
                     weights=self.weights - other,
                     biases=self.biases - other,
                 )
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=self.weights - other.weights,
                     biases=self.biases - other.biases,
@@ -108,7 +109,7 @@ class Parameters(SupportsGradientOperations):
                     weights=self.weights * other,
                     biases=self.biases * other,
                 )
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=self.weights * other.weights,
                     biases=self.biases * other.biases,
@@ -126,7 +127,7 @@ class Parameters(SupportsGradientOperations):
                     weights=other - self.weights,
                     biases=other - self.biases,
                 )
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=other.weights - self.weights,
                     biases=other.biases - self.biases,
@@ -141,7 +142,7 @@ class Parameters(SupportsGradientOperations):
                     weights=other / self.weights,
                     biases=other / self.biases,
                 )
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=other.weights / self.weights,
                     biases=other.biases / self.biases,
@@ -276,7 +277,8 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         if self._training:
             self._cache["dP"] = d(
                 self.Parameters(
-                    weights=jnp.sum(dZ * normalized, axis=0), biases=jnp.sum(dZ, axis=0)
+                    weights=jnp.sum(cast(jnp.ndarray, dZ * normalized), axis=0),
+                    biases=d_op(dZ, lambda x: jnp.sum(x, axis=0)),
                 )
             )
 
@@ -347,8 +349,9 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         self._write_header(buffer)
         if self._cache is None or self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
-        buffer.write(memoryview(self._cache["dP"].weights))
-        buffer.write(memoryview(self._cache["dP"].biases))
+        dP = cast(ParametersType, self._cache["dP"])
+        buffer.write(memoryview(dP.weights))
+        buffer.write(memoryview(dP.biases))
 
     def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
@@ -357,4 +360,5 @@ class LayerNorm(ParametrisedHidden[ParametersType, CacheType]):
         if self._cache["dP"] is None:
             self._cache["dP"] = d(update)
         else:
-            self._cache["dP"] += d(update)
+            current_dP = cast(ParametersType, self._cache["dP"])
+            self._cache["dP"] = d(current_dP + update)

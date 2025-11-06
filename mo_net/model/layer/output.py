@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, TypedDict, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -85,7 +85,7 @@ class SoftmaxOutputLayer(OutputLayer):
     ) -> D[Activations]:
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
-        return jnp.atleast_1d(output_activations - Y_true)
+        return cast(D[Activations], jnp.atleast_1d(output_activations - Y_true))
 
     @property
     def output_dimensions(self) -> Dimensions:
@@ -101,7 +101,7 @@ class RawOutputLayer(SoftmaxOutputLayer):
     """
 
     @dataclass(frozen=True, kw_only=True)
-    class Serialized:
+    class Serialized:  # type: ignore[misc]  # Intentional override of parent's Serialized class
         input_dimensions: tuple[int, ...]
 
         def deserialize(
@@ -161,7 +161,7 @@ class MseOutputLayer(OutputLayer):
             raise ValueError("Output activations not set during forward pass.")
 
         batch_size = output_activations.shape[0]
-        return 2.0 * (output_activations - Y_true) / batch_size
+        return cast(D[Activations], 2.0 * (output_activations - Y_true) / batch_size)
 
     @property
     def output_dimensions(self) -> Dimensions:

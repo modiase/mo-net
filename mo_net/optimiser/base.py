@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from loguru import logger
 
 from mo_net.model.model import Model
-from mo_net.protos import SupportsGradientOperations
+from mo_net.protos import SupportsGradientOperations, UpdateGradientType
 
 ConfigT = TypeVar("ConfigT")
 
@@ -57,6 +57,7 @@ class Base(ABC, Generic[ConfigT]):
         logger.trace("Forward propagation complete.")
         self._model.backward_prop(Y_true=Y_train_batch)
         logger.trace("Backward propagation complete.")
+        gradient: UpdateGradientType | None = None
         if return_gradients:
             gradient = self._model.get_gradient_caches()
         logger.trace("Computing update.")
@@ -67,6 +68,7 @@ class Base(ABC, Generic[ConfigT]):
         if return_gradients:
             update = self._model.get_gradient_caches()
             self._model.update_parameters()
+            assert gradient is not None
             return gradient, update
         self._model.update_parameters()
         return None

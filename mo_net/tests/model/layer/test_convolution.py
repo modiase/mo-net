@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import cast
 
 import jax.numpy as jnp
 import pytest
@@ -10,7 +11,7 @@ from mo_net.model.layer.convolution import (
     KernelInitFn,
     ParametersType,
 )
-from mo_net.protos import Activations, Dimensions, GradLayer
+from mo_net.protos import Activations, D, Dimensions, GradLayer
 
 
 @dataclass(frozen=True)
@@ -350,7 +351,7 @@ def test_convolution_2d_backward_prop(test_case: BackwardPropTestCase):
         input_activations=Activations(test_case.input_activations)
     )
     dZ = jnp.ones_like(output)
-    dX = layer.backward_prop(dZ=dZ)
+    dX = layer.backward_prop(dZ=cast(D[Activations], dZ))
     assert jnp.allclose(dX, test_case.expected_dX)  # type: ignore[arg-type]
 
 
@@ -445,7 +446,7 @@ def test_parameter_update_value(test_case: ParameterUpdateTestCase):
         f"Forward prop failed: got {output}, expected {test_case.expected_output}"
     )
 
-    layer.backward_prop(dZ=test_case.dZ)
+    layer.backward_prop(dZ=cast(D[Activations], test_case.dZ))
 
     cached_dP = layer.cache["dP"]
     assert cached_dP is not None, "Parameter gradients not stored in cache"

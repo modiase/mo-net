@@ -187,6 +187,7 @@ async def get_training_data():
         )
         current_state = await state.get()
 
+    assert current_state.current_data is not None
     data = current_state.current_data.to_dict("records")
     for row in data:
         if (
@@ -327,12 +328,13 @@ async def complete_run(run_id: int):
         if run.completed_at is not None:
             raise HTTPException(status_code=400, detail="Run already completed")
 
-        run.completed_at = datetime.now()
+        completed_at = datetime.now()
+        run.completed_at = completed_at
         session.commit()
 
         return JSONResponse(
             content={
                 "message": f"Run {run_id} marked as completed",
-                "completed_at": run.completed_at.isoformat(),
+                "completed_at": completed_at.isoformat(),
             }
         )

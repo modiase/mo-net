@@ -5,6 +5,7 @@ from typing import (
     IO,
     Callable,
     Self,
+    cast,
 )
 
 import jax
@@ -71,7 +72,7 @@ class Parameters(SupportsGradientOperations):
                 return self.__class__(
                     weights=other * self.weights, biases=other * self.biases
                 )
-            case self.__class__():
+            case self.__class__():  # type: ignore[reportGeneralTypeIssues]
                 return self.__class__(
                     weights=self.weights * other.weights,
                     biases=self.biases * other.biases,
@@ -216,7 +217,11 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             output_dimensions=dim,
             parameters_init_fn=lambda dim_in, dim_out: cls.Parameters.of(
                 W=jnp.zeros((one(dim_in), one(dim_out))),
-                B=(jnp.ones(one(dim_out)) * bias if isinstance(bias, float) else bias),
+                B=(
+                    jnp.ones(one(dim_out)) * bias
+                    if isinstance(bias, float)
+                    else jnp.atleast_1d(bias)
+                ),
             ),
         )
 
@@ -389,8 +394,9 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         self._write_header(buffer)
         if self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
-        buffer.write(memoryview(self._cache["dP"].weights))
-        buffer.write(memoryview(self._cache["dP"].biases))
+        dP = cast(ParametersType, self._cache["dP"])
+        buffer.write(memoryview(dP.weights))
+        buffer.write(memoryview(dP.biases))
 
     def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
@@ -399,7 +405,8 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         if self._cache["dP"] is None:
             self._cache["dP"] = d(update)
         else:
-            self._cache["dP"] += d(update)
+            current_dP = cast(ParametersType, self._cache["dP"])
+            self._cache["dP"] = d(current_dP + update)
 
     @property
     def parameter_nbytes(self) -> int:

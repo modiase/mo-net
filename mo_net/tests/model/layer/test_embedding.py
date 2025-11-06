@@ -1,6 +1,6 @@
 import io
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 
 import jax
 import jax.numpy as jnp
@@ -8,7 +8,7 @@ import pytest
 
 from mo_net.model.layer.base import BadLayerId
 from mo_net.model.layer.embedding import Embedding, ParametersType
-from mo_net.protos import Activations, Dimensions
+from mo_net.protos import Activations, D, Dimensions
 
 key: Final = jax.random.PRNGKey(42)
 
@@ -209,9 +209,10 @@ def test_embedding_backward_prop(test_case: BackwardPropTestCase):
         vocab_size=test_case.vocab_size,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    layer.backward_prop(dZ=test_case.dZ)
+    layer.backward_prop(dZ=cast(D[Activations], test_case.dZ))
     assert layer.cache["dP"] is not None
-    assert jnp.allclose(layer.cache["dP"].embeddings, test_case.expected_dE)
+    dP = cast(ParametersType, layer.cache["dP"])
+    assert jnp.allclose(dP.embeddings, test_case.expected_dE)
 
 
 @dataclass(frozen=True)
@@ -295,7 +296,7 @@ def test_embedding_parameter_update(test_case: ParameterUpdateTestCase):
         vocab_size=test_case.vocab_size,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    layer.backward_prop(dZ=test_case.dZ)
+    layer.backward_prop(dZ=cast(D[Activations], test_case.dZ))
     layer.update_parameters()
     assert jnp.allclose(
         layer.parameters.embeddings, test_case.expected_updated_embeddings
@@ -343,6 +344,7 @@ def test_embedding_forward_prop_caches_indices():
     )
     input_activations = jnp.array([1, 2])
     layer.forward_prop(input_activations=Activations(input_activations))
+    assert layer.cache["input_indices"] is not None
     assert jnp.array_equal(layer.cache["input_indices"], jnp.array([[1, 2]]))
 
 
@@ -358,12 +360,11 @@ def test_embedding_gradient_clipping():
     input_activations = jnp.array([0, 1])
     layer.forward_prop(input_activations=Activations(input_activations))
     large_dZ = jnp.array([[10.0, 10.0], [10.0, 10.0]])
-    layer.backward_prop(dZ=large_dZ)
+    layer.backward_prop(dZ=cast(D[Activations], large_dZ))
     assert layer.cache["dP"] is not None
-    grad_norm = jnp.linalg.norm(layer.cache["dP"].embeddings)
-    assert grad_norm <= layer._weight_max_norm * jnp.sqrt(
-        layer.cache["dP"].embeddings.size
-    )
+    dP = cast(ParametersType, layer.cache["dP"])
+    grad_norm = jnp.linalg.norm(dP.embeddings)
+    assert grad_norm <= layer._weight_max_norm * jnp.sqrt(dP.embeddings.size)
 
 
 def test_embedding_frozen_parameters():
@@ -377,7 +378,7 @@ def test_embedding_frozen_parameters():
     original_embeddings = layer.parameters.embeddings.copy()
     input_activations = jnp.array([0, 1])
     layer.forward_prop(input_activations=Activations(input_activations))
-    layer.backward_prop(dZ=jnp.array([[1.0, 1.0], [1.0, 1.0]]))
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0, 1.0], [1.0, 1.0]])))
     layer.update_parameters()
     assert jnp.allclose(layer.parameters.embeddings, original_embeddings)
 
@@ -390,8 +391,9 @@ def test_embedding_empty_gradient():
         key=key,
     )
     empty_grad = layer.empty_gradient()
-    assert empty_grad.embeddings.shape == layer.parameters.embeddings.shape
-    assert jnp.allclose(empty_grad.embeddings, 0.0)
+    dP = cast(ParametersType, empty_grad)
+    assert dP.embeddings.shape == layer.parameters.embeddings.shape
+    assert jnp.allclose(dP.embeddings, 0.0)
 
 
 def test_embedding_parameter_count():
@@ -433,7 +435,9 @@ def test_embedding_serialize_deserialize_parameters_with_wrong_layer_id():
         key=key,
     )
     layer.forward_prop(input_activations=Activations(jnp.array([0, 1])))
-    layer.backward_prop(dZ=jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]))
+    layer.backward_prop(
+        dZ=cast(D[Activations], jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]))
+    )
 
     buffer = io.BytesIO()
     layer.write_serialized_parameters(buffer)
@@ -459,7 +463,9 @@ def test_embedding_error_on_backward_prop_without_forward():
         key=key,
     )
     with pytest.raises(ValueError, match="Input indices not set"):
-        layer.backward_prop(dZ=jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]))
+        layer.backward_prop(
+            dZ=cast(D[Activations], jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]))
+        )
 
 
 def test_embedding_error_on_update_without_gradients():
@@ -487,9 +493,9 @@ def test_embedding_mathematical_properties():
     assert jnp.isfinite(output).all()
 
     dZ = jnp.array([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]])
-    dX = layer.backward_prop(dZ=dZ)
-    assert dX.shape == dZ.shape
-    assert jnp.isfinite(dX).all()
+    dX = layer.backward_prop(dZ=cast(D[Activations], dZ))
+    assert cast(jnp.ndarray, dX).shape == dZ.shape
+    assert jnp.isfinite(cast(jnp.ndarray, dX)).all()
 
 
 def test_embedding_zero_input():
@@ -533,10 +539,11 @@ def test_embedding_gradient_accumulation():
     input_activations = jnp.array([1, 1, 1])
     layer.forward_prop(input_activations=Activations(input_activations))
     dZ = jnp.array([[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]])
-    layer.backward_prop(dZ=dZ)
+    layer.backward_prop(dZ=cast(D[Activations], dZ))
 
     assert layer.cache["dP"] is not None
-    token_1_gradient = layer.cache["dP"].embeddings[1]
+    dP = cast(ParametersType, layer.cache["dP"])
+    token_1_gradient = dP.embeddings[1]
     expected_gradient = jnp.array([3.0, 3.0])
     assert jnp.allclose(token_1_gradient, expected_gradient)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, TypedDict
+from typing import Sequence, TypedDict, cast
 
 import jax.numpy as jnp
 
@@ -76,9 +76,16 @@ class Average(Hidden):
             tuple(self._cache["input_shape"][ax + 1] for ax in self._axis),
             strict=True,
         ):
-            expanded_dZ = jnp.expand_dims(expanded_dZ, ax) / factor
+            expanded_dZ = jnp.expand_dims(cast(jnp.ndarray, expanded_dZ), ax) / factor  # type: ignore[reportArgumentType]
 
-        return Activations(jnp.broadcast_to(expanded_dZ, self._cache["input_shape"]))
+        return cast(
+            D[Activations],
+            Activations(
+                jnp.broadcast_to(
+                    cast(jnp.ndarray, expanded_dZ), self._cache["input_shape"]
+                )
+            ),
+        )  # type: ignore[reportArgumentType]
 
     @property
     def axis(self) -> tuple[int, ...]:

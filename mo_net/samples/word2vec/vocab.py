@@ -6,7 +6,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Self
+from typing import Self, cast
 
 import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
@@ -25,12 +25,15 @@ class Vocab:
     unknown_token_id: int
 
     def serialize(self) -> bytes:
-        return msgpack.packb(
-            {
-                "vocab": list(self.vocab),
-                "token_to_id": self.token_to_id,
-                "unknown_token_id": self.unknown_token_id,
-            }
+        return cast(
+            bytes,
+            msgpack.packb(
+                {
+                    "vocab": list(self.vocab),
+                    "token_to_id": self.token_to_id,
+                    "unknown_token_id": self.unknown_token_id,
+                }
+            ),
         )
 
     @classmethod

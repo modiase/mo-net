@@ -1,7 +1,7 @@
 import io
 from dataclasses import dataclass
 from functools import partial
-from typing import Final
+from typing import Final, cast
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ import pytest
 
 from mo_net.model.layer.base import BadLayerId
 from mo_net.model.layer.linear import Linear, ParametersType
-from mo_net.protos import Activations, Dimensions
+from mo_net.protos import Activations, D, Dimensions
 
 key: Final = jax.random.PRNGKey(42)
 
@@ -172,10 +172,12 @@ def test_linear_backward_prop(test_case: BackwardPropTestCase):
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    assert jnp.allclose(layer.backward_prop(dZ=test_case.dZ), test_case.expected_dX)  # type: ignore[arg-type]
-    assert layer.cache["dP"] is not None  # type: ignore[index]
-    assert jnp.allclose(layer.cache["dP"].weights, test_case.expected_dW)  # type: ignore[attr-defined]
-    assert jnp.allclose(layer.cache["dP"].biases, test_case.expected_dB)  # type: ignore[attr-defined]
+    dX = layer.backward_prop(dZ=cast(D[Activations], test_case.dZ))
+    assert jnp.allclose(cast(jnp.ndarray, dX), test_case.expected_dX)
+    assert layer.cache["dP"] is not None
+    dP = cast(ParametersType, layer.cache["dP"])
+    assert jnp.allclose(dP.weights, test_case.expected_dW)
+    assert jnp.allclose(dP.biases, test_case.expected_dB)
 
 
 @dataclass(frozen=True)
@@ -229,7 +231,7 @@ def test_linear_parameter_update(test_case: ParameterUpdateTestCase):
         clip_gradients=False,
     )
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
-    layer.backward_prop(dZ=test_case.dZ)
+    layer.backward_prop(dZ=cast(D[Activations], test_case.dZ))
     layer.update_parameters()
 
     assert jnp.allclose(layer.parameters.weights, test_case.expected_updated_weights)
@@ -289,19 +291,12 @@ def test_linear_gradient_clipping():
     )
 
     layer.forward_prop(input_activations=Activations(jnp.array([[1.0, 1.0]])))
-    layer.backward_prop(dZ=jnp.array([[1000.0, 1000.0]]))
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1000.0, 1000.0]])))
 
     assert layer.cache["dP"] is not None
-    assert (
-        jnp.linalg.norm(layer.cache["dP"].weights)
-        / jnp.sqrt(layer.cache["dP"].weights.size)
-        <= 1.0 + 1e-6
-    )
-    assert (
-        jnp.linalg.norm(layer.cache["dP"].biases)
-        / jnp.sqrt(layer.cache["dP"].biases.size)
-        <= 1.0 + 1e-6
-    )
+    dP = cast(ParametersType, layer.cache["dP"])
+    assert jnp.linalg.norm(dP.weights) / jnp.sqrt(dP.weights.size) <= 1.0 + 1e-6
+    assert jnp.linalg.norm(dP.biases) / jnp.sqrt(dP.biases.size) <= 1.0 + 1e-6
 
 
 def test_linear_frozen_parameters():
@@ -318,7 +313,7 @@ def test_linear_frozen_parameters():
     original_biases = layer.parameters.biases.copy()
 
     layer.forward_prop(input_activations=Activations(jnp.array([[2.0]])))
-    layer.backward_prop(dZ=jnp.array([[1.0]]))
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0]])))
     layer.update_parameters()
 
     assert jnp.allclose(layer.parameters.weights, original_weights)
@@ -354,9 +349,9 @@ def test_linear_serialization_deserialization():
     # First do a forward and backward pass to populate gradients
     input_data = jnp.array([[1.0, 2.0]])
     layer.forward_prop(input_activations=Activations(input_data))
-    layer.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0, 1.0]])))
 
-    original_dP = layer.cache["dP"]
+    original_dP = cast(ParametersType, layer.cache["dP"])
     assert original_dP is not None
 
     buffer = io.BytesIO()
@@ -370,8 +365,9 @@ def test_linear_serialization_deserialization():
     layer.read_serialized_parameters(buffer)
 
     assert layer.cache["dP"] is not None
-    assert jnp.allclose(layer.cache["dP"].weights, original_dP.weights)
-    assert jnp.allclose(layer.cache["dP"].biases, original_dP.biases)
+    new_dP = cast(ParametersType, layer.cache["dP"])
+    assert jnp.allclose(new_dP.weights, original_dP.weights)
+    assert jnp.allclose(new_dP.biases, original_dP.biases)
 
 
 def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
@@ -389,7 +385,7 @@ def test_linear_serialize_deserialize_parameters_with_wrong_layer_id():
     # First do a forward and backward pass to populate gradients
     input_data = jnp.array([[1.0, 2.0]])
     layer_1.forward_prop(input_activations=Activations(input_data))
-    layer_1.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
+    layer_1.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0, 1.0]])))
 
     buffer = io.BytesIO()
     layer_1.write_serialized_parameters(buffer)
@@ -407,7 +403,7 @@ def test_linear_error_on_backward_prop_without_forward():
     with pytest.raises(
         ValueError, match="Input activations not set during forward pass"
     ):
-        layer.backward_prop(dZ=jnp.array([[1.0, 1.0]]))
+        layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0, 1.0]])))
 
 
 def test_linear_error_on_update_without_gradients():
@@ -504,9 +500,9 @@ def test_linear_large_batch():
 
     assert output.shape == (100, 3)
 
-    dX = layer.backward_prop(dZ=random.normal(key2, (100, 3)))
+    dX = layer.backward_prop(dZ=cast(D[Activations], random.normal(key2, (100, 3))))
 
-    assert dX.shape == (100, 2)
+    assert cast(jnp.ndarray, dX).shape == (100, 2)
     assert layer.cache["dP"] is not None
 
 
@@ -521,12 +517,12 @@ def test_linear_gradient_accumulation():
     )
 
     layer.forward_prop(input_activations=Activations(jnp.array([[1.0, 1.0]])))
-    layer.backward_prop(dZ=jnp.array([[1.0]]))
-    grad1 = layer.cache["dP"]
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0]])))
+    grad1 = cast(ParametersType, layer.cache["dP"])
 
     layer.forward_prop(input_activations=Activations(jnp.array([[2.0, 2.0]])))
-    layer.backward_prop(dZ=jnp.array([[1.0]]))
-    grad2 = layer.cache["dP"]
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[1.0]])))
+    grad2 = cast(ParametersType, layer.cache["dP"])
 
     assert not jnp.allclose(grad1.weights, grad2.weights)
 
