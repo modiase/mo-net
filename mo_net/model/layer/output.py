@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypedDict, TypeVar, cast
+from typing import TypedDict, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -214,21 +214,29 @@ class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
 
-        result = output_activations.copy()
-        result = result.at[jnp.arange(Y_true.shape[0]), Y_true].add(-1.0)
+        if Y_negative is None:
+            result = output_activations.copy()
+            result = result.at[jnp.arange(Y_true.shape[0]), Y_true].add(-1.0)
+        else:
+            result = jnp.zeros_like(output_activations)
+            result = result.at[jnp.arange(Y_true.shape[0]), Y_true].set(
+                output_activations[jnp.arange(Y_true.shape[0]), Y_true] - 1.0
+            )
 
-        if Y_negative is not None:
             if Y_negative.ndim == 2:
                 batch_size, num_neg = Y_negative.shape
                 row_idx = jnp.repeat(jnp.arange(batch_size), num_neg)
                 col_idx = Y_negative.reshape(-1)
-                result = result.at[row_idx, col_idx].add(1.0)
+                result = result.at[row_idx, col_idx].set(
+                    output_activations[row_idx, col_idx]
+                )
             elif Y_negative.ndim == 1:
-                # - (batch_size,) for a single negative per example
                 batch_size = result.shape[0]
                 total = Y_negative.shape[0]
                 if total == batch_size:
-                    result = result.at[jnp.arange(batch_size), Y_negative].add(1.0)
+                    result = result.at[jnp.arange(batch_size), Y_negative].set(
+                        output_activations[jnp.arange(batch_size), Y_negative]
+                    )
                 else:
                     if total % batch_size != 0:
                         raise ValueError(
@@ -236,7 +244,9 @@ class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
                         )
                     num_neg = total // batch_size
                     row_idx = jnp.repeat(jnp.arange(batch_size), num_neg)
-                    result = result.at[row_idx, Y_negative].add(1.0)
+                    result = result.at[row_idx, Y_negative].set(
+                        output_activations[row_idx, Y_negative]
+                    )
             else:
                 raise ValueError("Y_negative must be 1D or 2D array of indices.")
 

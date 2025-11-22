@@ -111,6 +111,7 @@ class CBOWModel(Model):
                             input_dimensions=(context_size * 2,),
                             output_dimensions=(context_size * 2, embedding_dim),
                             vocab_size=vocab_size,
+                            parameters_init_fn=Embedding.Parameters.word2vec,
                             store_output_activations=tracing_enabled,
                             key=key1,
                         ),
@@ -205,6 +206,7 @@ class SkipGramModel(Model):
         input_dimensions: Dimensions,
         key: jax.Array,
         negative_samples: int = 5,
+        negative_sampling_dist: jnp.ndarray | None = None,
         output: Output | OutputLayer | None = None,
     ):
         super().__init__(
@@ -212,6 +214,7 @@ class SkipGramModel(Model):
         )
         self._key = key
         self._negative_samples = negative_samples
+        self._negative_sampling_dist = negative_sampling_dist
 
     @classmethod
     def get_name(cls) -> str:
@@ -244,6 +247,7 @@ class SkipGramModel(Model):
                                 embedding_dim,
                             ),
                             vocab_size=vocab_size,
+                            parameters_init_fn=Embedding.Parameters.word2vec,
                             store_output_activations=tracing_enabled,
                             key=key1,
                         ),
@@ -284,15 +288,25 @@ class SkipGramModel(Model):
         batch_size, context_size = Y_true.shape
         self._key, subkey = jax.random.split(self._key)
 
+        if self._negative_sampling_dist is not None:
+            Y_negative = jax.random.choice(
+                subkey,
+                self.embedding_layer.vocab_size,
+                shape=(batch_size * context_size * self._negative_samples,),
+                p=self._negative_sampling_dist,
+            )
+        else:
+            Y_negative = jax.random.choice(
+                subkey,
+                self.embedding_layer.vocab_size,
+                shape=(batch_size * context_size * self._negative_samples,),
+            )
+
         dZ = cast(
             SparseCategoricalSoftmaxOutputLayer, self.output.output_layer
         ).backward_prop_with_negative(
             Y_true=Y_true.flatten(),
-            Y_negative=jax.random.choice(
-                subkey,
-                self.embedding_layer.vocab_size,
-                shape=(batch_size * context_size * self._negative_samples,),
-            ),
+            Y_negative=Y_negative,
         )
 
         for layer in reversed(self.output_module.layers):
@@ -335,6 +349,7 @@ class SkipGramModel(Model):
         training: bool = False,
         freeze_parameters: bool = False,
         key: jax.Array | None = None,
+        negative_sampling_dist: jnp.ndarray | None = None,
     ) -> SkipGramModel:
         if key is None:
             key = jax.random.PRNGKey(0)
@@ -360,6 +375,7 @@ class SkipGramModel(Model):
             ),
             key=key,
             negative_samples=serialized.negative_samples,
+            negative_sampling_dist=negative_sampling_dist,
         )
 
 
@@ -543,13 +559,17 @@ def train(
                     metadata = json.loads(md.read().decode("utf-8"))
                     loaded_model_type = metadata.get("type", "cbow")
 
+                vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
                 if loaded_model_type == "skipgram":
+                    neg_sampling_dist = vocab.get_negative_sampling_distribution()
                     model: CBOWModel | SkipGramModel = SkipGramModel.load(
-                        mf, training=True, key=key
+                        mf,
+                        training=True,
+                        key=key,
+                        negative_sampling_dist=neg_sampling_dist,
                     )
                 else:
                     model = CBOWModel.load(mf, training=True)
-                vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
         sentences = get_english_sentences()
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
@@ -568,6 +588,7 @@ def train(
                     vocab_size=len(vocab),
                 )
             case "skipgram":
+                neg_sampling_dist = vocab.get_negative_sampling_distribution()
                 model = SkipGramModel.create(
                     embedding_dim=embedding_dim,
                     key=key,
@@ -575,6 +596,7 @@ def train(
                     vocab_size=len(vocab),
                     negative_samples=negative_samples,
                 )
+                model._negative_sampling_dist = neg_sampling_dist
             case never:
                 assert_never(never)
 
@@ -691,11 +713,16 @@ def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, V
                 metadata = json.loads(md.read().decode("utf-8"))
                 model_type = metadata.get("type", "cbow")
 
+            vocab = Vocab.from_bytes(vocab_bytes)
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
                 match model_type:
                     case "skipgram":
+                        neg_sampling_dist = vocab.get_negative_sampling_distribution()
                         model: CBOWModel | SkipGramModel = SkipGramModel.load(
-                            mf, training=False, key=jax.random.PRNGKey(seed)
+                            mf,
+                            training=False,
+                            key=jax.random.PRNGKey(seed),
+                            negative_sampling_dist=neg_sampling_dist,
                         )
                     case "cbow":
                         model = CBOWModel.load(mf, training=False)
@@ -709,7 +736,7 @@ def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, V
         logger.exception(f"Invalid zip file: {model_path}", e)
         raise click.ClickException(f"Invalid zip file: {model_path}")
 
-    return model, Vocab.from_bytes(vocab_bytes)
+    return model, vocab
 
 
 def compute_similarity(vector1: jnp.ndarray, vector2: jnp.ndarray) -> float:
@@ -882,6 +909,60 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
         for similar_word, similarity in similarities[:num_similarities]:
             click.echo(f"    {similar_word}: {similarity:.4f}")
         click.echo()
+
+
+@cli.command("eval", help="Evaluate word embeddings on analogy tasks")
+@click.option(
+    "--model-path",
+    type=Path,
+    required=True,
+    help="Path to the trained model",
+)
+@click.option(
+    "--top-k",
+    type=int,
+    default=5,
+    help="Consider top-k predictions as correct",
+)
+def evaluate(model_path: Path, top_k: int):
+    """Evaluate trained word2vec model on word analogy tasks."""
+    from mo_net.samples.word2vec.eval import (
+        evaluate_analogies,
+        evaluate_model,
+        get_default_analogies,
+        print_analogy_results,
+    )
+
+    model, vocab = load_model_and_vocab(model_path)
+
+    click.echo("Evaluating word2vec model...")
+    click.echo(f"Vocabulary size: {len(vocab.vocab)}")
+    click.echo()
+
+    analogies = get_default_analogies()
+    results = [
+        result
+        for example in analogies
+        if (
+            result := __import__(
+                "mo_net.samples.word2vec.eval", fromlist=["evaluate_analogy"]
+            ).evaluate_analogy(example, model, vocab, top_k)
+        )
+    ]
+
+    print_analogy_results(results)
+
+    metrics = evaluate_analogies(analogies, model, vocab, top_k)
+    click.echo("\n=== Evaluation Metrics ===")
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            click.echo(f"{key}: {value:.2%}")
+        else:
+            click.echo(f"{key}: {value}")
+
+    # Also run comprehensive evaluation
+    click.echo()
+    evaluate_model(model, vocab, analogies)
 
 
 if __name__ == "__main__":
