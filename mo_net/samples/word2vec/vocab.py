@@ -30,10 +30,13 @@ class Vocab:
         Compute sampling probabilities for negative sampling using unigram^power distribution.
         Default power=0.75 as per Mikolov et al. (2013).
         """
-        if self.word_counts is None:
-            return jnp.ones(len(self.vocab)) / len(self.vocab)
+        vocab_size = len(self)  # Includes unknown token
 
-        freqs = jnp.array([self.word_counts.get(word, 1) for word in self.vocab])
+        if self.word_counts is None:
+            return jnp.ones(vocab_size) / vocab_size
+
+        # Get frequencies for known words + unknown token
+        freqs = jnp.array([self.word_counts.get(word, 1) for word in self.vocab] + [1])
         powered_freqs = jnp.power(freqs, power)
         return powered_freqs / jnp.sum(powered_freqs)
 
@@ -325,8 +328,13 @@ def get_stop_words() -> Collection[str]:
 
 
 def get_english_sentences(limit: int = 100000) -> Collection[Sentence]:
+    stop_words = get_stop_words()
     return [
-        [word.lower() for word in sentence.split() if word not in get_stop_words()]
+        [
+            cleaned
+            for word in sentence.split()
+            if (cleaned := Vocab.clean_token(word)) and cleaned not in stop_words
+        ]
         for sentence in (
             get_resource("s3://mo-net-resources/english-sentences.txt")
             .read_text()

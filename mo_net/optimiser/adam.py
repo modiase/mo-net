@@ -84,6 +84,10 @@ class AdaM(Base[Config]):
         self._global_learning_rate = self._scheduler(self._iterations)
         for layer in self._model.grad_layers:
             self.gradient_operation(layer)
+        # Also process output layer if it has gradients (e.g., HierarchicalSoftmaxOutputLayer)
+        output_layer = self._model.output_module.output_layer
+        if isinstance(output_layer, GradLayer):
+            self.gradient_operation(output_layer)
 
     @property
     def learning_rate(self) -> float:

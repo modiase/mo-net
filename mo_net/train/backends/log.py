@@ -185,6 +185,8 @@ class SqliteBackend(LoggingBackend):
 
         if run := self._session.get(DbRun, int(run_id)):
             run.completed_at = datetime.now()
+            run.current_epoch = run.total_epochs
+            run.current_batch = run.total_batches
             self._session.commit()
         self._current_run = None
 
