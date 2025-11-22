@@ -23,6 +23,19 @@ class Vocab:
     token_to_id: dict[str, int]
     id_to_token: dict[int, str]
     unknown_token_id: int
+    word_counts: dict[str, int] | None = None
+
+    def get_negative_sampling_distribution(self, power: float = 0.75) -> jnp.ndarray:
+        """
+        Compute sampling probabilities for negative sampling using unigram^power distribution.
+        Default power=0.75 as per Mikolov et al. (2013).
+        """
+        if self.word_counts is None:
+            return jnp.ones(len(self.vocab)) / len(self.vocab)
+
+        freqs = jnp.array([self.word_counts.get(word, 1) for word in self.vocab])
+        powered_freqs = jnp.power(freqs, power)
+        return powered_freqs / jnp.sum(powered_freqs)
 
     def serialize(self) -> bytes:
         return cast(
@@ -32,6 +45,7 @@ class Vocab:
                     "vocab": list(self.vocab),
                     "token_to_id": self.token_to_id,
                     "unknown_token_id": self.unknown_token_id,
+                    "word_counts": self.word_counts,
                 }
             ),
         )
@@ -48,6 +62,7 @@ class Vocab:
                     {i: token for token, i in data["token_to_id"].items()},
                 ),
                 unknown_token_id=data.get("unknown_token_id", len(data["vocab"])),
+                word_counts=data.get("word_counts"),
             )
 
     @classmethod
@@ -70,17 +85,17 @@ class Vocab:
         max_size: int,
         forced_words: Collection[str] = (),
     ) -> tuple[Vocab, Collection[TokenizedSentence]]:
-        most_common_tokens = {
-            token
-            for token, _ in Counter(
-                token for sentence in sentences if sentence for token in sentence
-            ).most_common(max_size)
-        }
+        word_counter = Counter(
+            token for sentence in sentences if sentence for token in sentence
+        )
+        most_common_tokens = {token for token, _ in word_counter.most_common(max_size)}
         for word in forced_words:
             most_common_tokens.add(word)
 
         vocab_tuple = tuple(most_common_tokens)
         unknown_token_id = len(vocab_tuple)
+        word_counts = {token: word_counter[token] for token in vocab_tuple}
+
         return (
             (
                 vocab := cls(
@@ -91,6 +106,7 @@ class Vocab:
                         {i: token for i, token in enumerate(vocab_tuple)},
                     ),
                     unknown_token_id=unknown_token_id,
+                    word_counts=word_counts,
                 )
             ),
             [
@@ -139,6 +155,7 @@ class Vocab:
                 {i: token for token, i in obj["token_to_id"].items()},
             ),
             unknown_token_id=obj.get("unknown_token_id", len(obj["vocab"])),
+            word_counts=obj.get("word_counts"),
         )
 
 
