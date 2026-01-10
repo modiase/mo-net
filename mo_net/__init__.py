@@ -6,19 +6,18 @@ from pathlib import Path
 from typing import Any, Final, Literal, cast
 
 import jax
-
-# Type alias for jax.Device - pyright doesn't recognize it as a type
-Device = Any  # jax.Device
 from loguru import logger
 from more_itertools import first
 
+# Type alias for jax.Device - pyright doesn't recognize it as a type
+Device = Any  # jax.Device
+
 __version__: Final[str] = "0.0.13"
 
+DEVICE_TYPES: Final = ("cpu", "gpu", "auto")
+DeviceType = Literal["cpu", "gpu", "auto"]
 PACKAGE_DIR: Final[Path] = Path(__file__).parent.resolve()
 PROJECT_ROOT_DIR: Final[Path] = PACKAGE_DIR.parent.resolve()
-
-DeviceType = Literal["cpu", "gpu", "auto"]
-DEVICE_TYPES: Final = ("cpu", "gpu", "auto")
 
 
 @contextlib.contextmanager
