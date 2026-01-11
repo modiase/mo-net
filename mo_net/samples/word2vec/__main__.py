@@ -592,6 +592,18 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Words to force include in vocabulary (can be used multiple times)",
         default=(),
     )
+    @click.option(
+        "--monitor/--no-monitor",
+        "monitor",
+        default=False,
+        help="Enable training monitor (early stopping on rising validation loss)",
+    )
+    @click.option(
+        "--history-max-len",
+        type=int,
+        default=10,
+        help="Number of epochs to track before checking for rising validation loss",
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -611,6 +623,7 @@ def train(
     batch_size: int,
     context_size: int,
     embedding_dim: int,
+    history_max_len: int,
     include_words: tuple[str, ...],
     lambda_: float,
     learning_rate: float,
@@ -618,6 +631,7 @@ def train(
     model_output_path: Path | None,
     model_path: Path | None,
     model_type: Literal["cbow", "skipgram"],
+    monitor: bool,
     negative_samples: int,
     num_epochs: int,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
@@ -708,12 +722,12 @@ def train(
     training_parameters = TrainingParameters(
         batch_size=batch_size,
         dropout_keep_probs=(),
-        history_max_len=100,
+        history_max_len=history_max_len,
         learning_rate_limits=(learning_rate, learning_rate),
         log_level=log_level,
         max_restarts=0,
         monotonic=False,
-        no_monitoring=True,
+        no_monitoring=not monitor,
         normalisation_type=NormalisationType.NONE,
         num_epochs=num_epochs,
         quiet=False,
@@ -796,7 +810,46 @@ def train(
             with contextlib.suppress(Exception):
                 result.model_checkpoint_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
         case TrainingFailed():
-            logger.error(f"Training failed: {result.message}")
+            logger.warning(f"Training stopped early: {result.message}")
+            if result.model_checkpoint_path and result.model_checkpoint_path.exists():
+                if model_output_path is None:
+                    model_output_path = DATA_DIR / "output" / f"{run.name}.zip"
+
+                # Load best checkpoint and save as zip
+                match model_type:
+                    case "skipgram":
+                        model = SkipGramModel.load(
+                            result.model_checkpoint_path, training=False, key=key
+                        )
+                    case "cbow":
+                        model = CBOWModel.load(
+                            result.model_checkpoint_path, training=False
+                        )
+
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(
+                    zip_buffer, "w", compression=zipfile.ZIP_DEFLATED
+                ) as zf:
+                    model_buffer = BytesIO()
+                    model.dump(model_buffer)
+                    zf.writestr(MODEL_ZIP_INTERNAL_PATH, model_buffer.getvalue())
+                    zf.writestr(VOCAB_ZIP_INTERNAL_PATH, vocab.serialize())
+                    zf.writestr(
+                        METADATA_ZIP_INTERNAL_PATH,
+                        json.dumps(
+                            {"type": model_type, "softmax_strategy": softmax_strategy}
+                        ).encode("utf-8"),
+                    )
+
+                model_output_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(model_output_path, "wb") as f:
+                    f.write(zip_buffer.getvalue())
+
+                logger.info(
+                    f"Saved best checkpoint (epoch {result.model_checkpoint_save_epoch}) to: {model_output_path}"
+                )
+                with contextlib.suppress(Exception):
+                    result.model_checkpoint_path.unlink(missing_ok=True)
         case never_2:
             assert_never(never_2)
 
