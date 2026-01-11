@@ -40,11 +40,11 @@
         pkgs = mkPkgs false;
         pkgsCuda = if pkgs.stdenv.isLinux then mkPkgs true else null;
 
+        # Note: Don't include nvidia_x11 - use system driver to avoid version mismatch
         cudaLibs = lib.optionals (pkgsCuda != null) (with pkgsCuda; [
           cudatoolkit
           cudaPackages.cudnn
           cudaPackages.nccl
-          linuxPackages.nvidia_x11
         ]);
 
         systemLibs = with pkgs; [
@@ -151,46 +151,51 @@
 
         venv = pythonSet.mkVirtualEnv "mo-net-env" workspace.deps.default;
 
-        editableVenv = (pythonSet.overrideScope (
+        editablePythonSet = pythonSet.overrideScope (
           workspace.mkEditablePyprojectOverlay { root = "$REPO_ROOT"; }
-        )).mkVirtualEnv "mo-net-dev-env" { mo-net = [ "dev" ]; };
+        );
 
-        mkShell = useCuda: pkgs.mkShell {
-          packages = [ editableVenv pkgs.uv ] ++ systemLibs
-            ++ (if useCuda then cudaLibs else []);
+        editableVenv = editablePythonSet.mkVirtualEnv "mo-net-dev-env" { mo-net = [ "dev" ]; };
+        editableCudaVenv = editablePythonSet.mkVirtualEnv "mo-net-cuda-env" { mo-net = [ "dev" "cuda" ]; };
 
-          shellHook = ''
-            export NIX_CFLAGS_COMPILE="-I${pkgs.lib.makeSearchPathOutput "dev" "include" (systemLibs ++ (if useCuda then cudaLibs else []))}"
-            export NIX_LDFLAGS="-L${pkgs.lib.makeLibraryPath (systemLibs ++ (if useCuda then cudaLibs else []))}"
-            export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" (systemLibs ++ (if useCuda then cudaLibs else []))}:$PKG_CONFIG_PATH"
-            export REPO_ROOT="$PWD"
-            # Prevent uv from managing Python - Nix handles this
-            export UV_NO_SYNC=1
-            export UV_PYTHON="${editableVenv}/bin/python"
-            export UV_PYTHON_DOWNLOADS=never
+        mkShell = useCuda:
+          let
+            activeVenv = if useCuda then editableCudaVenv else editableVenv;
+          in
+          pkgs.mkShell {
+            packages = [ activeVenv pkgs.uv ] ++ systemLibs
+              ++ (if useCuda then cudaLibs else []);
 
-            ${if useCuda && pkgsCuda != null then ''
-              export CUDA_PATH="${pkgsCuda.cudatoolkit}"
-              export CUDA_ROOT="${pkgsCuda.cudatoolkit}"
-              export CUDNN_PATH="${pkgsCuda.cudaPackages.cudnn}"
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:''${LD_LIBRARY_PATH:-}"
-              export PATH="${pkgsCuda.cudatoolkit}/bin:$PATH"
-              export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgsCuda.cudatoolkit}/lib"
+            shellHook = ''
+              export NIX_CFLAGS_COMPILE="-I${pkgs.lib.makeSearchPathOutput "dev" "include" (systemLibs ++ (if useCuda then cudaLibs else []))}"
+              export NIX_LDFLAGS="-L${pkgs.lib.makeLibraryPath (systemLibs ++ (if useCuda then cudaLibs else []))}"
+              export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" (systemLibs ++ (if useCuda then cudaLibs else []))}:$PKG_CONFIG_PATH"
+              export REPO_ROOT="$PWD"
+              # Prevent uv from managing Python - Nix handles this
+              export UV_NO_SYNC=1
+              export UV_PYTHON="${activeVenv}/bin/python"
+              export UV_PYTHON_DOWNLOADS=never
+
+              ${if useCuda && pkgsCuda != null then ''
+                export CUDA_PATH="${pkgsCuda.cudatoolkit}"
+                export CUDA_ROOT="${pkgsCuda.cudatoolkit}"
+                export CUDNN_PATH="${pkgsCuda.cudaPackages.cudnn}"
+                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:''${LD_LIBRARY_PATH:-}"
+                export PATH="${pkgsCuda.cudatoolkit}/bin:$PATH"
+                export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgsCuda.cudatoolkit}/lib"
+                if [[ "''${DEBUG:-0}" != "0" ]]; then
+                  echo "mode: CUDA enabled"
+                fi
+              '' else ''
+                if [[ "''${DEBUG:-0}" != "0" ]]; then
+                  echo "mode: CPU-only ${if pkgs.stdenv.isLinux then " (use 'nix develop .#cuda' for CUDA)" else ""}"
+                fi
+              ''}
               if [[ "''${DEBUG:-0}" != "0" ]]; then
-                echo "mode: CUDA enabled"
-                echo "  CUDA_PATH: $CUDA_PATH"
-                echo "  CUDNN_PATH: $CUDNN_PATH"
+                echo "Python: $(python --version)"
               fi
-            '' else ''
-              if [[ "''${DEBUG:-0}" != "0" ]]; then
-                echo "mode: CPU-only ${if pkgs.stdenv.isLinux then " (use 'nix develop .#cuda' for CUDA)" else ""}"
-              fi
-            ''}
-            if [[ "''${DEBUG:-0}" != "0" ]]; then
-              echo "Python: $(python --version)"
-            fi
-          '';
-        };
+            '';
+          };
 
       in
       {
