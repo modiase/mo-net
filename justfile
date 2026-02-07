@@ -18,3 +18,13 @@ test-smoke:
 
 test-collect:
     pytest --collect-only mo_net/tests
+
+[doc("CI: run tests via uv")]
+ci-test:
+    #!/usr/bin/env bash
+    uv run pytest -n auto mo_net/tests
+
+[doc("CI: run typecheck via uv")]
+ci-typecheck *args:
+    #!/usr/bin/env bash
+    uv run python mo_net/scripts/typecheck.py {{args}}
