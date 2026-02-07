@@ -153,20 +153,16 @@
 
         editableVenv = (pythonSet.overrideScope (
           workspace.mkEditablePyprojectOverlay { root = "$REPO_ROOT"; }
-        )).mkVirtualEnv "mo-net-dev-env" workspace.deps.default;
-
-        # uv2nix doesn't support dependency-groups, so dev tools come from nixpkgs
-        devPythonPackages = with pkgs.python312Packages; [ pytest ruff inquirerpy jupyter ];
+        )).mkVirtualEnv "mo-net-dev-env" { mo-net = [ "dev" ]; };
 
         mkShell = useCuda: pkgs.mkShell {
-          packages = [ editableVenv pkgs.uv ] ++ devPythonPackages ++ systemLibs
+          packages = [ editableVenv pkgs.uv ] ++ systemLibs
             ++ (if useCuda then cudaLibs else []);
 
           shellHook = ''
             export NIX_CFLAGS_COMPILE="-I${pkgs.lib.makeSearchPathOutput "dev" "include" (systemLibs ++ (if useCuda then cudaLibs else []))}"
             export NIX_LDFLAGS="-L${pkgs.lib.makeLibraryPath (systemLibs ++ (if useCuda then cudaLibs else []))}"
             export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" (systemLibs ++ (if useCuda then cudaLibs else []))}:$PKG_CONFIG_PATH"
-            export PYTHONPATH="${pkgs.lib.makeSearchPath "lib/python3.12/site-packages" devPythonPackages}:''${PYTHONPATH:-}"
             export REPO_ROOT="$PWD"
             # Prevent uv from managing Python - Nix handles this
             export UV_NO_SYNC=1
@@ -180,13 +176,19 @@
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:''${LD_LIBRARY_PATH:-}"
               export PATH="${pkgsCuda.cudatoolkit}/bin:$PATH"
               export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgsCuda.cudatoolkit}/lib"
-              echo "mode: CUDA enabled"
-              echo "  CUDA_PATH: $CUDA_PATH"
-              echo "  CUDNN_PATH: $CUDNN_PATH"
+              if [[ "''${DEBUG:-0}" != "0" ]]; then
+                echo "mode: CUDA enabled"
+                echo "  CUDA_PATH: $CUDA_PATH"
+                echo "  CUDNN_PATH: $CUDNN_PATH"
+              fi
             '' else ''
-              echo "mode: CPU-only ${if pkgs.stdenv.isLinux then " (use 'nix develop .#cuda' for CUDA)" else ""}"
+              if [[ "''${DEBUG:-0}" != "0" ]]; then
+                echo "mode: CPU-only ${if pkgs.stdenv.isLinux then " (use 'nix develop .#cuda' for CUDA)" else ""}"
+              fi
             ''}
-            echo "Python: $(python --version)"
+            if [[ "''${DEBUG:-0}" != "0" ]]; then
+              echo "Python: $(python --version)"
+            fi
           '';
         };
 
