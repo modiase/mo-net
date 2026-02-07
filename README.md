@@ -7,9 +7,9 @@ this project is to implement deep learning concepts and functions by hand using
 jax/numpy without using popular libraries such as PyTorch or TensorFlow by
 understanding the underlying maths and reading papers.
 
-![Dashboard](/assets/dashboard.png)
+![Dashboard](./assets/dashboard.png)
 
-![Infer](/assets/after-grokking.png)
+![Infer](./assets/after-grokking.png)
 
 ## Usage
 
