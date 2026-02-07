@@ -9,7 +9,7 @@ from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import Vocab
 from mo_net.samples.word2vec import CBOWModel, SkipGramModel
 from mo_net.train import TrainingParameters
-from mo_net.train.backends.log import SqliteBackend
+from mo_net.train.backends.log import InMemorySqliteBackend
 from mo_net.train.run import TrainingRun
 from mo_net.train.trainer.trainer import BasicTrainer, get_optimiser, TrainingSuccessful
 from mo_net.functions import sparse_cross_entropy
@@ -76,7 +76,7 @@ class TestCBOWIntegration:
         )
 
         # Create run and optimiser
-        run = TrainingRun(seed=42, name="test_cbow", backend=SqliteBackend())
+        run = TrainingRun(seed=42, name="test_cbow", backend=InMemorySqliteBackend())
         optimiser = get_optimiser("adam", model, training_parameters)
 
         # Create trainer
@@ -169,7 +169,9 @@ class TestSkipGramIntegration:
         )
 
         # Create run and optimiser
-        run = TrainingRun(seed=42, name="test_skipgram", backend=SqliteBackend())
+        run = TrainingRun(
+            seed=42, name="test_skipgram", backend=InMemorySqliteBackend()
+        )
         optimiser = get_optimiser("adam", model, training_parameters)
 
         # Create trainer

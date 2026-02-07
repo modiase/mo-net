@@ -8,9 +8,9 @@ Used to reduce softmax computation from O(V) to O(log V).
 from __future__ import annotations
 
 import heapq
-import msgpack
+import msgpack  # type: ignore[import-untyped]
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -249,7 +249,7 @@ class HuffmanTree:
             "paths": {str(k): v for k, v in self._paths.items()},
             "codes": {str(k): v for k, v in self._codes.items()},
         }
-        return msgpack.packb(data, use_bin_type=True)
+        return cast(bytes, msgpack.packb(data, use_bin_type=True))
 
     @classmethod
     def deserialize(cls, data: bytes) -> HuffmanTree:

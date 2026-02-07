@@ -304,7 +304,7 @@ def get_model(
                 dropout_keep_probs=dropout_keep_probs,
             )
         else:
-            return Model.mlp_of(  # type: ignore[call-overload]
+            return Model.mlp_of(
                 key=key,
                 module_dimensions=(
                     tuple(
@@ -321,8 +321,10 @@ def get_model(
                     )
                 ),
                 activation_fn=activation_fn,
-                batch_size=batch_size,
-                normalisation_type=normalisation_type,
+                normalisation_type=cast(
+                    Literal[NormalisationType.NONE, NormalisationType.LAYER],
+                    normalisation_type,
+                ),
                 tracing_enabled=tracing_enabled,
                 dropout_keep_probs=dropout_keep_probs,
             )

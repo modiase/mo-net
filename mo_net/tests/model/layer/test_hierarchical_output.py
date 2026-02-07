@@ -1,5 +1,7 @@
 """Tests for hierarchical softmax output layer."""
 
+from typing import cast
+
 import pytest
 import jax
 import jax.numpy as jnp
@@ -110,7 +112,7 @@ class TestHierarchicalSoftmaxBackward:
 
         # Backward pass
         Y_true = jnp.array([0, 1])  # Target words
-        grad = layer._backward_prop(Y_true=Y_true)
+        grad = cast(jnp.ndarray, layer._backward_prop(Y_true=Y_true))
 
         # Gradient should have same shape as input
         assert grad.shape == h.shape
@@ -133,7 +135,7 @@ class TestHierarchicalSoftmaxBackward:
         layer._backward_prop(Y_true=jnp.array([0]))
 
         # Should have node vector gradients in cache
-        dP = layer.cache["dP"]
+        dP = cast(HierarchicalSoftmaxOutputLayer.Parameters, layer.cache["dP"])
         assert dP is not None
         assert dP.node_vectors.shape == layer.parameters.node_vectors.shape
 
@@ -153,7 +155,8 @@ class TestHierarchicalSoftmaxBackward:
         layer._backward_prop(Y_true=jnp.array([0]))
 
         # Get gradients from cache
-        dP = layer.cache["dP"]
+        dP = cast(HierarchicalSoftmaxOutputLayer.Parameters, layer.cache["dP"])
+        assert dP is not None
         node_grads = dP.node_vectors
 
         # Count non-zero gradient rows
@@ -277,6 +280,6 @@ class TestHierarchicalSoftmaxEdgeCases:
 
         # Backward with batch
         Y_true = jnp.array([0, 1, 2, 0, 1])
-        grad = layer._backward_prop(Y_true=Y_true)
+        grad = cast(jnp.ndarray, layer._backward_prop(Y_true=Y_true))
 
         assert grad.shape == (batch_size, 8)
