@@ -18,3 +18,24 @@ test-smoke:
 
 test-collect:
     pytest --collect-only mo_net/tests
+
+# Sync to herakles and run tests remotely
+[no-cd]
+[unix]
+test-remote *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Syncing to herakles..."
+    rsync -az --delete \
+        --exclude='.git' \
+        --exclude='__pycache__' \
+        --exclude='.direnv' \
+        --exclude='.venv' \
+        --exclude='result' \
+        --exclude='*.egg-info' \
+        . herakles:~/mo-net/
+    flake="path:."
+    for flag in {{flags}}; do
+        [[ "$flag" == "--cuda" ]] && flake="path:.#cuda"
+    done
+    ssh -t herakles "cd ~/mo-net && nix develop $flake --no-warn-dirty --command pytest mo_net/tests"

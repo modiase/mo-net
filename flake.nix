@@ -130,6 +130,23 @@
           // addSystemDeps "numpy" (old: {
             nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ pkgs.meson pkgs.ninja pkgs.pkg-config ];
             buildInputs = (old.buildInputs or []) ++ [ pkgs.openblas ];
+          })
+          // addSystemDeps "nvidia-nvshmem-cu12" (old: {
+            buildInputs = (old.buildInputs or []) ++ [
+              pkgs.libfabric pkgs.openmpi pkgs.pmix pkgs.rdma-core pkgs.ucx
+            ];
+          })
+          // addSystemDeps "nvidia-cusolver-cu12" (old: {
+            buildInputs = (old.buildInputs or []) ++ lib.optionals (pkgsCuda != null) [
+              pkgsCuda.cudaPackages.libcublas
+              pkgsCuda.cudaPackages.libcusparse
+              pkgsCuda.cudaPackages.libnvjitlink
+            ];
+          })
+          // addSystemDeps "nvidia-cusparse-cu12" (old: {
+            buildInputs = (old.buildInputs or []) ++ lib.optionals (pkgsCuda != null) [
+              pkgsCuda.cudaPackages.libnvjitlink
+            ];
           });
 
         pythonSet = (pkgs.callPackage pyproject-nix.build.packages {
@@ -180,7 +197,7 @@
                 export CUDA_PATH="${pkgsCuda.cudatoolkit}"
                 export CUDA_ROOT="${pkgsCuda.cudatoolkit}"
                 export CUDNN_PATH="${pkgsCuda.cudaPackages.cudnn}"
-                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:''${LD_LIBRARY_PATH:-}"
+                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:/run/opengl-driver/lib:''${LD_LIBRARY_PATH:-}"
                 export PATH="${pkgsCuda.cudatoolkit}/bin:$PATH"
                 export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgsCuda.cudatoolkit}/lib"
                 if [[ "''${DEBUG:-0}" != "0" ]]; then
