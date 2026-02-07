@@ -93,6 +93,17 @@ class Parameters(SupportsGradientOperations):
         return cls(embeddings=embeddings)
 
     @classmethod
+    def word2vec(cls, vocab_size: int, embedding_dim: int, key: jax.Array) -> Self:
+        """Word2vec-style initialization: uniform in [-0.5/dim, 0.5/dim]"""
+        embeddings = random.uniform(
+            key,
+            (vocab_size, embedding_dim),
+            minval=-0.5 / embedding_dim,
+            maxval=0.5 / embedding_dim,
+        )
+        return cls(embeddings=embeddings)
+
+    @classmethod
     def of(cls, embeddings: jnp.ndarray) -> Self:
         return cls(embeddings=jnp.atleast_2d(embeddings))
 
@@ -153,12 +164,14 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
                 parameters=self.parameters,
                 freeze_parameters=freeze_parameters,
                 key=jax.random.PRNGKey(0),
+                exists_ok=True,
             )
 
     def __init__(
         self,
         *,
         clip_gradients: bool = True,
+        exists_ok: bool = False,
         freeze_parameters: bool = False,
         input_dimensions: Dimensions,
         key: jax.Array,
@@ -176,6 +189,7 @@ class Embedding(ParametrisedHidden[ParametersType, CacheType]):
             layer_id=layer_id,
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
+            exists_ok=exists_ok,
         )
         self._freeze_parameters = freeze_parameters
         self._key = key

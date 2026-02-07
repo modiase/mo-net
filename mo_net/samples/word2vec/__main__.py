@@ -26,7 +26,11 @@ from mo_net.model.layer.average import Average
 from mo_net.model.layer.base import Hidden as HiddenLayer
 from mo_net.model.layer.embedding import Embedding
 from mo_net.model.layer.linear import Linear
-from mo_net.model.layer.output import OutputLayer, SparseCategoricalSoftmaxOutputLayer
+from mo_net.model.layer.output import (
+    HierarchicalSoftmaxOutputLayer,
+    OutputLayer,
+    SparseCategoricalSoftmaxOutputLayer,
+)
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import (
@@ -37,6 +41,7 @@ from mo_net.protos import (
     SupportsDeserialize,
 )
 from mo_net.regulariser.weight_decay import EmbeddingWeightDecayRegulariser
+from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig, SoftmaxStrategy
 from mo_net.samples.word2vec.vocab import (
     TokenizedSentence,
     Vocab,
@@ -98,10 +103,54 @@ class CBOWModel(Model):
         context_size: int,
         embedding_dim: int,
         key: jax.Array,
+        softmax_config: SoftmaxConfig,
         tracing_enabled: bool = False,
-        vocab_size: int,
+        vocab: Vocab | None = None,
+        vocab_size: int | None = None,
     ) -> CBOWModel:
-        key1, key2 = jax.random.split(key, 2)
+        # Determine vocab_size from vocab or parameter
+        if vocab is not None:
+            vocab_size = len(vocab)
+        elif vocab_size is None:
+            raise ValueError("Must provide either vocab or vocab_size")
+
+        key1, key2, key3 = jax.random.split(key, 3)
+
+        # Build output layer based on softmax strategy
+        match softmax_config.strategy:
+            case SoftmaxStrategy.HIERARCHICAL:
+                if vocab is None:
+                    raise ValueError(
+                        "vocab is required for hierarchical softmax (needed to build Huffman tree)"
+                    )
+                # No Linear layer for hierarchical - tree replaces weight matrix
+                output = Output(
+                    layers=(),
+                    output_layer=HierarchicalSoftmaxOutputLayer(
+                        input_dimensions=(embedding_dim,),
+                        vocab=vocab,
+                        key=key3,
+                    ),
+                )
+            case SoftmaxStrategy.NEGATIVE_SAMPLING | SoftmaxStrategy.FULL:
+                # Standard approach: Linear + SparseCategoricalSoftmaxOutputLayer
+                output = Output(
+                    layers=(
+                        Linear(
+                            input_dimensions=(embedding_dim,),
+                            output_dimensions=(vocab_size,),
+                            parameters_init_fn=lambda dim_in,
+                            dim_out: Linear.Parameters.xavier(
+                                dim_in, dim_out, key=key2
+                            ),
+                            store_output_activations=tracing_enabled,
+                        ),
+                    ),
+                    output_layer=SparseCategoricalSoftmaxOutputLayer(
+                        input_dimensions=(vocab_size,)
+                    ),
+                )
+
         return cls(
             input_dimensions=(context_size * 2,),
             hidden=(
@@ -111,6 +160,7 @@ class CBOWModel(Model):
                             input_dimensions=(context_size * 2,),
                             output_dimensions=(context_size * 2, embedding_dim),
                             vocab_size=vocab_size,
+                            parameters_init_fn=Embedding.Parameters.word2vec,
                             store_output_activations=tracing_enabled,
                             key=key1,
                         ),
@@ -121,20 +171,7 @@ class CBOWModel(Model):
                     )
                 ),
             ),
-            output=Output(
-                layers=(
-                    Linear(
-                        input_dimensions=(embedding_dim,),
-                        output_dimensions=(vocab_size,),
-                        parameters_init_fn=lambda dim_in,
-                        dim_out: Linear.Parameters.xavier(dim_in, dim_out, key=key2),
-                        store_output_activations=tracing_enabled,
-                    ),
-                ),
-                output_layer=SparseCategoricalSoftmaxOutputLayer(
-                    input_dimensions=(vocab_size,)
-                ),
-            ),
+            output=output,
         )
 
     @property
@@ -205,6 +242,7 @@ class SkipGramModel(Model):
         input_dimensions: Dimensions,
         key: jax.Array,
         negative_samples: int = 5,
+        negative_sampling_dist: jnp.ndarray | None = None,
         output: Output | OutputLayer | None = None,
     ):
         super().__init__(
@@ -212,6 +250,7 @@ class SkipGramModel(Model):
         )
         self._key = key
         self._negative_samples = negative_samples
+        self._negative_sampling_dist = negative_sampling_dist
 
     @classmethod
     def get_name(cls) -> str:
@@ -228,10 +267,54 @@ class SkipGramModel(Model):
         embedding_dim: int,
         key: jax.Array,
         negative_samples: int,
+        softmax_config: SoftmaxConfig,
         tracing_enabled: bool = False,
-        vocab_size: int,
+        vocab: Vocab | None = None,
+        vocab_size: int | None = None,
     ) -> SkipGramModel:
-        key1, key2 = jax.random.split(key, 2)
+        # Determine vocab_size from vocab or parameter
+        if vocab is not None:
+            vocab_size = len(vocab)
+        elif vocab_size is None:
+            raise ValueError("Must provide either vocab or vocab_size")
+
+        key1, key2, key3 = jax.random.split(key, 3)
+
+        # Build output layer based on softmax strategy
+        match softmax_config.strategy:
+            case SoftmaxStrategy.HIERARCHICAL:
+                if vocab is None:
+                    raise ValueError(
+                        "vocab is required for hierarchical softmax (needed to build Huffman tree)"
+                    )
+                # No Linear layer for hierarchical - tree replaces weight matrix
+                output = Output(
+                    layers=(),
+                    output_layer=HierarchicalSoftmaxOutputLayer(
+                        input_dimensions=(embedding_dim,),
+                        vocab=vocab,
+                        key=key3,
+                    ),
+                )
+            case SoftmaxStrategy.NEGATIVE_SAMPLING | SoftmaxStrategy.FULL:
+                # Standard approach: Linear + SparseCategoricalSoftmaxOutputLayer
+                output = Output(
+                    layers=(
+                        Linear(
+                            input_dimensions=(embedding_dim,),
+                            output_dimensions=(vocab_size,),
+                            parameters_init_fn=lambda dim_in,
+                            dim_out: Linear.Parameters.xavier(
+                                dim_in, dim_out, key=key2
+                            ),
+                            store_output_activations=tracing_enabled,
+                        ),
+                    ),
+                    output_layer=SparseCategoricalSoftmaxOutputLayer(
+                        input_dimensions=(vocab_size,)
+                    ),
+                )
+
         return cls(
             input_dimensions=(1,),
             hidden=(
@@ -244,6 +327,7 @@ class SkipGramModel(Model):
                                 embedding_dim,
                             ),
                             vocab_size=vocab_size,
+                            parameters_init_fn=Embedding.Parameters.word2vec,
                             store_output_activations=tracing_enabled,
                             key=key1,
                         ),
@@ -254,20 +338,7 @@ class SkipGramModel(Model):
                     )
                 ),
             ),
-            output=Output(
-                layers=(
-                    Linear(
-                        input_dimensions=(embedding_dim,),
-                        output_dimensions=(vocab_size,),
-                        parameters_init_fn=lambda dim_in,
-                        dim_out: Linear.Parameters.xavier(dim_in, dim_out, key=key2),
-                        store_output_activations=tracing_enabled,
-                    ),
-                ),
-                output_layer=SparseCategoricalSoftmaxOutputLayer(
-                    input_dimensions=(vocab_size,)
-                ),
-            ),
+            output=output,
             key=key,
             negative_samples=negative_samples,
         )
@@ -282,18 +353,36 @@ class SkipGramModel(Model):
 
     def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
         batch_size, context_size = Y_true.shape
-        self._key, subkey = jax.random.split(self._key)
+        output_layer = self.output.output_layer
 
-        dZ = cast(
-            SparseCategoricalSoftmaxOutputLayer, self.output.output_layer
-        ).backward_prop_with_negative(
-            Y_true=Y_true.flatten(),
-            Y_negative=jax.random.choice(
-                subkey,
-                self.embedding_layer.vocab_size,
-                shape=(batch_size * context_size * self._negative_samples,),
-            ),
-        )
+        if isinstance(output_layer, HierarchicalSoftmaxOutputLayer):
+            # Hierarchical softmax: use standard backward_prop
+            # Tree structure provides sparse gradients inherently
+            dZ = output_layer.backward_prop(Y_true=Y_true.flatten())
+        elif isinstance(output_layer, SparseCategoricalSoftmaxOutputLayer):
+            # Negative sampling: sample negatives and use sparse backward
+            self._key, subkey = jax.random.split(self._key)
+
+            if self._negative_sampling_dist is not None:
+                Y_negative = jax.random.choice(
+                    subkey,
+                    self.embedding_layer.vocab_size,
+                    shape=(batch_size * context_size * self._negative_samples,),
+                    p=self._negative_sampling_dist,
+                )
+            else:
+                Y_negative = jax.random.choice(
+                    subkey,
+                    self.embedding_layer.vocab_size,
+                    shape=(batch_size * context_size * self._negative_samples,),
+                )
+
+            dZ = output_layer.backward_prop_with_negative(
+                Y_true=Y_true.flatten(),
+                Y_negative=Y_negative,
+            )
+        else:
+            raise TypeError(f"Unsupported output layer type: {type(output_layer)}")
 
         for layer in reversed(self.output_module.layers):
             dZ = layer.backward_prop(dZ=dZ)
@@ -335,6 +424,7 @@ class SkipGramModel(Model):
         training: bool = False,
         freeze_parameters: bool = False,
         key: jax.Array | None = None,
+        negative_sampling_dist: jnp.ndarray | None = None,
     ) -> SkipGramModel:
         if key is None:
             key = jax.random.PRNGKey(0)
@@ -360,6 +450,7 @@ class SkipGramModel(Model):
             ),
             key=key,
             negative_samples=serialized.negative_samples,
+            negative_sampling_dist=negative_sampling_dist,
         )
 
 
@@ -466,7 +557,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
     @click.option(
         "--negative-samples",
         type=int,
-        help="Number of negative samples",
+        help="Number of negative samples (only used with negative-sampling strategy)",
         default=5,
     )
     @click.option(
@@ -474,6 +565,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=int,
         help="Number of epochs",
         default=100,
+    )
+    @click.option(
+        "--softmax-strategy",
+        type=click.Choice(["full", "negative-sampling", "hierarchical"]),
+        help="Softmax computation strategy",
+        default="negative-sampling",
     )
     @click.option(
         "--vocab-size",
@@ -495,6 +592,18 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         help="Words to force include in vocabulary (can be used multiple times)",
         default=(),
     )
+    @click.option(
+        "--monitor/--no-monitor",
+        "monitor",
+        default=False,
+        help="Enable training monitor (early stopping on rising validation loss)",
+    )
+    @click.option(
+        "--history-max-len",
+        type=int,
+        default=10,
+        help="Number of epochs to track before checking for rising validation loss",
+    )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         return f(*args, **kwargs)
@@ -514,6 +623,7 @@ def train(
     batch_size: int,
     context_size: int,
     embedding_dim: int,
+    history_max_len: int,
     include_words: tuple[str, ...],
     lambda_: float,
     learning_rate: float,
@@ -521,8 +631,10 @@ def train(
     model_output_path: Path | None,
     model_path: Path | None,
     model_type: Literal["cbow", "skipgram"],
+    monitor: bool,
     negative_samples: int,
     num_epochs: int,
+    softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
     vocab_size: int,
     warmup_epochs: int,
 ):
@@ -535,6 +647,17 @@ def train(
     logger.info(f"Using seed: {seed}")
     key = jax.random.PRNGKey(seed)
 
+    # Convert softmax_strategy string to SoftmaxConfig
+    match softmax_strategy:
+        case "full":
+            softmax_config = SoftmaxConfig.full_softmax()
+        case "negative-sampling":
+            softmax_config = SoftmaxConfig.negative_sampling(k=negative_samples)
+        case "hierarchical":
+            softmax_config = SoftmaxConfig.hierarchical_softmax()
+        case _:
+            raise ValueError(f"Unknown softmax strategy: {softmax_strategy}")
+
     include_words = tuple(word.lower() for word in include_words)
     if model_path is not None:
         with zipfile.ZipFile(model_path, "r") as zf:
@@ -543,13 +666,17 @@ def train(
                     metadata = json.loads(md.read().decode("utf-8"))
                     loaded_model_type = metadata.get("type", "cbow")
 
+                vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
                 if loaded_model_type == "skipgram":
+                    neg_sampling_dist = vocab.get_negative_sampling_distribution()
                     model: CBOWModel | SkipGramModel = SkipGramModel.load(
-                        mf, training=True, key=key
+                        mf,
+                        training=True,
+                        key=key,
+                        negative_sampling_dist=neg_sampling_dist,
                     )
                 else:
                     model = CBOWModel.load(mf, training=True)
-                vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
         sentences = get_english_sentences()
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
@@ -564,17 +691,21 @@ def train(
                     context_size=context_size,
                     embedding_dim=embedding_dim,
                     key=key,
+                    softmax_config=softmax_config,
                     tracing_enabled=False,
-                    vocab_size=len(vocab),
+                    vocab=vocab,
                 )
             case "skipgram":
+                neg_sampling_dist = vocab.get_negative_sampling_distribution()
                 model = SkipGramModel.create(
                     embedding_dim=embedding_dim,
                     key=key,
+                    softmax_config=softmax_config,
                     tracing_enabled=False,
-                    vocab_size=len(vocab),
+                    vocab=vocab,
                     negative_samples=negative_samples,
                 )
+                model._negative_sampling_dist = neg_sampling_dist
             case never:
                 assert_never(never)
 
@@ -585,17 +716,18 @@ def train(
     logger.info(f"Vocabulary size: {len(vocab)}")
     logger.info(f"Embedding dimension: {embedding_dim}")
     logger.info(f"Context size: {context_size}")
+    logger.info(f"Softmax strategy: {softmax_strategy}")
     logger.info(f"Training samples: {len(X_train)}")
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
         dropout_keep_probs=(),
-        history_max_len=100,
+        history_max_len=history_max_len,
         learning_rate_limits=(learning_rate, learning_rate),
         log_level=log_level,
         max_restarts=0,
         monotonic=False,
-        no_monitoring=True,
+        no_monitoring=not monitor,
         normalisation_type=NormalisationType.NONE,
         num_epochs=num_epochs,
         quiet=False,
@@ -621,6 +753,7 @@ def train(
         seed=seed, name=f"{model_type}_run_{seed}", backend=SqliteBackend()
     )
     optimiser = get_optimiser("adam", model, training_parameters)
+
     EmbeddingWeightDecayRegulariser.attach(
         lambda_=lambda_,
         batch_size=batch_size,
@@ -661,7 +794,12 @@ def train(
                 zf.writestr(VOCAB_ZIP_INTERNAL_PATH, vocab.serialize())
                 zf.writestr(
                     METADATA_ZIP_INTERNAL_PATH,
-                    json.dumps({"type": model_type}).encode("utf-8"),
+                    json.dumps(
+                        {
+                            "type": model_type,
+                            "softmax_strategy": softmax_strategy,
+                        }
+                    ).encode("utf-8"),
                 )
 
             model_output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -672,7 +810,46 @@ def train(
             with contextlib.suppress(Exception):
                 result.model_checkpoint_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
         case TrainingFailed():
-            logger.error(f"Training failed: {result.message}")
+            logger.warning(f"Training stopped early: {result.message}")
+            if result.model_checkpoint_path and result.model_checkpoint_path.exists():
+                if model_output_path is None:
+                    model_output_path = DATA_DIR / "output" / f"{run.name}.zip"
+
+                # Load best checkpoint and save as zip
+                match model_type:
+                    case "skipgram":
+                        model = SkipGramModel.load(
+                            result.model_checkpoint_path, training=False, key=key
+                        )
+                    case "cbow":
+                        model = CBOWModel.load(
+                            result.model_checkpoint_path, training=False
+                        )
+
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(
+                    zip_buffer, "w", compression=zipfile.ZIP_DEFLATED
+                ) as zf:
+                    model_buffer = BytesIO()
+                    model.dump(model_buffer)
+                    zf.writestr(MODEL_ZIP_INTERNAL_PATH, model_buffer.getvalue())
+                    zf.writestr(VOCAB_ZIP_INTERNAL_PATH, vocab.serialize())
+                    zf.writestr(
+                        METADATA_ZIP_INTERNAL_PATH,
+                        json.dumps(
+                            {"type": model_type, "softmax_strategy": softmax_strategy}
+                        ).encode("utf-8"),
+                    )
+
+                model_output_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(model_output_path, "wb") as f:
+                    f.write(zip_buffer.getvalue())
+
+                logger.info(
+                    f"Saved best checkpoint (epoch {result.model_checkpoint_save_epoch}) to: {model_output_path}"
+                )
+                with contextlib.suppress(Exception):
+                    result.model_checkpoint_path.unlink(missing_ok=True)
         case never_2:
             assert_never(never_2)
 
@@ -691,11 +868,16 @@ def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, V
                 metadata = json.loads(md.read().decode("utf-8"))
                 model_type = metadata.get("type", "cbow")
 
+            vocab = Vocab.from_bytes(vocab_bytes)
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
                 match model_type:
                     case "skipgram":
+                        neg_sampling_dist = vocab.get_negative_sampling_distribution()
                         model: CBOWModel | SkipGramModel = SkipGramModel.load(
-                            mf, training=False, key=jax.random.PRNGKey(seed)
+                            mf,
+                            training=False,
+                            key=jax.random.PRNGKey(seed),
+                            negative_sampling_dist=neg_sampling_dist,
                         )
                     case "cbow":
                         model = CBOWModel.load(mf, training=False)
@@ -709,7 +891,7 @@ def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, V
         logger.exception(f"Invalid zip file: {model_path}", e)
         raise click.ClickException(f"Invalid zip file: {model_path}")
 
-    return model, Vocab.from_bytes(vocab_bytes)
+    return model, vocab
 
 
 def compute_similarity(vector1: jnp.ndarray, vector2: jnp.ndarray) -> float:
@@ -882,6 +1064,60 @@ def sample(model_path: Path, num_words: int, num_similarities: int):
         for similar_word, similarity in similarities[:num_similarities]:
             click.echo(f"    {similar_word}: {similarity:.4f}")
         click.echo()
+
+
+@cli.command("eval", help="Evaluate word embeddings on analogy tasks")
+@click.option(
+    "--model-path",
+    type=Path,
+    required=True,
+    help="Path to the trained model",
+)
+@click.option(
+    "--top-k",
+    type=int,
+    default=5,
+    help="Consider top-k predictions as correct",
+)
+def evaluate(model_path: Path, top_k: int):
+    """Evaluate trained word2vec model on word analogy tasks."""
+    from mo_net.samples.word2vec.eval import (
+        evaluate_analogies,
+        evaluate_model,
+        get_default_analogies,
+        print_analogy_results,
+    )
+
+    model, vocab = load_model_and_vocab(model_path)
+
+    click.echo("Evaluating word2vec model...")
+    click.echo(f"Vocabulary size: {len(vocab.vocab)}")
+    click.echo()
+
+    analogies = get_default_analogies()
+    results = [
+        result
+        for example in analogies
+        if (
+            result := __import__(
+                "mo_net.samples.word2vec.eval", fromlist=["evaluate_analogy"]
+            ).evaluate_analogy(example, model, vocab, top_k)
+        )
+    ]
+
+    print_analogy_results(results)
+
+    metrics = evaluate_analogies(analogies, model, vocab, top_k)
+    click.echo("\n=== Evaluation Metrics ===")
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            click.echo(f"{key}: {value:.2%}")
+        else:
+            click.echo(f"{key}: {value}")
+
+    # Also run comprehensive evaluation
+    click.echo()
+    evaluate_model(model, vocab, analogies)
 
 
 if __name__ == "__main__":

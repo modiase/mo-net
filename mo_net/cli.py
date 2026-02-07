@@ -277,12 +277,8 @@ def get_model(
     if model_path is None:
         if len(dims) == 0:
             raise ValueError("Dims must be provided when training a new model.")
-        if batch_size is not None:
-            # When batch_size is int, normalisation_type must be Literal[NormalisationType.BATCH]
-            if normalisation_type != NormalisationType.BATCH:
-                raise ValueError(
-                    f"When batch_size is provided, normalisation_type must be BATCH, got {normalisation_type}"
-                )
+        if normalisation_type == NormalisationType.BATCH:
+            # Batch normalisation requires batch_size
             return Model.mlp_of(
                 key=key,
                 module_dimensions=(

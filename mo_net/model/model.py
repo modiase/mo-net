@@ -36,10 +36,12 @@ from mo_net.model.layer.output import OutputLayer, RawOutputLayer, SoftmaxOutput
 from mo_net.model.module.base import Base, Hidden, Output
 from mo_net.model.module.dense import Dense
 from mo_net.model.module.norm import BatchNormOptions, LayerNormOptions, Norm
+from mo_net.model.module.rnn import RNN
 from mo_net.protos import (
     Activations,
     D,
     Dimensions,
+    GradLayer,
     HasDimensions,
     LossContributor,
     NormalisationType,
@@ -235,6 +237,103 @@ class Model(ModelBase):
                 training=True,
                 key=subkey,
             )
+        return model
+
+    @classmethod
+    def rnn_of(
+        cls,
+        *,
+        activation_fn: ActivationFn = identity,
+        key: jax.Array,
+        module_dimensions: Sequence[Dimensions],
+        regularisers: Sequence[Regulariser] = (),
+        return_sequences: bool = False,
+        stateful: bool = False,
+        tracing_enabled: bool = False,
+    ) -> Self:
+        """
+        Create a stacked RNN model.
+
+        Args:
+            activation_fn: Activation function for RNN layers (default: identity/tanh)
+            key: JAX random key for parameter initialization
+            module_dimensions: Sequence of dimensions [input_dim, hidden_dim1, ..., output_dim]
+            regularisers: Sequence of regularization functions
+            return_sequences: If True, all RNN layers return sequences. If False, only last layer
+                            returns final hidden state
+            stateful: Whether RNN layers maintain state across batches
+            tracing_enabled: Whether to enable activation tracing
+
+        Returns:
+            Model with stacked RNN layers
+        """
+        if len(module_dimensions) < 2:
+            raise ValueError(f"{cls.__name__} must have at least 2 layers.")
+
+        model_input_dimension: Dimensions
+        model_hidden_dimensions: Sequence[Dimensions]
+        model_output_dimension: Dimensions
+        model_input_dimension, model_hidden_dimensions, model_output_dimension = (
+            itemgetter(0, slice(1, -1), -1)(module_dimensions)
+        )
+
+        # Build stacked RNN modules
+        hidden_modules: list[Hidden] = []
+        for i, (input_dim, hidden_dim) in enumerate(
+            pairwise([model_input_dimension, *model_hidden_dimensions])
+        ):
+            key, subkey = jax.random.split(key)
+            # For intermediate layers, we want to return sequences to feed to next layer
+            # For the last RNN layer, use the return_sequences parameter
+            is_last_rnn = i == len(model_hidden_dimensions) - 1
+            rnn_module = RNN(
+                input_dimensions=input_dim,
+                hidden_dimensions=hidden_dim,
+                activation_fn=activation_fn,
+                key=subkey,
+                return_sequences=True if not is_last_rnn else return_sequences,
+                stateful=stateful,
+                store_output_activations=tracing_enabled,
+            )
+            hidden_modules.append(rnn_module)
+
+        # Build output module
+        # The output dimension depends on whether last RNN returns sequences
+        final_rnn_output_dim = (
+            model_hidden_dimensions[-1]
+            if model_hidden_dimensions
+            else model_input_dimension
+        )
+
+        key, subkey = jax.random.split(key)
+        output_module = Output(
+            layers=tuple(
+                [
+                    Linear(
+                        input_dimensions=final_rnn_output_dim,
+                        output_dimensions=model_output_dimension,
+                        parameters_init_fn=functools.partial(
+                            Linear.Parameters.xavier,
+                            key=subkey,
+                        ),
+                        store_output_activations=tracing_enabled,
+                    ),
+                ]
+            ),
+            output_layer=SoftmaxOutputLayer(
+                input_dimensions=model_output_dimension,
+            ),
+        )
+
+        model = cls(
+            input_dimensions=model_input_dimension,
+            hidden=hidden_modules,
+            output=output_module,
+        )
+
+        for regulariser in regularisers:
+            regulariser(model)
+
         return model
 
     def __init__(
@@ -433,11 +532,27 @@ class Model(ModelBase):
         )
 
     def get_gradient_caches(self) -> UpdateGradientType:
-        return tuple(layer.cache["dP"] for layer in self.grad_layers)
+        caches = [layer.cache["dP"] for layer in self.grad_layers]
+        # Include output layer if it has gradients (e.g., HierarchicalSoftmaxOutputLayer)
+        output_layer = self.output_module.output_layer
+        if isinstance(output_layer, GradLayer):
+            caches.append(output_layer.cache["dP"])
+        return tuple(caches)
 
     def populate_caches(self, updates: UpdateGradientType) -> None:
-        for layer, update in zip(self.grad_layers, updates, strict=True):
+        # Check if output layer has gradients
+        output_layer = self.output_module.output_layer
+        has_grad_output = isinstance(output_layer, GradLayer)
+
+        expected_len = len(self.grad_layers) + (1 if has_grad_output else 0)
+        if len(updates) != expected_len:
+            raise ValueError(f"Expected {expected_len} updates, got {len(updates)}")
+
+        for layer, update in zip(self.grad_layers, updates[: len(self.grad_layers)]):
             layer.cache["dP"] = update
+
+        if has_grad_output:
+            output_layer.cache["dP"] = updates[-1]
 
     @property
     def parameter_count(self) -> int:

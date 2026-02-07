@@ -253,6 +253,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
                 output_dimensions=self.output_dimensions,
                 parameters_init_fn=lambda _, __: self.parameters,
                 freeze_parameters=freeze_parameters,
+                exists_ok=True,
             )
 
     def __init__(
@@ -260,6 +261,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
         *,
         bias_max_norm: float = 1.0,
         clip_gradients: bool = True,
+        exists_ok: bool = False,
         freeze_parameters: bool = False,
         input_dimensions: Dimensions,
         layer_id: str | None = None,
@@ -274,6 +276,7 @@ class Linear(ParametrisedHidden[ParametersType, CacheType]):
             layer_id=layer_id,
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
+            exists_ok=exists_ok,
         )
         self._freeze_parameters = freeze_parameters
         self._weight_max_norm = weight_max_norm

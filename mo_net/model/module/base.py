@@ -198,3 +198,8 @@ class Output(Base):
     @property
     def output_layer(self) -> OutputLayer:
         return self._output_layer
+
+    def update_parameters(self) -> None:
+        super().update_parameters()
+        if isinstance(self._output_layer, SupportsUpdateParameters):
+            self._output_layer.update_parameters()
