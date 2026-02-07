@@ -102,7 +102,9 @@ def test_recurrent_forward_prop(test_case: ForwardPropTestCase):
         activation_fn=Tanh(),
         return_sequences=test_case.return_sequences,
     )
-    output = layer.forward_prop(input_activations=Activations(test_case.input_activations))
+    output = layer.forward_prop(
+        input_activations=Activations(test_case.input_activations)
+    )
     assert jnp.allclose(output, test_case.expected_output, atol=1e-6)
 
 
@@ -229,9 +231,7 @@ def test_recurrent_batch_processing():
     layer = Recurrent(
         input_dimensions=(input_dim,),
         hidden_dimensions=(hidden_dim,),
-        parameters_init_fn=partial(
-            Recurrent.Parameters.orthogonal, key=key
-        ),
+        parameters_init_fn=partial(Recurrent.Parameters.orthogonal, key=key),
         activation_fn=Tanh(),
     )
 
@@ -269,7 +269,9 @@ def test_recurrent_return_sequences_flag():
 
     input_data = jnp.array([[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]])
 
-    output_sequences = layer_sequences.forward_prop(input_activations=Activations(input_data))
+    output_sequences = layer_sequences.forward_prop(
+        input_activations=Activations(input_data)
+    )
     output_final = layer_final.forward_prop(input_activations=Activations(input_data))
 
     # With sequences, output should be (batch, seq_len, hidden_dim)
@@ -379,8 +381,12 @@ def test_recurrent_empty_gradient():
     )
 
     empty_grad = layer.empty_gradient()
-    assert jnp.allclose(empty_grad.weights_ih, jnp.zeros_like(layer.parameters.weights_ih))
-    assert jnp.allclose(empty_grad.weights_hh, jnp.zeros_like(layer.parameters.weights_hh))
+    assert jnp.allclose(
+        empty_grad.weights_ih, jnp.zeros_like(layer.parameters.weights_ih)
+    )
+    assert jnp.allclose(
+        empty_grad.weights_hh, jnp.zeros_like(layer.parameters.weights_hh)
+    )
     assert jnp.allclose(empty_grad.biases, jnp.zeros_like(layer.parameters.biases))
 
 
@@ -615,4 +621,3 @@ def test_recurrent_reinitialise():
     # Reinitialise should reset hidden state
     layer.reinitialise()
     assert layer._hidden_state is None
->>>>>>> Stashed changes
