@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import IO, Self
+from typing import IO, Self, cast
 
 import jax
 import jax.numpy as jnp
@@ -71,21 +71,19 @@ class Parameters(SupportsGradientOperations):
         return self.__sub__(other)
 
     def __mul__(self, other: float | int | Self) -> Self:
-        match other:
-            case float() | int():
-                return self.__class__(
-                    weights_ih=other * self.weights_ih,
-                    weights_hh=other * self.weights_hh,
-                    biases=other * self.biases,
-                )
-            case self.__class__():
-                return self.__class__(
-                    weights_ih=self.weights_ih * other.weights_ih,
-                    weights_hh=self.weights_hh * other.weights_hh,
-                    biases=self.biases * other.biases,
-                )
-            case _:
-                return NotImplemented
+        if isinstance(other, (float, int)):
+            return self.__class__(
+                weights_ih=other * self.weights_ih,
+                weights_hh=other * self.weights_hh,
+                biases=other * self.biases,
+            )
+        if isinstance(other, Parameters):
+            return self.__class__(
+                weights_ih=self.weights_ih * other.weights_ih,
+                weights_hh=self.weights_hh * other.weights_hh,
+                biases=self.biases * other.biases,
+            )
+        return NotImplemented
 
     def __rmul__(self, other: float | Self) -> Self:
         return self.__mul__(other)
@@ -103,11 +101,11 @@ class Parameters(SupportsGradientOperations):
             case _:
                 return NotImplemented
 
-    def __pow__(self, scalar: float | int) -> Self:
+    def __pow__(self, other: float | int) -> Self:
         return self.__class__(
-            weights_ih=self.weights_ih**scalar,
-            weights_hh=self.weights_hh**scalar,
-            biases=self.biases**scalar,
+            weights_ih=self.weights_ih**other,
+            weights_hh=self.weights_hh**other,
+            biases=self.biases**other,
         )
 
     @classmethod
@@ -356,7 +354,7 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
         """
         # Ensure input is 3D: (batch, seq_len, input_dim)
         if input_activations.ndim == 2:
-            input_activations = jnp.expand_dims(input_activations, axis=1)
+            input_activations = Activations(jnp.expand_dims(input_activations, axis=1))
 
         self._cache["input_activations"] = input_activations
         batch_size, seq_len, _ = input_activations.shape
@@ -428,14 +426,15 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
         hidden_dim = one(self._hidden_dimensions)
 
         # Handle gradient based on return_sequences
+        dZ_arr = cast(jnp.ndarray, dZ)
         if self._return_sequences:
             # dZ has shape (batch, seq_len, hidden_dim)
-            dh_all = dZ
+            dh_all = dZ_arr
         else:
             # dZ has shape (batch, hidden_dim)
             # Create gradient array with zeros except at last timestep
             dh_all = jnp.zeros((batch_size, seq_len, hidden_dim))
-            dh_all = dh_all.at[:, -1, :].set(dZ)
+            dh_all = dh_all.at[:, -1, :].set(dZ_arr)
 
         # Initialize gradients
         dW_ih = jnp.zeros_like(self._parameters.weights_ih)
@@ -497,7 +496,7 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
         self._cache["dP"] = d(
             self.Parameters(weights_ih=dW_ih, weights_hh=dW_hh, biases=dB)
         )
-        return dx_all
+        return cast(D[Activations], dx_all)
 
     def empty_gradient(self) -> D[ParametersType]:
         return d(
@@ -558,9 +557,10 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
         self._write_header(buffer)
         if self._cache["dP"] is None:
             raise RuntimeError("Cache is not populated during serialization.")
-        buffer.write(memoryview(self._cache["dP"].weights_ih))
-        buffer.write(memoryview(self._cache["dP"].weights_hh))
-        buffer.write(memoryview(self._cache["dP"].biases))
+        dP = cast(Parameters, self._cache["dP"])
+        buffer.write(memoryview(dP.weights_ih))
+        buffer.write(memoryview(dP.weights_hh))
+        buffer.write(memoryview(dP.biases))
 
     def read_serialized_parameters(self, data: IO[bytes]) -> None:
         if (layer_id := self.get_layer_id(data)) != self._layer_id:
@@ -569,7 +569,8 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
         if self._cache["dP"] is None:
             self._cache["dP"] = d(update)
         else:
-            self._cache["dP"] += d(update)
+            existing = cast(Parameters, self._cache["dP"])
+            self._cache["dP"] = d(existing + update)
 
     @property
     def parameter_nbytes(self) -> int:

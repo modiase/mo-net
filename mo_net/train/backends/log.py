@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mo_net.train.backends.models import DB_PATH, DbRun, Iteration
+from mo_net.train.backends.models import DB_PATH, Base, DbRun, Iteration
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -288,6 +288,98 @@ class SqliteBackend(LoggingBackend):
             .order_by(Iteration.timestamp)
             .all()
         )
+
+
+class InMemorySqliteBackend(LoggingBackend):
+    """SQLite backend using in-memory database with auto-created tables."""
+
+    def __init__(self) -> None:
+        self._engine = create_engine("sqlite:///:memory:")
+        self._session_maker = sessionmaker(bind=self._engine)
+        self._session: Session | None = None
+        self._current_run: DbRun | None = None
+
+    @property
+    def connection_string(self) -> str:
+        return "sqlite://:memory:"
+
+    def create(self) -> None:
+        Base.metadata.create_all(self._engine)
+        self._session = self._session_maker()
+
+    def start_run(
+        self,
+        name: str,
+        seed: int,
+        total_batches: int,
+        total_epochs: int,
+    ) -> str:
+        if not self._session:
+            raise RuntimeError("Session not created. Call create() first.")
+
+        run = DbRun.create(
+            name=name,
+            seed=seed,
+            total_batches=total_batches,
+            total_epochs=total_epochs,
+            started_at=datetime.now(),
+        )
+        self._session.add(run)
+        self._session.commit()
+        self._current_run = run
+        return str(run.id)
+
+    def end_run(self, run_id: str) -> None:
+        if not self._session:
+            raise RuntimeError("Session not created. Call create() first.")
+
+        if run := self._session.get(DbRun, int(run_id)):
+            run.completed_at = datetime.now()
+            run.current_epoch = run.total_epochs
+            run.current_batch = run.total_batches
+            self._session.commit()
+        self._current_run = None
+
+    def teardown(self) -> None:
+        if self._session:
+            self._session.close()
+            self._session = None
+
+    def log_training_parameters(self, *, training_parameters: str) -> None:
+        pass
+
+    def log_iteration(
+        self,
+        *,
+        batch_loss: float,
+        val_loss: float,
+        batch: int,
+        epoch: int,
+        learning_rate: float,
+        timestamp: datetime,
+    ) -> None:
+        if not self._session or not self._current_run:
+            raise RuntimeError("No active run. Call start_run() first.")
+
+        self._session.add(
+            Iteration(
+                run_id=self._current_run.id,
+                batch_loss=batch_loss,
+                batch=batch,
+                epoch=epoch,
+                learning_rate=learning_rate,
+                timestamp=timestamp,
+                val_loss=val_loss,
+            )
+        )
+        self._current_run.current_batch = batch
+        self._current_run.current_batch_loss = batch_loss
+        self._current_run.current_epoch = epoch
+        self._current_run.current_learning_rate = learning_rate
+        self._current_run.current_val_loss = val_loss
+        self._current_run.current_timestamp = timestamp
+        self._current_run.updated_at = timestamp
+        self._session.commit()
 
 
 class NullBackend(LoggingBackend):

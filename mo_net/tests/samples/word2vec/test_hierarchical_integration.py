@@ -8,6 +8,8 @@ This demonstrates that all the components work together:
 Full integration into model.create() methods is left for future work.
 """
 
+from typing import cast
+
 import pytest
 import jax
 import jax.numpy as jnp
@@ -79,13 +81,13 @@ class TestHierarchicalSoftmaxIntegration:
 
         # Backward pass
         Y_true = jnp.array([0, 1])  # Target words
-        grad = output_layer._backward_prop(Y_true=Y_true)
+        grad = cast(jnp.ndarray, output_layer._backward_prop(Y_true=Y_true))
 
         # Check gradient
         assert grad.shape == (2, embedding_dim)
 
         # Check parameter gradients exist in cache
-        dP = output_layer.cache["dP"]
+        dP = cast(HierarchicalSoftmaxOutputLayer.Parameters, output_layer.cache["dP"])
         assert dP is not None
         assert dP.node_vectors.shape == output_layer.parameters.node_vectors.shape
 

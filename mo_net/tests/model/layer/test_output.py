@@ -1,5 +1,7 @@
 """Tests for output layers, including negative sampling."""
 
+from typing import cast
+
 import pytest
 import jax
 import jax.numpy as jnp
@@ -38,7 +40,7 @@ class TestSparseCategoricalSoftmaxOutputLayer:
         Y_true = jnp.array([2])  # True class is index 2
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop(Y_true=Y_true)
+        gradient = cast(jnp.ndarray, layer.backward_prop(Y_true=Y_true))
 
         # Gradient should have same shape as input
         assert gradient.shape == X.shape
@@ -62,8 +64,9 @@ class TestNegativeSamplingBackwardProp:
         Y_negative = jnp.array([[1, 3, 7], [0, 4, 8]])  # Negative samples
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # Gradient should have same shape as input
@@ -93,8 +96,9 @@ class TestNegativeSamplingBackwardProp:
         Y_negative = jnp.array([1, 3, 7, 0, 4, 8])
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # Gradient should have same shape as input
@@ -128,8 +132,9 @@ class TestNegativeSamplingBackwardProp:
         )
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # Count non-zero elements per sample
@@ -155,8 +160,9 @@ class TestNegativeSamplingBackwardProp:
         Y_negative = jnp.array([[0, 1]])
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # True sample should have negative gradient (probability - 1)
@@ -173,8 +179,9 @@ class TestNegativeSamplingBackwardProp:
         Y_negative = jnp.array([[1, 2]])  # Negative samples
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # Negative samples should have positive gradient (probability)
@@ -196,8 +203,9 @@ class TestNegativeSamplingBackwardProp:
             Y_negative = jnp.arange(num_neg * 2).reshape(2, num_neg)
 
             layer.forward_prop(input_activations=Activations(X))
-            gradient = layer.backward_prop_with_negative(
-                Y_true=Y_true, Y_negative=Y_negative
+            gradient = cast(
+                jnp.ndarray,
+                layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
             )
 
             # Check sparsity
@@ -219,8 +227,9 @@ class TestNegativeSamplingBackwardProp:
             )
 
             layer.forward_prop(input_activations=Activations(X))
-            gradient = layer.backward_prop_with_negative(
-                Y_true=Y_true, Y_negative=Y_negative
+            gradient = cast(
+                jnp.ndarray,
+                layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
             )
 
             assert gradient.shape == (batch_size, 10)
@@ -239,8 +248,9 @@ class TestNegativeSamplingEdgeCases:
         Y_negative = jnp.array([[2, 2, 2]])
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # Should handle duplicates without error
@@ -256,8 +266,9 @@ class TestNegativeSamplingEdgeCases:
         Y_negative = jnp.array([[5, 3, 7]])
 
         layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop_with_negative(
-            Y_true=Y_true, Y_negative=Y_negative
+        gradient = cast(
+            jnp.ndarray,
+            layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative),
         )
 
         # Should handle overlap (later assignment overwrites)
@@ -325,7 +336,7 @@ class TestOtherOutputLayers:
         Y_true = jnp.array([[1.5, 2.5, 3.5], [4.5, 5.5, 6.5]])
 
         output = layer.forward_prop(input_activations=Activations(X))
-        gradient = layer.backward_prop(Y_true=Y_true)
+        gradient = cast(jnp.ndarray, layer.backward_prop(Y_true=Y_true))
 
         # Gradient should be proportional to (output - Y_true)
         assert gradient.shape == X.shape

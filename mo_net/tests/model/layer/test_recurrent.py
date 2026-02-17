@@ -1,7 +1,7 @@
 import io
 from dataclasses import dataclass
 from functools import partial
-from typing import Final
+from typing import Final, cast
 
 import jax
 import jax.numpy as jnp
@@ -11,7 +11,7 @@ import pytest
 from mo_net.functions import Identity, Tanh
 from mo_net.model.layer.base import BadLayerId
 from mo_net.model.layer.recurrent import Recurrent, ParametersType
-from mo_net.protos import Activations, Dimensions
+from mo_net.protos import Activations, D, Dimensions
 
 key: Final = jax.random.PRNGKey(42)
 
@@ -165,16 +165,17 @@ def test_recurrent_backward_prop(test_case: BackwardPropTestCase):
     layer.forward_prop(input_activations=Activations(test_case.input_activations))
 
     # Backward pass
-    dX = layer.backward_prop(dZ=test_case.dZ)
+    dX = cast(jnp.ndarray, layer.backward_prop(dZ=cast(D[Activations], test_case.dZ)))
 
     # Check that gradients are computed
-    assert layer.cache["dP"] is not None
+    dP = cast(ParametersType, layer.cache["dP"])
+    assert dP is not None
     assert dX.shape == test_case.input_activations.shape
 
     # Check that gradients are finite
-    assert jnp.isfinite(layer.cache["dP"].weights_ih).all()
-    assert jnp.isfinite(layer.cache["dP"].weights_hh).all()
-    assert jnp.isfinite(layer.cache["dP"].biases).all()
+    assert jnp.isfinite(dP.weights_ih).all()
+    assert jnp.isfinite(dP.weights_hh).all()
+    assert jnp.isfinite(dP.biases).all()
     assert jnp.isfinite(dX).all()
 
 
@@ -199,10 +200,10 @@ def test_recurrent_parameter_update():
     # Forward and backward pass
     input_data = jnp.array([[[1.0], [2.0]]])
     layer.forward_prop(input_activations=Activations(input_data))
-    layer.backward_prop(dZ=jnp.array([[[1.0, 1.0], [1.0, 1.0]]]))
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[[1.0, 1.0], [1.0, 1.0]]])))
 
     # Store gradients
-    stored_dP = layer.cache["dP"]
+    stored_dP = cast(ParametersType, layer.cache["dP"])
     assert stored_dP is not None
 
     # Update parameters
@@ -245,7 +246,7 @@ def test_recurrent_batch_processing():
 
     # Backward pass
     dZ = random.normal(key2, (batch_size, seq_len, hidden_dim))
-    dX = layer.backward_prop(dZ=dZ)
+    dX = cast(jnp.ndarray, layer.backward_prop(dZ=cast(D[Activations], dZ)))
     assert dX.shape == (batch_size, seq_len, input_dim)
 
 
@@ -330,18 +331,21 @@ def test_recurrent_gradient_clipping():
     # Create situation that would cause large gradients
     input_data = jnp.array([[[1000.0, 1000.0], [1000.0, 1000.0]]])
     layer.forward_prop(input_activations=Activations(input_data))
-    layer.backward_prop(dZ=jnp.array([[[1000.0, 1000.0], [1000.0, 1000.0]]]))
+    layer.backward_prop(
+        dZ=cast(D[Activations], jnp.array([[[1000.0, 1000.0], [1000.0, 1000.0]]]))
+    )
 
-    assert layer.cache["dP"] is not None
+    dP = cast(ParametersType, layer.cache["dP"])
+    assert dP is not None
 
     # Check gradients are clipped
     def check_norm(grad, size):
         norm = jnp.linalg.norm(grad) / jnp.sqrt(size)
         return norm <= 1.0 + 1e-5
 
-    assert check_norm(layer.cache["dP"].weights_ih, layer.cache["dP"].weights_ih.size)
-    assert check_norm(layer.cache["dP"].weights_hh, layer.cache["dP"].weights_hh.size)
-    assert check_norm(layer.cache["dP"].biases, layer.cache["dP"].biases.size)
+    assert check_norm(dP.weights_ih, dP.weights_ih.size)
+    assert check_norm(dP.weights_hh, dP.weights_hh.size)
+    assert check_norm(dP.biases, dP.biases.size)
 
 
 def test_recurrent_frozen_parameters():
@@ -363,7 +367,7 @@ def test_recurrent_frozen_parameters():
 
     # Forward, backward, and update
     layer.forward_prop(input_activations=Activations(jnp.array([[[1.0]]])))
-    layer.backward_prop(dZ=jnp.array([[[1.0, 1.0]]]))
+    layer.backward_prop(dZ=cast(D[Activations], jnp.array([[[1.0, 1.0]]])))
     layer.update_parameters()
 
     # Parameters should not change
@@ -380,7 +384,7 @@ def test_recurrent_empty_gradient():
         parameters_init_fn=partial(Recurrent.Parameters.orthogonal, key=key),
     )
 
-    empty_grad = layer.empty_gradient()
+    empty_grad = cast(ParametersType, layer.empty_gradient())
     assert jnp.allclose(
         empty_grad.weights_ih, jnp.zeros_like(layer.parameters.weights_ih)
     )
@@ -418,9 +422,11 @@ def test_recurrent_serialization_deserialization():
     # Forward and backward pass to populate gradients
     input_data = jnp.array([[[1.0, 2.0], [3.0, 4.0]]])
     layer.forward_prop(input_activations=Activations(input_data))
-    layer.backward_prop(dZ=jnp.array([[[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]]))
+    layer.backward_prop(
+        dZ=cast(D[Activations], jnp.array([[[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]]))
+    )
 
-    original_dP = layer.cache["dP"]
+    original_dP = cast(ParametersType, layer.cache["dP"])
     assert original_dP is not None
 
     # Serialize
@@ -434,10 +440,11 @@ def test_recurrent_serialization_deserialization():
     layer.read_serialized_parameters(buffer)
 
     # Check gradients match
-    assert layer.cache["dP"] is not None
-    assert jnp.allclose(layer.cache["dP"].weights_ih, original_dP.weights_ih)
-    assert jnp.allclose(layer.cache["dP"].weights_hh, original_dP.weights_hh)
-    assert jnp.allclose(layer.cache["dP"].biases, original_dP.biases)
+    deserialized_dP = cast(ParametersType, layer.cache["dP"])
+    assert deserialized_dP is not None
+    assert jnp.allclose(deserialized_dP.weights_ih, original_dP.weights_ih)
+    assert jnp.allclose(deserialized_dP.weights_hh, original_dP.weights_hh)
+    assert jnp.allclose(deserialized_dP.biases, original_dP.biases)
 
 
 def test_recurrent_wrong_layer_id():
@@ -455,7 +462,7 @@ def test_recurrent_wrong_layer_id():
 
     # Populate gradients
     layer_1.forward_prop(input_activations=Activations(jnp.array([[[1.0, 2.0]]])))
-    layer_1.backward_prop(dZ=jnp.array([[[1.0, 1.0]]]))
+    layer_1.backward_prop(dZ=cast(D[Activations], jnp.array([[[1.0, 1.0]]])))
 
     # Serialize layer 1
     buffer = io.BytesIO()
@@ -476,7 +483,7 @@ def test_recurrent_error_on_backward_without_forward():
     )
 
     with pytest.raises(ValueError, match="Input activations not set"):
-        layer.backward_prop(dZ=jnp.array([[[1.0, 1.0]]]))
+        layer.backward_prop(dZ=cast(D[Activations], jnp.array([[[1.0, 1.0]]])))
 
 
 def test_recurrent_error_on_update_without_gradients():

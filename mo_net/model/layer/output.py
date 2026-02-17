@@ -329,10 +329,11 @@ class HierarchicalSoftmaxOutputLayer(OutputLayer):
                 case _:
                     return NotImplemented
 
-        def __pow__(self, scalar: float | int) -> Self:
-            return self.__class__(node_vectors=self.node_vectors**scalar)
+        def __pow__(self, other: float | int) -> Self:
+            return self.__class__(node_vectors=self.node_vectors**other)
 
     class Cache(TypedDict):
+        output_activations: Activations | None
         input_activations: Activations | None
         dP: "D[HierarchicalSoftmaxOutputLayer.Parameters] | None"
         first_moment: "D[HierarchicalSoftmaxOutputLayer.Parameters] | None"
@@ -421,8 +422,8 @@ class HierarchicalSoftmaxOutputLayer(OutputLayer):
 
         self._parameters = self.Parameters(node_vectors=node_vectors)
 
-        # Cache for activations and gradients (including Adam optimizer state)
-        self._cache: HierarchicalSoftmaxOutputLayer.Cache = {
+        self._cache: HierarchicalSoftmaxOutputLayer.Cache = {  # type: ignore[assignment]
+            "output_activations": None,
             "input_activations": None,
             "dP": None,
             "first_moment": d(

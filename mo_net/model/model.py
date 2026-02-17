@@ -552,7 +552,7 @@ class Model(ModelBase):
             layer.cache["dP"] = update
 
         if has_grad_output:
-            output_layer.cache["dP"] = updates[-1]
+            output_layer.cache["dP"] = updates[-1]  # type: ignore[union-attr, attr-defined]
 
     @property
     def parameter_count(self) -> int:
