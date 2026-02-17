@@ -18,3 +18,34 @@ test-smoke:
 
 test-collect:
     pytest --collect-only mo_net/tests
+
+[doc("CI: run tests via uv")]
+ci-test:
+    #!/usr/bin/env bash
+    uv run pytest -n auto mo_net/tests
+
+[doc("CI: run typecheck via uv")]
+ci-typecheck *args:
+    #!/usr/bin/env bash
+    uv run python mo_net/scripts/typecheck.py {{args}}
+
+# Sync to herakles and run tests remotely
+[no-cd]
+[unix]
+test-remote *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Syncing to herakles..."
+    rsync -az --delete \
+        --exclude='.git' \
+        --exclude='__pycache__' \
+        --exclude='.direnv' \
+        --exclude='.venv' \
+        --exclude='result' \
+        --exclude='*.egg-info' \
+        . herakles:~/mo-net/
+    flake="path:."
+    for flag in {{flags}}; do
+        [[ "$flag" == "--cuda" ]] && flake="path:.#cuda"
+    done
+    ssh -t herakles "cd ~/mo-net && nix develop $flake --no-warn-dirty --command pytest mo_net/tests"

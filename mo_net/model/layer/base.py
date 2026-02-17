@@ -27,10 +27,12 @@ class _LayerRegistry:
         self._lock = threading.Lock()
         self._used_names: MutableSet[str] = set()
 
-    def generate_id(self, name: Optional[str] = None) -> str:
+    def generate_id(self, name: Optional[str] = None, exists_ok: bool = False) -> str:
         with self._lock:
             if name is not None:
                 if name in self._used_names:
+                    if exists_ok:
+                        return name
                     raise ValueError(f"Layer name '{name}' is already in use")
                 self._used_names.add(name)
                 return name
@@ -58,10 +60,11 @@ class _Base(ABC):
         input_dimensions: Dimensions,
         layer_id: str | None = None,
         output_dimensions: Dimensions,
+        exists_ok: bool = False,
     ):
         self._input_dimensions = input_dimensions
         self._output_dimensions = output_dimensions
-        self._layer_id = _global_registry.generate_id(layer_id)
+        self._layer_id = _global_registry.generate_id(layer_id, exists_ok=exists_ok)
 
     def forward_prop(self, input_activations: Activations) -> Activations:
         # We wish to ensure that all inputs are at least 2D arrays such that the
