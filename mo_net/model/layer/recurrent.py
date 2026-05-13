@@ -250,6 +250,7 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
                 return_sequences=self.return_sequences,
                 parameters_init_fn=lambda _, __: self.parameters,
                 freeze_parameters=freeze_parameters,
+                exists_ok=True,
             )
 
     def __init__(
@@ -257,6 +258,7 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
         *,
         activation_fn: ActivationFn = identity,
         clip_gradients: bool = True,
+        exists_ok: bool = False,
         freeze_parameters: bool = False,
         hidden_dimensions: Dimensions,
         input_dimensions: Dimensions,
@@ -273,6 +275,7 @@ class Recurrent(ParametrisedHidden[ParametersType, CacheType]):
             layer_id=layer_id,
             input_dimensions=input_dimensions,
             output_dimensions=output_dimensions,
+            exists_ok=exists_ok,
         )
         self._freeze_parameters = freeze_parameters
         self._hidden_dimensions = hidden_dimensions

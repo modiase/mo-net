@@ -55,15 +55,14 @@ def test_mnist_cnn_training():
                             n_kernels=1,  # Very few kernels for speed
                             kernel_size=8,
                             stride=1,
-                            kernel_init_fn=lambda n_kernels,
-                            in_channels,
-                            kernel_height,
-                            kernel_width: Convolution2D.Parameters.he(
-                                n_kernels,
-                                in_channels,
-                                kernel_height,
-                                kernel_width,
-                                key=key1,
+                            kernel_init_fn=lambda n_kernels, in_channels, kernel_height, kernel_width: (
+                                Convolution2D.Parameters.he(
+                                    n_kernels,
+                                    in_channels,
+                                    kernel_height,
+                                    kernel_width,
+                                    key=key1,
+                                )
                             ),
                         ),
                         bn1 := BatchNorm2D(
@@ -93,9 +92,8 @@ def test_mnist_cnn_training():
                     dense := Linear(
                         input_dimensions=flatten.output_dimensions,
                         output_dimensions=(16,),  # Very small dense layer
-                        parameters_init_fn=lambda input_dims,
-                        output_dims: Linear.Parameters.xavier(
-                            input_dims, output_dims, key=key4
+                        parameters_init_fn=lambda input_dims, output_dims: (
+                            Linear.Parameters.xavier(input_dims, output_dims, key=key4)
                         ),
                         store_output_activations=False,
                     ),
@@ -106,9 +104,8 @@ def test_mnist_cnn_training():
                     Linear(
                         input_dimensions=(16,),
                         output_dimensions=(10,),
-                        parameters_init_fn=lambda input_dims,
-                        output_dims: Linear.Parameters.xavier(
-                            input_dims, output_dims, key=key5
+                        parameters_init_fn=lambda input_dims, output_dims: (
+                            Linear.Parameters.xavier(input_dims, output_dims, key=key5)
                         ),
                         store_output_activations=False,
                     ),

@@ -149,9 +149,11 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         ),
         help="Set the normalisation type",
         default=NormalisationType.LAYER.value,
-        callback=lambda _, __, value: NormalisationType(value)
-        if isinstance(value, str)
-        else NormalisationType.LAYER,
+        callback=lambda _, __, value: (
+            NormalisationType(value)
+            if isinstance(value, str)
+            else NormalisationType.LAYER
+        ),
     )
     @click.option(
         "-k",
@@ -230,9 +232,9 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=click.Choice(tuple(level.lower() for level in LogLevel)),
         help="Set the log level",
         default="info",
-        callback=lambda _, __, value: LogLevel(value.upper())
-        if isinstance(value, str)
-        else LogLevel.INFO,
+        callback=lambda _, __, value: (
+            LogLevel(value.upper()) if isinstance(value, str) else LogLevel.INFO
+        ),
     )
     @click.option(
         "--quiet",

@@ -447,6 +447,24 @@ def test_recurrent_serialization_deserialization():
     assert jnp.allclose(deserialized_dP.biases, original_dP.biases)
 
 
+def test_recurrent_deserialize_with_original_still_in_memory():
+    """Regression: Serialized.deserialize() must not clash with the original
+    layer's registered layer_id when both coexist (e.g. load-then-predict after
+    training without dropping the in-memory model)."""
+    original = Recurrent(
+        input_dimensions=(2,),
+        hidden_dimensions=(3,),
+        parameters_init_fn=partial(Recurrent.Parameters.orthogonal, key=key),
+    )
+
+    reloaded = original.serialize().deserialize()
+
+    assert reloaded.layer_id == original.layer_id
+    assert jnp.allclose(reloaded.parameters.weights_ih, original.parameters.weights_ih)
+    assert jnp.allclose(reloaded.parameters.weights_hh, original.parameters.weights_hh)
+    assert jnp.allclose(reloaded.parameters.biases, original.parameters.biases)
+
+
 def test_recurrent_wrong_layer_id():
     """Test that deserialization fails with wrong layer ID."""
     layer_1 = Recurrent(
