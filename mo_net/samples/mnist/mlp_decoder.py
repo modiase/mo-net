@@ -102,9 +102,10 @@ class MLPDecoderModel(Model):
                     Linear(
                         input_dimensions=(current_size,),
                         output_dimensions=(output_size,),
-                        parameters_init_fn=lambda input_dims,
-                        output_dims: Linear.Parameters.xavier(
-                            input_dims, output_dims, key=subkey
+                        parameters_init_fn=lambda input_dims, output_dims: (
+                            Linear.Parameters.xavier(
+                                input_dims, output_dims, key=subkey
+                            )
                         ),
                         store_output_activations=False,
                     ),

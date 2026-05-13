@@ -139,9 +139,8 @@ class CBOWModel(Model):
                         Linear(
                             input_dimensions=(embedding_dim,),
                             output_dimensions=(vocab_size,),
-                            parameters_init_fn=lambda dim_in,
-                            dim_out: Linear.Parameters.xavier(
-                                dim_in, dim_out, key=key2
+                            parameters_init_fn=lambda dim_in, dim_out: (
+                                Linear.Parameters.xavier(dim_in, dim_out, key=key2)
                             ),
                             store_output_activations=tracing_enabled,
                         ),
@@ -303,9 +302,8 @@ class SkipGramModel(Model):
                         Linear(
                             input_dimensions=(embedding_dim,),
                             output_dimensions=(vocab_size,),
-                            parameters_init_fn=lambda dim_in,
-                            dim_out: Linear.Parameters.xavier(
-                                dim_in, dim_out, key=key2
+                            parameters_init_fn=lambda dim_in, dim_out: (
+                                Linear.Parameters.xavier(dim_in, dim_out, key=key2)
                             ),
                             store_output_activations=tracing_enabled,
                         ),
