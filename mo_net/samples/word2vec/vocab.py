@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
@@ -10,8 +11,12 @@ from typing import Self, cast
 
 import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
+import numpy as np
+from loguru import logger
 
 from mo_net.resources import get_resource
+
+ENGLISH_SENTENCES_URL = "s3://mo-net-resources/english-sentences.txt"
 
 type Sentence = Sequence[str]
 type TokenizedSentence = Sequence[int]
@@ -182,6 +187,80 @@ def get_training_set(
         strict=True,
     )
     return jnp.array(context), jnp.array(list(target))
+
+
+def _pairs_cache_key(
+    corpus_path: Path,
+    limit: int,
+    max_vocab_size: int,
+    forced_words: Collection[str],
+    context_size: int,
+) -> str:
+    h = hashlib.sha256()
+    # corpus_path.name is the etag-prefixed cache filename — captures corpus identity
+    h.update(corpus_path.name.encode())
+    h.update(f"|{limit}|{max_vocab_size}|{context_size}|".encode())
+    h.update(",".join(sorted(forced_words)).encode())
+    return h.hexdigest()[:16]
+
+
+def cached_english_training_set(
+    *,
+    limit: int = 100000,
+    max_vocab_size: int = 1000,
+    forced_words: Collection[str] = (),
+    context_size: int,
+    cache_dir: Path | None = None,
+) -> tuple[Vocab, jnp.ndarray, jnp.ndarray]:
+    """Materialise (vocab, X, Y) for the English-sentences corpus, with cache.
+
+    If ``cache_dir`` is provided, writes ``w2v-pairs-<hash>.npz`` and
+    ``w2v-pairs-<hash>.vocab.msgpack`` keyed on inputs that determine the
+    output. Read-only mounts are tolerated: cache reads are best-effort,
+    write failures (``OSError``) silently fall back to no-op so the job
+    still completes — first invocation against an RW dir will populate.
+
+    The (X, Y) shape is the same for CBOW and SkipGram — the X/Y swap
+    that distinguishes the two models happens at the call-site after
+    this returns, so a single cache file serves both.
+    """
+    corpus_path = get_resource(ENGLISH_SENTENCES_URL)
+
+    pairs_path: Path | None = None
+    vocab_path: Path | None = None
+    if cache_dir is not None:
+        key = _pairs_cache_key(
+            corpus_path, limit, max_vocab_size, forced_words, context_size
+        )
+        pairs_path = cache_dir / f"w2v-pairs-{key}.npz"
+        vocab_path = cache_dir / f"w2v-pairs-{key}.vocab.msgpack"
+        if pairs_path.exists() and vocab_path.exists():
+            logger.info(f"loading cached training set from {pairs_path}")
+            with np.load(pairs_path) as arr:
+                return (
+                    Vocab.from_bytes(vocab_path.read_bytes()),
+                    jnp.asarray(arr["X"]),
+                    jnp.asarray(arr["Y"]),
+                )
+
+    vocab, tokenized = Vocab.english_sentences(
+        limit=limit,
+        max_vocab_size=max_vocab_size,
+        forced_words=forced_words,
+    )
+    X, Y = get_training_set(tokenized, context_size)
+
+    if pairs_path is not None and vocab_path is not None:
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[union-attr]
+            np.savez(pairs_path, X=np.asarray(X), Y=np.asarray(Y))
+            vocab_path.write_bytes(vocab.serialize())
+            logger.info(f"cached training set to {pairs_path}")
+        except OSError as e:
+            # RO mount or similar — don't fail the run.
+            logger.debug(f"could not write training-set cache to {pairs_path}: {e}")
+
+    return vocab, X, Y
 
 
 def get_stop_words() -> Collection[str]:

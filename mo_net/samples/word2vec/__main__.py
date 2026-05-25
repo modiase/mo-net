@@ -45,6 +45,7 @@ from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig, SoftmaxStrat
 from mo_net.samples.word2vec.vocab import (
     TokenizedSentence,
     Vocab,
+    cached_english_training_set,
     get_english_sentences,
     get_training_set,
 )
@@ -679,10 +680,18 @@ def train(
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
         ]
+        X_train, Y_train = get_training_set(tokenized_sentences, context_size)
+        if model_type == "skipgram":
+            Y_train, X_train = X_train, Y_train
     else:
-        vocab, tokenized_sentences = Vocab.english_sentences(
-            max_vocab_size=vocab_size, forced_words=include_words
+        vocab, X_train, Y_train = cached_english_training_set(
+            max_vocab_size=vocab_size,
+            forced_words=include_words,
+            context_size=context_size,
+            cache_dir=get_settings().resource_cache,
         )
+        if model_type == "skipgram":
+            Y_train, X_train = X_train, Y_train
         match model_type:
             case "cbow":
                 model = CBOWModel.create(
@@ -706,10 +715,6 @@ def train(
                 model._negative_sampling_dist = neg_sampling_dist
             case never:
                 assert_never(never)
-
-    X_train, Y_train = get_training_set(tokenized_sentences, context_size)
-    if model_type == "skipgram":
-        Y_train, X_train = X_train, Y_train
 
     logger.info(f"Vocabulary size: {len(vocab)}")
     logger.info(f"Embedding dimension: {embedding_dim}")
