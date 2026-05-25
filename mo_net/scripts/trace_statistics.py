@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from loguru import logger
 
-from mo_net.data import DATA_DIR
+from mo_net.settings import get_settings
 
 
 def print_group_statistics(group: h5py.Group, prefix: str = "") -> None:
@@ -400,7 +400,7 @@ def main(
     signal.signal(signal.SIGINT, sigint_handler)
 
     if trace_log_path is None:
-        run_dir = DATA_DIR / "run"
+        run_dir = get_settings().run_dir
         hdf5_files = tuple(run_dir.glob("*.hdf5"))
         if not hdf5_files:
             logger.error(f"No .hdf5 files found in {run_dir}")

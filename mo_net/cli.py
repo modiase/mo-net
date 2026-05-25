@@ -21,10 +21,10 @@ from loguru import logger
 from mo_net import print_device_info
 from mo_net.data import (
     DEFAULT_TRAIN_SPLIT,
-    OUTPUT_PATH,
     SplitConfig,
     load_data,
 )
+from mo_net.settings import get_settings
 from mo_net.functions import (
     ActivationFn,
     get_loss_fn,
@@ -72,6 +72,50 @@ def dataset_split_options(f: Callable[P, R]) -> Callable[P, R]:
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def paths_options(f: Callable[P, R]) -> Callable[P, R]:
+    """Inject --data-dir / --db-path / --resource-cache flags.
+
+    Each flag, if provided, sets the corresponding MO_NET_* env var and
+    clears the cached Settings so the next get_settings() call observes
+    the override. The wrapped command does not see these kwargs.
+    """
+
+    @click.option(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help="Override data directory (env: MO_NET_DATA_DIR).",
+    )
+    @click.option(
+        "--db-path",
+        type=Path,
+        default=None,
+        help="Override training DB path (env: MO_NET_DB_PATH). "
+        "Default: <data-dir>/train.db.",
+    )
+    @click.option(
+        "--resource-cache",
+        type=Path,
+        default=None,
+        help="Override resource cache dir (env: MO_NET_RESOURCE_CACHE).",
+    )
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        data_dir = kwargs.pop("data_dir", None)
+        db_path = kwargs.pop("db_path", None)
+        resource_cache = kwargs.pop("resource_cache", None)
+        if data_dir is not None:
+            os.environ["MO_NET_DATA_DIR"] = str(data_dir)
+        if db_path is not None:
+            os.environ["MO_NET_DB_PATH"] = str(db_path)
+        if resource_cache is not None:
+            os.environ["MO_NET_RESOURCE_CACHE"] = str(resource_cache)
+        get_settings.cache_clear()
         return f(*args, **kwargs)
 
     return wrapper
@@ -343,6 +387,7 @@ def cli(): ...
 
 
 @cli.command("train", help="Train the model")
+@paths_options
 @training_options
 def cli_train(*args, **kwargs) -> TrainingResult:
     log_level = kwargs.get("log_level", LogLevel.INFO)
@@ -436,7 +481,9 @@ def train(
     )
 
     if model_output_path is None:
-        model_output_path = OUTPUT_PATH / f"{int(time.time())}_{model.get_name()}.pkl"
+        output_dir = get_settings().output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        model_output_path = output_dir / f"{int(time.time())}_{model.get_name()}.pkl"
     run = TrainingRun(
         seed=seed,
         backend=parse_connection_string(logging_backend_connection_string),

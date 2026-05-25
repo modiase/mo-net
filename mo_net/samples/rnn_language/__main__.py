@@ -13,6 +13,7 @@ import jax.numpy as jnp
 from loguru import logger
 
 from mo_net import print_device_info
+from mo_net.cli import paths_options
 from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.embedding import Embedding
@@ -151,6 +152,7 @@ def cli():
 
 
 @cli.command("demo", help="Run a demo with synthetic data")
+@paths_options
 @click.option(
     "--vocab-size", type=int, help="Size of vocabulary", default=100, required=False
 )
@@ -267,9 +269,11 @@ def demo(
     match result:
         case TrainingSuccessful():
             if model_output_path is None:
-                from mo_net.data import DATA_DIR
+                from mo_net.settings import get_settings
 
-                model_output_path = DATA_DIR / "output" / f"{run.name}.pkl"
+                output_dir = get_settings().output_dir
+                output_dir.mkdir(parents=True, exist_ok=True)
+                model_output_path = output_dir / f"{run.name}.pkl"
             result.model_checkpoint_path.rename(model_output_path)
             logger.info(f"Training completed. Model saved to: {model_output_path}")
 
@@ -354,6 +358,7 @@ def create_language_model_training_data(
 
 
 @cli.command("train-pretrained", help="Train with pre-trained word2vec embeddings")
+@paths_options
 @click.option(
     "--word2vec-model",
     type=Path,
@@ -481,10 +486,12 @@ def train_pretrained(
 
     match result:
         case TrainingSuccessful():
-            from mo_net.data import DATA_DIR
+            from mo_net.settings import get_settings
 
             if model_output_path is None:
-                model_output_path = DATA_DIR / "output" / f"{run.name}.pkl"
+                output_dir = get_settings().output_dir
+                output_dir.mkdir(parents=True, exist_ok=True)
+                model_output_path = output_dir / f"{run.name}.pkl"
 
             result.model_checkpoint_path.rename(model_output_path)
             logger.info(f"Training completed. Model saved to: {model_output_path}")

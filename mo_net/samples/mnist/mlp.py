@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from loguru import logger
 
 from mo_net import print_device_info
-from mo_net.data import DATA_DIR
+from mo_net.settings import get_settings
 from mo_net.functions import get_activation_fn, sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.activation import Activation
@@ -259,7 +259,9 @@ def train(
     match result:
         case TrainingSuccessful():
             if model_output_path is None:
-                model_output_path = DATA_DIR / "output" / f"{run.name}.pkl"
+                output_dir = get_settings().output_dir
+                output_dir.mkdir(parents=True, exist_ok=True)
+                model_output_path = output_dir / f"{run.name}.pkl"
             result.model_checkpoint_path.rename(model_output_path)
             logger.info(f"Training completed. Model saved to: {model_output_path}")
         case TrainingFailed():

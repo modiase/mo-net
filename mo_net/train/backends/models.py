@@ -17,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from mo_net.db import DB_PATH
+from mo_net.settings import get_settings
 
 
 class Base(DeclarativeBase):
@@ -109,6 +109,8 @@ class DbRun(Base):
 
 
 if __name__ == "__main__":
-    engine = create_engine(f"sqlite:///{DB_PATH}")
-    logger.info(f"Creating database at {DB_PATH}.")
+    db_path = get_settings().resolved_db_path
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(f"sqlite:///{db_path}")
+    logger.info(f"Creating database at {db_path}.")
     Base.metadata.create_all(engine)

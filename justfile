@@ -44,6 +44,11 @@ test-remote *flags:
         --exclude='result' \
         --exclude='*.egg-info' \
         . herakles:~/mo-net/
+    # flit_core's sdist generation respects git's tracked-file set, so any
+    # rsync'd file that the remote git doesn't know about gets silently dropped
+    # from the Nix-built mo-net package (manifests as ModuleNotFoundError at
+    # runtime for newly added files). Stage everything to make flit see it.
+    ssh herakles "cd ~/mo-net && git init -q && git add -A"
     flake="path:."
     for flag in {{flags}}; do
         [[ "$flag" == "--cuda" ]] && flake="path:.#cuda"

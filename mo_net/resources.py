@@ -5,12 +5,16 @@ from urllib.parse import urlparse
 
 import requests
 
-from mo_net import PROJECT_ROOT_DIR
-
-RESOURCE_CACHE: Final[Path] = PROJECT_ROOT_DIR / ".resource_cache"
+from mo_net.settings import get_settings
 
 MNIST_TRAIN_URL: Final[str] = "s3://mo-net-resources/mnist_train.csv"
 MNIST_TEST_URL: Final[str] = "s3://mo-net-resources/mnist_test.csv"
+
+
+def __getattr__(name: str):
+    if name == "RESOURCE_CACHE":
+        return get_settings().resource_cache
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _extract_slug(url: str) -> str:
@@ -22,10 +26,10 @@ def _extract_slug(url: str) -> str:
 
 
 def _find_cached_by_hash(content_hash: str) -> Path | None:
-    """Find a cached file by its content hash prefix."""
-    if not RESOURCE_CACHE.exists():
+    cache = get_settings().resource_cache
+    if not cache.exists():
         return None
-    for path in RESOURCE_CACHE.iterdir():
+    for path in cache.iterdir():
         if path.name.startswith(content_hash):
             return path
     return None
@@ -49,7 +53,8 @@ def get_resource(url: str) -> Path:
         case _:
             raise ValueError(f"Unsupported protocol: {parsed.scheme}")
 
-    RESOURCE_CACHE.mkdir(exist_ok=True)
+    cache = get_settings().resource_cache
+    cache.mkdir(parents=True, exist_ok=True)
 
     # HEAD request to get ETag (content hash) without downloading
     head_response = requests.head(download_url)
@@ -71,7 +76,7 @@ def get_resource(url: str) -> Path:
         content_hash = hashlib.sha256(response.content).hexdigest()[:32]
 
     slug = _extract_slug(url)
-    cache_path = RESOURCE_CACHE / f"{content_hash}-{slug}"
+    cache_path = cache / f"{content_hash}-{slug}"
 
     with open(cache_path, "wb") as f:
         f.write(response.content)

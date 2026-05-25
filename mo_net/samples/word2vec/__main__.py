@@ -19,7 +19,7 @@ from loguru import logger
 from more_itertools import windowed
 
 from mo_net import print_device_info
-from mo_net.data import DATA_DIR
+from mo_net.settings import get_settings
 from mo_net.functions import LossFn, sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
@@ -780,7 +780,9 @@ def train(
     match result:
         case TrainingSuccessful():
             if model_output_path is None:
-                model_output_path = DATA_DIR / "output" / f"{run.name}.zip"
+                output_dir = get_settings().output_dir
+                output_dir.mkdir(parents=True, exist_ok=True)
+                model_output_path = output_dir / f"{run.name}.zip"
 
             zip_buffer = BytesIO()
             with zipfile.ZipFile(
@@ -811,7 +813,9 @@ def train(
             logger.warning(f"Training stopped early: {result.message}")
             if result.model_checkpoint_path and result.model_checkpoint_path.exists():
                 if model_output_path is None:
-                    model_output_path = DATA_DIR / "output" / f"{run.name}.zip"
+                    output_dir = get_settings().output_dir
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    model_output_path = output_dir / f"{run.name}.zip"
 
                 # Load best checkpoint and save as zip
                 match model_type:

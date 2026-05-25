@@ -10,7 +10,8 @@ from loguru import logger
 from matplotlib import pyplot as plt
 from more_itertools import peekable, sample
 
-from mo_net.data import DATA_DIR, SplitConfig, load_data
+from mo_net.data import SplitConfig, load_data
+from mo_net.settings import get_settings
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
 from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
@@ -90,7 +91,7 @@ def infer(
     )
 
     if model_path is None:
-        output_dir = DATA_DIR / "output"
+        output_dir = get_settings().output_dir
         output_paths = peekable(output_dir.glob("*.pkl"))
         if output_paths.peek() is None:
             logger.error(

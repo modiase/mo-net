@@ -16,7 +16,8 @@ import plotly.graph_objects as go
 import plotly.subplots as sp
 from loguru import logger
 
-from mo_net.data import DATA_DIR, SplitConfig, load_data
+from mo_net.data import SplitConfig, load_data
+from mo_net.settings import get_settings
 from mo_net.functions import get_activation_fn, mse_loss
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.activation import Activation
@@ -305,9 +306,9 @@ def train(
     X_val = X_val.reshape(-1, 28 * 28)
 
     if output_path is None:
-        output_path = (
-            DATA_DIR / "output" / f"decoder_{model_path.stem}_layer_{layer_number}.pkl"
-        )
+        output_dir = get_settings().output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"decoder_{model_path.stem}_layer_{layer_number}.pkl"
     else:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 

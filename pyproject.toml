@@ -21,6 +21,7 @@ dependencies = [
   "networkx>=3.4.2",
   "taplo>=0.9.3",
   "pydantic>=2.11.1",
+  "pydantic-settings>=2.0",
   "h5py>=3.13.0",
   "plotille>=5.0.0",
   "scipy>=1.15.3",

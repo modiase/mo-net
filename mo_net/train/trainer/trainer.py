@@ -13,8 +13,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from mo_net.config import TrainingParameters
-from mo_net.data import RUN_PATH
 from mo_net.functions import LossFn, TransformFn
+from mo_net.settings import get_settings
 from mo_net.model.model import Model
 from mo_net.optimiser import Base, OptimizerConfigT
 from mo_net.optimiser.adam import AdaM
@@ -314,8 +314,10 @@ class BasicTrainer:
         if self._output_path is not None:
             self._model_checkpoint_path = self._output_path
         else:
+            run_dir = get_settings().run_dir
+            run_dir.mkdir(parents=True, exist_ok=True)
             self._model_checkpoint_path = Path(
-                str((RUN_PATH / self._run.id).with_suffix(".pkl")).replace(
+                str((run_dir / self._run.id).with_suffix(".pkl")).replace(
                     "_model_training_log", ""
                 )
             )

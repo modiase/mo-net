@@ -2,8 +2,8 @@ import click
 import uvicorn
 from loguru import logger
 
-from mo_net.db import DB_PATH
 from mo_net.log import LogLevel, setup_logging
+from mo_net.settings import get_settings
 
 
 @click.command()
@@ -13,7 +13,8 @@ from mo_net.log import LogLevel, setup_logging
 def main(host: str, port: int, reload: bool):
     setup_logging(LogLevel.INFO)
     logger.info(
-        f"Starting Training Monitor on http://{host}:{port} using database: {DB_PATH}"
+        f"Starting Training Monitor on http://{host}:{port} "
+        f"using database: {get_settings().resolved_db_path}"
     )
     uvicorn.run(
         "mo_net.server.app:app",

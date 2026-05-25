@@ -12,7 +12,8 @@ from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from mo_net.train.backends.models import DB_PATH, Base, DbRun, Iteration
+from mo_net.settings import get_settings
+from mo_net.train.backends.models import Base, DbRun, Iteration
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -139,7 +140,10 @@ class SqliteBackend(LoggingBackend):
         batch_size: int = 10,
         max_queue_size: int = 1000,
     ) -> None:
-        self._path = (path if path is not None else DB_PATH).resolve()
+        self._path = (
+            path if path is not None else get_settings().resolved_db_path
+        ).resolve()
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         self._session: Session | None = None
         self._current_run: DbRun | None = None
         self._engine = create_engine(f"sqlite:///{self._path}")
@@ -155,6 +159,7 @@ class SqliteBackend(LoggingBackend):
         return f"sqlite://{self._path}"
 
     def create(self) -> None:
+        Base.metadata.create_all(self._engine)
         self._session = self._session_maker()
 
     def start_run(

@@ -10,7 +10,8 @@ from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from mo_net.train.backends.models import DB_PATH, DbRun, Iteration
+from mo_net.settings import get_settings
+from mo_net.train.backends.models import DbRun, Iteration
 
 DEFAULT_REFRESH_SECONDS: Final[int] = 1
 DEFAULT_WIDTH: Final[int] = 150
@@ -85,14 +86,15 @@ def prompt_for_run_selection(session) -> int:
     "--height", "-h", type=int, default=DEFAULT_HEIGHT, help="Plot height in characters"
 )
 def main(*, refresh: int, width: int, height: int):
-    if not DB_PATH.exists():
-        logger.error(f"Database not found: {DB_PATH}")
+    db_path = get_settings().resolved_db_path
+    if not db_path.exists():
+        logger.error(f"Database not found: {db_path}")
         sys.exit(1)
 
-    engine = create_engine(f"sqlite:///{DB_PATH}")
+    engine = create_engine(f"sqlite:///{db_path}")
     Session = sessionmaker(bind=engine)
     session = Session()
-    logger.info(f"Using database: {DB_PATH}")
+    logger.info(f"Using database: {db_path}")
 
     run_id = prompt_for_run_selection(session)
     logger.info(f"Monitoring run {run_id} (refresh: {refresh}s)")

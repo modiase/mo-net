@@ -8,20 +8,27 @@ import jax.numpy as jnp
 import pandas as pd
 from loguru import logger
 
-from mo_net import PROJECT_ROOT_DIR
 from mo_net.log import LogLevel, log_result
 from mo_net.resources import get_resource
+from mo_net.settings import get_settings
 
-DATA_DIR: Final[Path] = PROJECT_ROOT_DIR / "data"
 DEFAULT_TRAIN_SPLIT: Final[float] = 0.8
 MAX_PIXEL_VALUE: Final[int] = 255
 N_DIGITS: Final[int] = 10
-OUTPUT_PATH: Final[Path] = DATA_DIR / "output"
-if not OUTPUT_PATH.exists():
-    OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
-RUN_PATH: Final[Path] = DATA_DIR / "run"
-if not RUN_PATH.exists():
-    RUN_PATH.mkdir(parents=True, exist_ok=True)
+
+
+def __getattr__(name: str):
+    # Back-compat shim: callers that did `from mo_net.data import DATA_DIR`
+    # continue to work, but new code should call `get_settings()` directly so
+    # CLI/env overrides take effect at runtime.
+    settings = get_settings()
+    if name == "DATA_DIR":
+        return settings.data_dir
+    if name == "OUTPUT_PATH":
+        return settings.output_dir
+    if name == "RUN_PATH":
+        return settings.run_dir
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass(frozen=True, kw_only=True)
