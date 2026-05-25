@@ -251,8 +251,44 @@
           mo-net = [ "dev" ];
         };
 
+        # CUDA variant of trainingVenv — adds the `cuda` extras (jax-cuda12-*
+        # plus the nvidia-*-cu12 wheels that bring cuDNN 9.10, cuBLAS 12.9 etc.).
+        # Linux-only: the cuda extras are platform-specific wheels.
+        trainingCudaVenv = pythonSet.mkVirtualEnv "mo-net-training-cuda-env" {
+          mo-net = [
+            "dev"
+            "cuda"
+          ];
+        };
+
+        # Wheel-bundled NVIDIA libs land under `<venv>/lib/python3.12/site-
+        # packages/nvidia/<libname>/lib`. JAX dlopens via LD_LIBRARY_PATH, and
+        # the wheel cuDNN 9.10 / cuBLAS 12.9 are what jax-cuda12-plugin 0.6.2
+        # actually wants — so put them first. /run/opengl-driver/lib is
+        # mounted into the container by the CDI runtime and contains libcuda
+        # from the host driver.
+        nvidiaWheelLibPath = lib.concatStringsSep ":" (
+          map (sub: "${trainingCudaVenv}/lib/python3.12/site-packages/nvidia/${sub}/lib") [
+            "cublas"
+            "cuda_cupti"
+            "cuda_nvrtc"
+            "cuda_runtime"
+            "cudnn"
+            "cufft"
+            "cusolver"
+            "cusparse"
+            "nccl"
+            "nvjitlink"
+            "nvshmem"
+          ]
+        );
+
         mkTrainingImage =
-          { name, pyVenv }:
+          {
+            name,
+            pyVenv,
+            extraEnv ? [ ],
+          }:
           pkgs.dockerTools.streamLayeredImage {
             inherit name;
             tag = self.shortRev or "dirty";
@@ -271,7 +307,8 @@
                 # to persist train.db / run / output artefacts across container runs.
                 "MO_NET_DATA_DIR=/var/lib/mo-net/data"
                 "MO_NET_RESOURCE_CACHE=/var/lib/mo-net/cache"
-              ];
+              ]
+              ++ extraEnv;
               Entrypoint = [ "${pyVenv}/bin/python" ];
               WorkingDir = "/workspace";
             };
@@ -372,6 +409,19 @@
           mo-net-image = mkTrainingImage {
             name = "mo-net";
             pyVenv = trainingVenv;
+          };
+        }
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          mo-net-cuda-image = mkTrainingImage {
+            name = "mo-net-cuda";
+            pyVenv = trainingCudaVenv;
+            extraEnv = [
+              # /usr/lib64 is where libnvidia-container (enroot's nvidia hook,
+              # pyxis path) mounts the host driver — libcuda.so.1 lives there.
+              # /run/opengl-driver/lib is where NixOS docker+CDI typically
+              # mounts the same — kept for the docker path.
+              "LD_LIBRARY_PATH=${nvidiaWheelLibPath}:/usr/lib64:/run/opengl-driver/lib"
+            ];
           };
         };
       }
