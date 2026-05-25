@@ -197,9 +197,18 @@
                 export CUDA_PATH="${pkgsCuda.cudatoolkit}"
                 export CUDA_ROOT="${pkgsCuda.cudatoolkit}"
                 export CUDNN_PATH="${pkgsCuda.cudaPackages.cudnn}"
-                export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (systemLibs ++ cudaLibs)}:/run/opengl-driver/lib:''${LD_LIBRARY_PATH:-}"
+                # JAX dlopens libcuda*, libcudnn*, libcublas*, etc. via
+                # LD_LIBRARY_PATH. The wheel-bundled nvidia/* libs (cuDNN 9.10,
+                # cuBLAS 12.9) match jax-cuda12-plugin's required versions; the
+                # nix `cudaPackages.cudnn` (9.8) and `cudatoolkit` (12.8) do not
+                # — putting them first triggers the "cuDNN < 9.10.0" version
+                # check and, if bypassed, a real ABI crash on matmul. So:
+                # wheel libs first, then driver, then system libs.
+                WHEEL_NVIDIA_LIBS=$(ls -d ${activeVenv}/lib/python3.12/site-packages/nvidia/*/lib 2>/dev/null | tr '\n' ':')
+                export LD_LIBRARY_PATH="''${WHEEL_NVIDIA_LIBS}/run/opengl-driver/lib:${pkgs.lib.makeLibraryPath systemLibs}:''${LD_LIBRARY_PATH:-}"
                 export PATH="${pkgsCuda.cudatoolkit}/bin:$PATH"
-                export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgsCuda.cudatoolkit}/lib"
+                # ptxas etc. live under cudatoolkit; nvrtc is in the wheel.
+                export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgsCuda.cudatoolkit}"
                 if [[ "''${DEBUG:-0}" != "0" ]]; then
                   echo "mode: CUDA enabled"
                 fi
