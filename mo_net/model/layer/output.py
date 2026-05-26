@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Callable, Self, TypedDict, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
-from pyparsing import abstractmethod
+from abc import abstractmethod
 
 from mo_net.constants import EPSILON
 from mo_net.model.layer.base import _Base
