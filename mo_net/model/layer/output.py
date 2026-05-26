@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Self, TypedDict, TypeVar, cast
+from typing import Callable, Self, TypedDict, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
