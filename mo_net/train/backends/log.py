@@ -49,9 +49,6 @@ class LoggingBackend(Protocol):
     def teardown(self) -> None:
         """Teardown any connections or files."""
 
-    def log_training_parameters(self, *, training_parameters: str) -> None:
-        """Log the training parameters."""
-
     def log_iteration(
         self,
         *,
@@ -128,9 +125,6 @@ class CsvBackend(LoggingBackend):
         if self._file is not None:
             self._file.flush()
 
-    def log_training_parameters(self, *, training_parameters: str) -> None:
-        self._path.with_suffix(".json").write_text(training_parameters)
-
 
 class SqlBackend(LoggingBackend):
     """SQLAlchemy-backed logger. Subclassed for dialect-specific conveniences."""
@@ -139,16 +133,10 @@ class SqlBackend(LoggingBackend):
         self,
         *,
         url: str,
-        training_params_path: Path | None = None,
         batch_size: int = 10,
         max_queue_size: int = 1000,
     ) -> None:
         self._url = url
-        self._training_params_path = (
-            training_params_path
-            if training_params_path is not None
-            else get_settings().data_dir / "training_params.json"
-        )
         self._session: Session | None = None
         self._current_run: DbRun | None = None
         self._engine = create_engine(url)
@@ -210,10 +198,6 @@ class SqlBackend(LoggingBackend):
             self._session.close()
             self._session = None
         self._executor.shutdown(wait=True)
-
-    def log_training_parameters(self, *, training_parameters: str) -> None:
-        self._training_params_path.parent.mkdir(parents=True, exist_ok=True)
-        self._training_params_path.write_text(training_parameters)
 
     def log_iteration(
         self,
@@ -317,7 +301,6 @@ class SqliteBackend(SqlBackend):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         super().__init__(
             url=f"sqlite:///{self._path}",
-            training_params_path=self._path.with_suffix(".json"),
             batch_size=batch_size,
             max_queue_size=max_queue_size,
         )
@@ -334,14 +317,12 @@ class MariaDbBackend(SqlBackend):
         database: str = "mo_net",
         user: str = "mo_net",
         password: str | None = None,
-        training_params_path: Path | None = None,
         batch_size: int = 10,
         max_queue_size: int = 1000,
     ) -> None:
         auth = f"{user}:{password}" if password else user
         super().__init__(
             url=f"mysql+pymysql://{auth}@{host}:{port}/{database}",
-            training_params_path=training_params_path,
             batch_size=batch_size,
             max_queue_size=max_queue_size,
         )
@@ -401,9 +382,6 @@ class InMemorySqliteBackend(LoggingBackend):
         if self._session:
             self._session.close()
             self._session = None
-
-    def log_training_parameters(self, *, training_parameters: str) -> None:
-        pass
 
     def log_iteration(
         self,
@@ -465,9 +443,6 @@ class NullBackend(LoggingBackend):
 
     def teardown(self) -> None:
         pass
-
-    def log_training_parameters(self, *, training_parameters: str) -> None:
-        del training_parameters  # unused
 
     def log_iteration(
         self,

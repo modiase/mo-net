@@ -322,10 +322,6 @@ class BasicTrainer:
                     "_model_training_log", ""
                 )
             )
-        self._run.log_training_parameters(
-            training_parameters=self._training_parameters.model_dump_json()
-        )
-
         self._logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
         self._logger.info(f"Training parameters: {self._training_parameters}.")
         self._logger.info(f"Logging to: {self._run._backend.connection_string}.")
