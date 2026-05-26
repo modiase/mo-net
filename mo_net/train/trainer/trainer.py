@@ -1,4 +1,5 @@
 import signal
+import sys
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, nullcontext
@@ -384,7 +385,7 @@ class BasicTrainer:
             unit=" epoch",
             unit_scale=1 / self._training_parameters.batches_per_epoch,
             bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
-            disable=self._training_parameters.quiet,
+            disable=self._training_parameters.quiet or not sys.stdout.isatty(),
         ):
             if interrupt_result := self._handle_interrupt():
                 return interrupt_result
