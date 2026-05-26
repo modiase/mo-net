@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import h5py
 import jax
 import jax.numpy as jnp
 
@@ -75,6 +74,8 @@ class Tracer:
         self._tracer_config = tracer_config
         self._iterations = 0
 
+        import h5py  # lazy: only loaded when tracing is actually enabled
+
         with h5py.File(self._trace_logging_path, "w") as f:
             f.create_group("weights")
             f.create_group("biases")
@@ -100,6 +101,8 @@ class Tracer:
                 and isinstance(layer_activations, jnp.ndarray)
             )
         )
+
+        import h5py  # lazy: only loaded when tracing is actually enabled
 
         with h5py.File(self._trace_logging_path, "a") as f:
             f.attrs["iterations"] = self._iterations

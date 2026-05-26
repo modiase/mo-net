@@ -243,22 +243,11 @@
 
         venv = pythonSet.mkVirtualEnv "mo-net-env" workspace.deps.default;
 
-        # Non-editable venv with the `dev` extras, used for the OCI training
-        # image. The base `venv` is missing InquirerPy (in the dev group) which
-        # `mo_net.train.trainer` imports at module load — so any container
-        # training run needs `dev`.
-        trainingVenv = pythonSet.mkVirtualEnv "mo-net-training-env" {
-          mo-net = [ "dev" ];
-        };
-
-        # CUDA variant of trainingVenv — adds the `cuda` extras (jax-cuda12-*
-        # plus the nvidia-*-cu12 wheels that bring cuDNN 9.10, cuBLAS 12.9 etc.).
+        # CUDA variant of `venv` — adds the `cuda` extras (jax-cuda12-* plus
+        # the nvidia-*-cu12 wheels that bring cuDNN 9.10, cuBLAS 12.9 etc.).
         # Linux-only: the cuda extras are platform-specific wheels.
-        trainingCudaVenv = pythonSet.mkVirtualEnv "mo-net-training-cuda-env" {
-          mo-net = [
-            "dev"
-            "cuda"
-          ];
+        cudaVenv = pythonSet.mkVirtualEnv "mo-net-cuda-env" {
+          mo-net = [ "cuda" ];
         };
 
         # Wheel-bundled NVIDIA libs land under `<venv>/lib/python3.12/site-
@@ -268,7 +257,7 @@
         # mounted into the container by the CDI runtime and contains libcuda
         # from the host driver.
         nvidiaWheelLibPath = lib.concatStringsSep ":" (
-          map (sub: "${trainingCudaVenv}/lib/python3.12/site-packages/nvidia/${sub}/lib") [
+          map (sub: "${cudaVenv}/lib/python3.12/site-packages/nvidia/${sub}/lib") [
             "cublas"
             "cuda_cupti"
             "cuda_nvrtc"
@@ -408,13 +397,13 @@
           inherit venv editableVenv;
           mo-net-image = mkTrainingImage {
             name = "mo-net";
-            pyVenv = trainingVenv;
+            pyVenv = venv;
           };
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
           mo-net-cuda-image = mkTrainingImage {
             name = "mo-net-cuda";
-            pyVenv = trainingCudaVenv;
+            pyVenv = cudaVenv;
             extraEnv = [
               # /usr/lib64 is where libnvidia-container (enroot's nvidia hook,
               # pyxis path) mounts the host driver — libcuda.so.1 lives there.
