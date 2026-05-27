@@ -13,6 +13,7 @@ from typing import IO as IO_Type
 from typing import Final, ParamSpec, TypeVar, cast
 
 import jax.numpy as jnp
+import numpy as np
 import jax.random as random
 from loguru import logger
 
@@ -660,9 +661,9 @@ class ParallelTrainer(BasicTrainer):
     @staticmethod
     def create_worker_process(
         *,
-        X: jnp.ndarray,
+        X: jnp.ndarray | np.ndarray,
         X_shared_memory_name: str,
-        Y: jnp.ndarray,
+        Y: jnp.ndarray | np.ndarray,
         Y_shared_memory_name: str,
         batch_size: int,
         log_level: str,

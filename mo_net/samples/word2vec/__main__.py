@@ -15,6 +15,7 @@ from typing import IO, Callable, Final, Literal, ParamSpec, TypeVar, assert_neve
 import click
 import jax
 import jax.numpy as jnp
+import numpy as np
 from loguru import logger
 from more_itertools import windowed
 
@@ -799,10 +800,10 @@ def train(
         # Each (center, [c1..c_{2*ctx}]) becomes 2*ctx separate (center, c_i) rows
         # so the standard sparse_cross_entropy + backward path see matching shapes.
         ctx_full = Y_train_split.shape[1]
-        X_train_split = jnp.repeat(X_train_split, ctx_full).reshape(-1, 1)
-        Y_train_split = Y_train_split.flatten()
-        X_val = jnp.repeat(X_val, ctx_full).reshape(-1, 1)
-        Y_val = Y_val.flatten()
+        X_train_split = np.repeat(np.asarray(X_train_split), ctx_full).reshape(-1, 1)
+        Y_train_split = np.asarray(Y_train_split).flatten()
+        X_val = np.repeat(np.asarray(X_val), ctx_full).reshape(-1, 1)
+        Y_val = np.asarray(Y_val).flatten()
 
     logger.info(f"Vocabulary size: {len(vocab)}")
     logger.info(f"Embedding dimension: {embedding_dim}")

@@ -169,7 +169,7 @@ class Vocab:
 
 def get_training_set(
     tokenized_sentences: Collection[TokenizedSentence], context_size: int
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     context, target = zip(
         *[
             (
@@ -186,7 +186,7 @@ def get_training_set(
         ],
         strict=True,
     )
-    return jnp.array(context), jnp.array(list(target))
+    return np.array(context), np.array(list(target))
 
 
 def _pairs_cache_key(
@@ -211,14 +211,16 @@ def cached_english_training_set(
     forced_words: Collection[str] = (),
     context_size: int,
     cache_dir: Path | None = None,
-) -> tuple[Vocab, jnp.ndarray, jnp.ndarray]:
+) -> tuple[Vocab, np.ndarray, np.ndarray]:
     """Materialise (vocab, X, Y) for the English-sentences corpus, with cache.
 
-    If ``cache_dir`` is provided, writes ``w2v-pairs-<hash>.npz`` and
-    ``w2v-pairs-<hash>.vocab.msgpack`` keyed on inputs that determine the
-    output. Read-only mounts are tolerated: cache reads are best-effort,
-    write failures (``OSError``) silently fall back to no-op so the job
-    still completes — first invocation against an RW dir will populate.
+    Caches X and Y as separate uncompressed ``.npy`` files so subsequent
+    loads use ``mmap_mode='r'`` — the OS page cache is then shared between
+    concurrent jobs reading the same file, and the trainer pages in only
+    the rows it touches per batch.
+
+    Read-only mounts are tolerated: cache reads are best-effort, write
+    failures (``OSError``) silently fall back to no-op.
 
     The (X, Y) shape is the same for CBOW and SkipGram — the X/Y swap
     that distinguishes the two models happens at the call-site after
@@ -226,22 +228,23 @@ def cached_english_training_set(
     """
     corpus_path = get_resource(ENGLISH_SENTENCES_URL)
 
-    pairs_path: Path | None = None
+    x_path: Path | None = None
+    y_path: Path | None = None
     vocab_path: Path | None = None
     if cache_dir is not None:
         key = _pairs_cache_key(
             corpus_path, limit, max_vocab_size, forced_words, context_size
         )
-        pairs_path = cache_dir / f"w2v-pairs-{key}.npz"
+        x_path = cache_dir / f"w2v-pairs-{key}.X.npy"
+        y_path = cache_dir / f"w2v-pairs-{key}.Y.npy"
         vocab_path = cache_dir / f"w2v-pairs-{key}.vocab.msgpack"
-        if pairs_path.exists() and vocab_path.exists():
-            logger.info(f"loading cached training set from {pairs_path}")
-            with np.load(pairs_path) as arr:
-                return (
-                    Vocab.from_bytes(vocab_path.read_bytes()),
-                    jnp.asarray(arr["X"]),
-                    jnp.asarray(arr["Y"]),
-                )
+        if x_path.exists() and y_path.exists() and vocab_path.exists():
+            logger.info(f"mmap-loading cached training set from {x_path.parent}")
+            return (
+                Vocab.from_bytes(vocab_path.read_bytes()),
+                np.load(x_path, mmap_mode="r"),
+                np.load(y_path, mmap_mode="r"),
+            )
 
     vocab, tokenized = Vocab.english_sentences(
         limit=limit,
@@ -250,17 +253,17 @@ def cached_english_training_set(
     )
     X, Y = get_training_set(tokenized, context_size)
 
-    if pairs_path is not None and vocab_path is not None:
+    if x_path is not None and y_path is not None and vocab_path is not None:
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[union-attr]
-            np.savez(pairs_path, X=np.asarray(X), Y=np.asarray(Y))
+            np.save(x_path, np.asarray(X))
+            np.save(y_path, np.asarray(Y))
             vocab_path.write_bytes(vocab.serialize())
-            logger.info(f"cached training set to {pairs_path}")
+            logger.info(f"cached training set to {x_path.parent}")
         except OSError as e:
-            # RO mount or similar — don't fail the run.
-            logger.debug(f"could not write training-set cache to {pairs_path}: {e}")
+            logger.debug(f"could not write training-set cache to {x_path}: {e}")
 
-    return vocab, X, Y
+    return vocab, np.asarray(X), np.asarray(Y)
 
 
 def get_stop_words() -> Collection[str]:

@@ -9,6 +9,7 @@ from typing import Any, ContextManager, Final, Literal, assert_never, cast
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from InquirerPy import inquirer
 from loguru import logger
 from tqdm import tqdm
@@ -30,6 +31,11 @@ from mo_net.train.run import TrainingRun
 from mo_net.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
 
 DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
+
+# Trainer accepts either JAX or NumPy arrays for training data; NumPy is the
+# memmap-friendly choice for large cached datasets and JAX implicitly converts
+# slices at the model boundary.
+type Array = jnp.ndarray | np.ndarray
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -109,10 +115,10 @@ class BasicTrainer:
         training_parameters: TrainingParameters,
         transform_fn: TransformFn | None = None,
         start_epoch: int | None = None,
-        X_train: jnp.ndarray,
-        Y_train: jnp.ndarray,
-        X_val: jnp.ndarray,
-        Y_val: jnp.ndarray,
+        X_train: Array,
+        Y_train: Array,
+        X_val: Array,
+        Y_val: Array,
         loss_fn: LossFn,
         key: jnp.ndarray,
         output_path: Path | None = None,
@@ -126,6 +132,10 @@ class BasicTrainer:
         self._start_epoch = start_epoch if start_epoch is not None else 0
         self._optimiser = optimiser
         self._training_parameters = training_parameters
+        # Keep X_train / Y_train as whatever (possibly a numpy memmap of the
+        # cached corpus); per-batch slices are pulled into jnp at the model
+        # boundary. Val arrays are converted once because they're reused every
+        # epoch and a copy each time would dominate val cost.
         self._X_train = X_train
         self._Y_train = Y_train
         self._transform = transform_fn
@@ -139,8 +149,8 @@ class BasicTrainer:
             key=key1,
         )
         self._key = key2
-        self._X_val = X_val
-        self._Y_val = Y_val
+        self._X_val = jnp.asarray(X_val)
+        self._Y_val = jnp.asarray(Y_val)
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
@@ -387,8 +397,8 @@ class BasicTrainer:
                 return interrupt_result
             with self._create_training_step_context():
                 batch_indices = next(self._batcher)
-                X_train_batch = self._X_train[batch_indices]
-                Y_train_batch = self._Y_train[batch_indices]
+                X_train_batch = jnp.asarray(self._X_train[batch_indices])
+                Y_train_batch = jnp.asarray(self._Y_train[batch_indices])
 
                 if self._transform is not None:
                     self._key, subkey = jax.random.split(self._key)
