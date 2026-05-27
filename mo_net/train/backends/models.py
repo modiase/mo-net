@@ -7,6 +7,7 @@ from typing import Self
 
 from loguru import logger
 from sqlalchemy import (
+    BigInteger,
     DateTime,
     Float,
     ForeignKey,
@@ -55,7 +56,7 @@ class DbRun(Base):
     current_val_loss: Mapped[float] = mapped_column(Float)
     current_timestamp: Mapped[datetime] = mapped_column(DateTime)
     name: Mapped[str] = mapped_column(String)
-    seed: Mapped[int] = mapped_column(Integer)
+    seed: Mapped[int] = mapped_column(BigInteger)
     started_at: Mapped[datetime] = mapped_column(DateTime)
     total_batches: Mapped[int] = mapped_column(Integer)
     total_epochs: Mapped[int] = mapped_column(Integer)

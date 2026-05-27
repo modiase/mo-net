@@ -247,7 +247,10 @@
         # the nvidia-*-cu12 wheels that bring cuDNN 9.10, cuBLAS 12.9 etc.).
         # Linux-only: the cuda extras are platform-specific wheels.
         cudaVenv = pythonSet.mkVirtualEnv "mo-net-cuda-env" {
-          mo-net = [ "cuda" ];
+          mo-net = [
+            "cuda"
+            "postgres"
+          ];
         };
 
         # Wheel-bundled NVIDIA libs land under `<venv>/lib/python3.12/site-
@@ -272,6 +275,88 @@
           ]
         );
 
+        # Entrypoint wrapper: when MO_NET_LOKI_URL is set, tees stdout/stderr
+        # to per-stream files that fluent-bit tails and ships to Loki. Otherwise
+        # exec's python directly so the wrapper is a no-op for ad-hoc runs.
+        trainEntrypoint = pkgs.writeShellApplication {
+          name = "mo-net-train";
+          runtimeInputs = [
+            pkgs.coreutils
+            pkgs.fluent-bit
+            pkgs.gawk
+          ];
+          text = ''
+            set -uo pipefail
+            if [ -z "''${MO_NET_LOKI_URL:-}" ]; then
+              exec python "$@"
+            fi
+
+            log_dir="''${MO_NET_LOG_DIR:-/tmp/mo-net-logs}"
+            mkdir -p "$log_dir"
+            stdout_log="$log_dir/stdout.log"
+            stderr_log="$log_dir/stderr.log"
+            : > "$stdout_log"
+            : > "$stderr_log"
+
+            # Split URL like http://host:3100 into host + port.
+            url=''${MO_NET_LOKI_URL#http://}
+            url=''${url#https://}
+            loki_host=''${url%%:*}
+            loki_port=''${url##*:}
+            [ "$loki_port" = "$url" ] && loki_port=3100
+
+            extra_labels=''${MO_NET_LOKI_LABELS:-}
+            base_labels="job=mo-net,slurm_job_id=''${SLURM_JOB_ID:-na},slurm_array_job_id=''${SLURM_ARRAY_JOB_ID:-na},slurm_array_task_id=''${SLURM_ARRAY_TASK_ID:-na}"
+            [ -n "$extra_labels" ] && base_labels="$base_labels,$extra_labels"
+
+            fb_config=$(mktemp /tmp/fluent-bit-XXXXXX.yaml)
+            cat > "$fb_config" <<YAML
+            service:
+              flush: 2
+              log_level: warn
+            pipeline:
+              inputs:
+                - name: tail
+                  path: $stdout_log
+                  tag: mo-net.stdout
+                  read_from_head: true
+                  refresh_interval: 1
+                - name: tail
+                  path: $stderr_log
+                  tag: mo-net.stderr
+                  read_from_head: true
+                  refresh_interval: 1
+              outputs:
+                - name: loki
+                  match: mo-net.*
+                  host: $loki_host
+                  port: $loki_port
+                  labels: $base_labels
+                  label_keys: \$tag
+                  line_format: json
+            YAML
+
+            fluent-bit --config="$fb_config" > /tmp/fluent-bit.log 2>&1 &
+            fb_pid=$!
+
+            # Mirror file growth to the container's own stdout/stderr so sbatch
+            # --output still captures everything for sacct correlation.
+            tail -F -q "$stdout_log" &
+            tail_out=$!
+            tail -F -q "$stderr_log" >&2 &
+            tail_err=$!
+
+            python "$@" >> "$stdout_log" 2>> "$stderr_log"
+            exit_code=$?
+
+            # Let fluent-bit run one more flush cycle before we kill it.
+            sleep 3
+            kill "$fb_pid" "$tail_out" "$tail_err" 2>/dev/null || true
+            wait "$fb_pid" 2>/dev/null || true
+            exit "$exit_code"
+          '';
+        };
+
         mkTrainingImage =
           {
             name,
@@ -286,6 +371,8 @@
               pkgs.bashInteractive
               pkgs.coreutils
               pkgs.cacert
+              pkgs.fluent-bit
+              trainEntrypoint
             ];
             config = {
               Env = [
@@ -298,7 +385,7 @@
                 "MO_NET_RESOURCE_CACHE=/var/lib/mo-net/cache"
               ]
               ++ extraEnv;
-              Entrypoint = [ "${pyVenv}/bin/python" ];
+              Entrypoint = [ "${trainEntrypoint}/bin/mo-net-train" ];
               WorkingDir = "/workspace";
             };
           };
@@ -307,11 +394,17 @@
           workspace.mkEditablePyprojectOverlay { root = "$REPO_ROOT"; }
         );
 
-        editableVenv = editablePythonSet.mkVirtualEnv "mo-net-dev-env" { mo-net = [ "dev" ]; };
-        editableCudaVenv = editablePythonSet.mkVirtualEnv "mo-net-cuda-env" {
+        editableVenv = editablePythonSet.mkVirtualEnv "mo-net-dev-env" {
           mo-net = [
             "dev"
+            "postgres"
+          ];
+        };
+        editableCudaVenv = editablePythonSet.mkVirtualEnv "mo-net-cuda-env" {
+          mo-net = [
             "cuda"
+            "dev"
+            "postgres"
           ];
         };
 
