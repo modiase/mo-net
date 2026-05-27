@@ -654,7 +654,7 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         "--warmup-epochs",
         type=int,
         help="Warmup epochs",
-        default=5,
+        default=1,
     )
     @click.option(
         "--include",
@@ -824,7 +824,10 @@ def train(
         batch_size=batch_size,
         dropout_keep_probs=(),
         history_max_len=history_max_len,
-        learning_rate_limits=(learning_rate, learning_rate),
+        # Cosine schedule decays from learning_rate to learning_rate/100 over
+        # num_epochs; matching the (decayed, peak) ordering the trainer wires
+        # WarmupScheduler -> CosineScheduler with.
+        learning_rate_limits=(learning_rate / 100, learning_rate),
         log_level=log_level,
         max_restarts=0,
         monotonic=False,
