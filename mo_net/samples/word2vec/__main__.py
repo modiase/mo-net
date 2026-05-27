@@ -50,7 +50,7 @@ from mo_net.samples.word2vec.vocab import (
     get_training_set,
 )
 from mo_net.train import TrainingParameters
-from mo_net.train.backends.log import SqliteBackend
+from mo_net.train.backends.log import NullBackend, parse_connection_string
 from mo_net.train.run import TrainingRun
 from mo_net.train.trainer.trainer import (
     BasicTrainer,
@@ -581,6 +581,17 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=LogLevel.INFO,
     )
     @click.option(
+        "--logging-backend-connection-string",
+        type=str,
+        help=(
+            "Connection string for the training-log backend. Examples: "
+            "sqlite:///path/to/train.db, postgresql://user:pw@host/db, "
+            "mysql://user:pw@host/db, null://. When omitted, training logs are "
+            "discarded (NullBackend)."
+        ),
+        default=None,
+    )
+    @click.option(
         "--model-output-path",
         type=Path,
         help="Path to save the trained model",
@@ -672,6 +683,7 @@ def train(
     lambda_: float,
     learning_rate: float,
     log_level: LogLevel,
+    logging_backend_connection_string: str | None,
     model_output_path: Path | None,
     model_path: Path | None,
     model_type: Literal["cbow", "skipgram"],
@@ -808,9 +820,13 @@ def train(
         workers=0,
     )
 
-    run = TrainingRun(
-        seed=seed, name=f"{model_type}_run_{seed}", backend=SqliteBackend()
+    backend = (
+        parse_connection_string(logging_backend_connection_string)
+        if logging_backend_connection_string
+        else NullBackend()
     )
+    logger.info(f"Training-log backend: {backend.connection_string}")
+    run = TrainingRun(seed=seed, name=f"{model_type}_run_{seed}", backend=backend)
     optimiser = get_optimiser("adam", model, training_parameters)
 
     EmbeddingWeightDecayRegulariser.attach(
