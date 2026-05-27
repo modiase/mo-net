@@ -508,12 +508,28 @@ class Model(ModelBase):
         return jnp.argmax(self.forward_prop(X), axis=1)
 
     def compute_loss(
-        self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
+        self,
+        X: jnp.ndarray,
+        Y_true: jnp.ndarray,
+        loss_fn: LossFn,
+        eval_batch_size: int = 4096,
     ) -> float:
-        Y_pred = self.forward_prop(Activations(X))
-        return loss_fn(Y_pred, Y_true) + sum(
-            contributor() for contributor in self.loss_contributors
-        )
+        regulariser = sum(contributor() for contributor in self.loss_contributors)
+        n = X.shape[0]
+        if n <= eval_batch_size:
+            Y_pred = self.forward_prop(Activations(X))
+            return loss_fn(Y_pred, Y_true) + regulariser
+        # Chunked evaluation — forward-propagating a multi-million-row val set
+        # at once materialises a (n, vocab_size) softmax that overflows GPU
+        # memory for non-trivial corpora. Weight per-chunk losses by chunk
+        # size so the final mean matches the single-call result.
+        total = 0.0
+        for i in range(0, n, eval_batch_size):
+            X_chunk = X[i : i + eval_batch_size]
+            Y_chunk = Y_true[i : i + eval_batch_size]
+            Y_pred = self.forward_prop(Activations(X_chunk))
+            total += float(loss_fn(Y_pred, Y_chunk)) * X_chunk.shape[0]
+        return total / n + regulariser
 
     def serialize(self) -> Serialized:
         return self.Serialized(
