@@ -1,6 +1,5 @@
 """Integration tests for word2vec training with BasicTrainer."""
 
-import pytest
 import jax
 import jax.numpy as jnp
 from pathlib import Path
@@ -128,17 +127,19 @@ class TestSkipGramIntegration:
             softmax_config=SoftmaxConfig.negative_sampling(k=5),
             key=jax.random.PRNGKey(42),
             negative_samples=3,
+            negative_sampling_dist=vocab.get_negative_sampling_distribution(),
         )
-        model._negative_sampling_dist = vocab.get_negative_sampling_distribution()
 
-        # Prepare training data - center word predicts context
+        # Prepare training data - center word predicts each context word as a
+        # separate row so X_train and Y_train have matching first dimensions.
         from mo_net.samples.word2vec.__main__ import all_windows
 
         windows = list(all_windows(tokenized, window_size=3))
-        X_train = jnp.array(
-            [[w[1]] for w in windows]
-        )  # center word (reshape for skipgram)
-        Y_train = jnp.array([[w[0], w[2]] for w in windows])  # [left, right] context
+        centers = jnp.array([[w[1]] for w in windows])
+        contexts = jnp.array([[w[0], w[2]] for w in windows])
+        ctx_full = contexts.shape[1]
+        X_train = jnp.repeat(centers, ctx_full).reshape(-1, 1)
+        Y_train = contexts.flatten()
 
         # Split train/val
         train_size = int(0.8 * len(X_train))

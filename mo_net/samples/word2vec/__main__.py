@@ -20,7 +20,7 @@ from more_itertools import windowed
 
 from mo_net import print_device_info
 from mo_net.settings import get_settings
-from mo_net.functions import LossFn, sparse_cross_entropy
+from mo_net.functions import sparse_cross_entropy
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model.layer.average import Average
 from mo_net.model.layer.base import Hidden as HiddenLayer
@@ -82,12 +82,74 @@ def all_windows(
     )
 
 
+def _negative_sampling_backward(
+    *,
+    model: CBOWModel | SkipGramModel,
+    Y_true: jnp.ndarray,
+) -> D[Activations]:
+    """Backward pass through positive + sampled negatives.
+
+    Replaces Model.backward_prop's full-softmax derivative with one that only
+    updates rows for the true label plus a small set of negative samples.
+    Mutates model._key (advances PRNG).
+    """
+    output_layer = model.output_module.output_layer
+    if not isinstance(output_layer, SparseCategoricalSoftmaxOutputLayer):
+        raise TypeError(
+            "Negative sampling requires SparseCategoricalSoftmaxOutputLayer, "
+            f"got {type(output_layer).__name__}"
+        )
+
+    model._key, subkey = jax.random.split(model._key)
+    Y_negative = jax.random.choice(
+        subkey,
+        model.embedding_layer.vocab_size,
+        shape=(Y_true.shape[0] * model._negative_samples,),
+        p=model._negative_sampling_dist,
+    )
+
+    dZ = output_layer.backward_prop_with_negative(Y_true=Y_true, Y_negative=Y_negative)
+    for layer in reversed(model.output_module.layers):
+        dZ = layer.backward_prop(dZ=dZ)
+    for module in reversed(model.hidden_modules):
+        dZ = module.backward_prop(dZ=dZ)
+    return model.input_layer.backward_prop(dZ)
+
+
 class CBOWModel(Model):
     @dataclass(frozen=True, kw_only=True)
     class Serialized:  # type: ignore[misc]  # Intentional override of parent's Serialized class
         input_dimensions: tuple[int, ...]
         hidden_modules: tuple[SupportsDeserialize, ...]
         output_module: SupportsDeserialize
+        softmax_strategy: SoftmaxStrategy = SoftmaxStrategy.FULL
+        negative_samples: int = 5
+
+    def __init__(
+        self,
+        *,
+        hidden: Sequence[Hidden | HiddenLayer],
+        input_dimensions: Dimensions,
+        output: Output | OutputLayer | None = None,
+        softmax_strategy: SoftmaxStrategy = SoftmaxStrategy.FULL,
+        negative_samples: int = 5,
+        negative_sampling_dist: jnp.ndarray | None = None,
+        key: jax.Array | None = None,
+    ):
+        super().__init__(
+            input_dimensions=input_dimensions, hidden=hidden, output=output
+        )
+        self._softmax_strategy = softmax_strategy
+        self._negative_samples = negative_samples
+        self._negative_sampling_dist = negative_sampling_dist
+        self._key = key if key is not None else jax.random.PRNGKey(0)
+
+    def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
+        if self._softmax_strategy == SoftmaxStrategy.NEGATIVE_SAMPLING and isinstance(
+            self.output_module.output_layer, SparseCategoricalSoftmaxOutputLayer
+        ):
+            return _negative_sampling_backward(model=self, Y_true=Y_true)
+        return super().backward_prop(Y_true=Y_true)
 
     @classmethod
     def get_name(cls) -> str:
@@ -105,6 +167,7 @@ class CBOWModel(Model):
         embedding_dim: int,
         key: jax.Array,
         softmax_config: SoftmaxConfig,
+        negative_sampling_dist: jnp.ndarray | None = None,
         tracing_enabled: bool = False,
         vocab: Vocab | None = None,
         vocab_size: int | None = None,
@@ -117,14 +180,14 @@ class CBOWModel(Model):
 
         key1, key2, key3 = jax.random.split(key, 3)
 
-        # Build output layer based on softmax strategy
+        # Build output layer based on softmax strategy. NEGATIVE_SAMPLING and FULL
+        # construct the same layers; backward_prop dispatches on strategy.
         match softmax_config.strategy:
             case SoftmaxStrategy.HIERARCHICAL:
                 if vocab is None:
                     raise ValueError(
                         "vocab is required for hierarchical softmax (needed to build Huffman tree)"
                     )
-                # No Linear layer for hierarchical - tree replaces weight matrix
                 output = Output(
                     layers=(),
                     output_layer=HierarchicalSoftmaxOutputLayer(
@@ -134,7 +197,6 @@ class CBOWModel(Model):
                     ),
                 )
             case SoftmaxStrategy.NEGATIVE_SAMPLING | SoftmaxStrategy.FULL:
-                # Standard approach: Linear + SparseCategoricalSoftmaxOutputLayer
                 output = Output(
                     layers=(
                         Linear(
@@ -172,6 +234,10 @@ class CBOWModel(Model):
                 ),
             ),
             output=output,
+            softmax_strategy=softmax_config.strategy,
+            negative_samples=softmax_config.negative_samples or 5,
+            negative_sampling_dist=negative_sampling_dist,
+            key=key,
         )
 
     @property
@@ -195,6 +261,8 @@ class CBOWModel(Model):
                         module.serialize() for module in self.hidden_modules
                     ),
                     output_module=self.output_module.serialize(),
+                    softmax_strategy=self._softmax_strategy,
+                    negative_samples=self._negative_samples,
                 ),
                 file_io,
             )
@@ -205,6 +273,8 @@ class CBOWModel(Model):
         source: IO[bytes] | Path,
         training: bool = False,
         freeze_parameters: bool = False,
+        key: jax.Array | None = None,
+        negative_sampling_dist: jnp.ndarray | None = None,
     ) -> CBOWModel:
         if isinstance(source, Path):
             with open(source, "rb") as f:
@@ -224,6 +294,12 @@ class CBOWModel(Model):
             output=serialized.output_module.deserialize(
                 training=training, freeze_parameters=freeze_parameters
             ),
+            softmax_strategy=getattr(
+                serialized, "softmax_strategy", SoftmaxStrategy.FULL
+            ),
+            negative_samples=getattr(serialized, "negative_samples", 5),
+            negative_sampling_dist=negative_sampling_dist,
+            key=key,
         )
 
 
@@ -234,6 +310,7 @@ class SkipGramModel(Model):
         hidden_modules: tuple[SupportsDeserialize, ...]
         output_module: SupportsDeserialize
         negative_samples: int
+        softmax_strategy: SoftmaxStrategy = SoftmaxStrategy.NEGATIVE_SAMPLING
 
     def __init__(
         self,
@@ -244,6 +321,7 @@ class SkipGramModel(Model):
         negative_samples: int = 5,
         negative_sampling_dist: jnp.ndarray | None = None,
         output: Output | OutputLayer | None = None,
+        softmax_strategy: SoftmaxStrategy = SoftmaxStrategy.NEGATIVE_SAMPLING,
     ):
         super().__init__(
             input_dimensions=input_dimensions, hidden=hidden, output=output
@@ -251,6 +329,7 @@ class SkipGramModel(Model):
         self._key = key
         self._negative_samples = negative_samples
         self._negative_sampling_dist = negative_sampling_dist
+        self._softmax_strategy = softmax_strategy
 
     @classmethod
     def get_name(cls) -> str:
@@ -268,6 +347,7 @@ class SkipGramModel(Model):
         key: jax.Array,
         negative_samples: int,
         softmax_config: SoftmaxConfig,
+        negative_sampling_dist: jnp.ndarray | None = None,
         tracing_enabled: bool = False,
         vocab: Vocab | None = None,
         vocab_size: int | None = None,
@@ -340,55 +420,16 @@ class SkipGramModel(Model):
             output=output,
             key=key,
             negative_samples=negative_samples,
-        )
-
-    def compute_loss(
-        self, X: jnp.ndarray, Y_true: jnp.ndarray, loss_fn: LossFn
-    ) -> float:
-        Y_pred = self.forward_prop(X)
-        return loss_fn(Y_pred, Y_true.flatten()) + sum(
-            contributor() for contributor in self.loss_contributors
+            softmax_strategy=softmax_config.strategy,
+            negative_sampling_dist=negative_sampling_dist,
         )
 
     def backward_prop(self, Y_true: jnp.ndarray) -> D[Activations]:
-        batch_size, context_size = Y_true.shape
-        output_layer = self.output.output_layer
-
-        if isinstance(output_layer, HierarchicalSoftmaxOutputLayer):
-            # Hierarchical softmax: use standard backward_prop
-            # Tree structure provides sparse gradients inherently
-            dZ = output_layer.backward_prop(Y_true=Y_true.flatten())
-        elif isinstance(output_layer, SparseCategoricalSoftmaxOutputLayer):
-            # Negative sampling: sample negatives and use sparse backward
-            self._key, subkey = jax.random.split(self._key)
-
-            if self._negative_sampling_dist is not None:
-                Y_negative = jax.random.choice(
-                    subkey,
-                    self.embedding_layer.vocab_size,
-                    shape=(batch_size * context_size * self._negative_samples,),
-                    p=self._negative_sampling_dist,
-                )
-            else:
-                Y_negative = jax.random.choice(
-                    subkey,
-                    self.embedding_layer.vocab_size,
-                    shape=(batch_size * context_size * self._negative_samples,),
-                )
-
-            dZ = output_layer.backward_prop_with_negative(
-                Y_true=Y_true.flatten(),
-                Y_negative=Y_negative,
-            )
-        else:
-            raise TypeError(f"Unsupported output layer type: {type(output_layer)}")
-
-        for layer in reversed(self.output_module.layers):
-            dZ = layer.backward_prop(dZ=dZ)
-
-        for module in reversed(self.hidden_modules):
-            dZ = module.backward_prop(dZ=dZ)
-        return self.input_layer.backward_prop(dZ)
+        if self._softmax_strategy == SoftmaxStrategy.NEGATIVE_SAMPLING and isinstance(
+            self.output_module.output_layer, SparseCategoricalSoftmaxOutputLayer
+        ):
+            return _negative_sampling_backward(model=self, Y_true=Y_true)
+        return super().backward_prop(Y_true=Y_true)
 
     @property
     def embedding_layer(self) -> Embedding:
@@ -412,6 +453,7 @@ class SkipGramModel(Model):
                     ),
                     output_module=self.output_module.serialize(),
                     negative_samples=self._negative_samples,
+                    softmax_strategy=self._softmax_strategy,
                 ),
                 file_io,
             )
@@ -450,6 +492,9 @@ class SkipGramModel(Model):
             key=key,
             negative_samples=serialized.negative_samples,
             negative_sampling_dist=negative_sampling_dist,
+            softmax_strategy=getattr(
+                serialized, "softmax_strategy", SoftmaxStrategy.NEGATIVE_SAMPLING
+            ),
         )
 
 
@@ -666,8 +711,8 @@ def train(
                     loaded_model_type = metadata.get("type", "cbow")
 
                 vocab = Vocab.from_bytes(zf.read(VOCAB_ZIP_INTERNAL_PATH))
+                neg_sampling_dist = vocab.get_negative_sampling_distribution()
                 if loaded_model_type == "skipgram":
-                    neg_sampling_dist = vocab.get_negative_sampling_distribution()
                     model: CBOWModel | SkipGramModel = SkipGramModel.load(
                         mf,
                         training=True,
@@ -675,7 +720,12 @@ def train(
                         negative_sampling_dist=neg_sampling_dist,
                     )
                 else:
-                    model = CBOWModel.load(mf, training=True)
+                    model = CBOWModel.load(
+                        mf,
+                        training=True,
+                        key=key,
+                        negative_sampling_dist=neg_sampling_dist,
+                    )
         sentences = get_english_sentences()
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
@@ -692,6 +742,7 @@ def train(
         )
         if model_type == "skipgram":
             Y_train, X_train = X_train, Y_train
+        neg_sampling_dist = vocab.get_negative_sampling_distribution()
         match model_type:
             case "cbow":
                 model = CBOWModel.create(
@@ -699,28 +750,43 @@ def train(
                     embedding_dim=embedding_dim,
                     key=key,
                     softmax_config=softmax_config,
+                    negative_sampling_dist=neg_sampling_dist,
                     tracing_enabled=False,
                     vocab=vocab,
                 )
             case "skipgram":
-                neg_sampling_dist = vocab.get_negative_sampling_distribution()
                 model = SkipGramModel.create(
                     embedding_dim=embedding_dim,
                     key=key,
                     softmax_config=softmax_config,
+                    negative_sampling_dist=neg_sampling_dist,
                     tracing_enabled=False,
                     vocab=vocab,
                     negative_samples=negative_samples,
                 )
-                model._negative_sampling_dist = neg_sampling_dist
             case never:
                 assert_never(never)
+
+    train_size = int(0.8 * len(X_train))
+    X_train_split = X_train[:train_size]
+    Y_train_split = Y_train[:train_size]
+    X_val = X_train[train_size:]
+    Y_val = Y_train[train_size:]
+
+    if model_type == "skipgram":
+        # Each (center, [c1..c_{2*ctx}]) becomes 2*ctx separate (center, c_i) rows
+        # so the standard sparse_cross_entropy + backward path see matching shapes.
+        ctx_full = Y_train_split.shape[1]
+        X_train_split = jnp.repeat(X_train_split, ctx_full).reshape(-1, 1)
+        Y_train_split = Y_train_split.flatten()
+        X_val = jnp.repeat(X_val, ctx_full).reshape(-1, 1)
+        Y_val = Y_val.flatten()
 
     logger.info(f"Vocabulary size: {len(vocab)}")
     logger.info(f"Embedding dimension: {embedding_dim}")
     logger.info(f"Context size: {context_size}")
     logger.info(f"Softmax strategy: {softmax_strategy}")
-    logger.info(f"Training samples: {len(X_train)}")
+    logger.info(f"Training samples (post expansion): {len(X_train_split)}")
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
@@ -737,20 +803,10 @@ def train(
         regulariser_lambda=lambda_,
         seed=seed,
         trace_logging=False,
-        train_set_size=len(X_train),
+        train_set_size=len(X_train_split),
         warmup_epochs=warmup_epochs,
         workers=0,
     )
-
-    train_size = int(0.8 * len(X_train))
-    X_train_split = X_train[:train_size]
-    Y_train_split = Y_train[:train_size]
-    X_val = X_train[train_size:]
-    Y_val = Y_train[train_size:]
-
-    if model_type == "skipgram":
-        X_train_split = X_train_split.reshape(-1, 1)
-        X_val = X_val.reshape(-1, 1)
 
     run = TrainingRun(
         seed=seed, name=f"{model_type}_run_{seed}", backend=SqliteBackend()
@@ -876,10 +932,10 @@ def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, V
                 model_type = metadata.get("type", "cbow")
 
             vocab = Vocab.from_bytes(vocab_bytes)
+            neg_sampling_dist = vocab.get_negative_sampling_distribution()
             with zf.open(MODEL_ZIP_INTERNAL_PATH) as mf:
                 match model_type:
                     case "skipgram":
-                        neg_sampling_dist = vocab.get_negative_sampling_distribution()
                         model: CBOWModel | SkipGramModel = SkipGramModel.load(
                             mf,
                             training=False,
@@ -887,7 +943,12 @@ def load_model_and_vocab(model_path: Path) -> tuple[CBOWModel | SkipGramModel, V
                             negative_sampling_dist=neg_sampling_dist,
                         )
                     case "cbow":
-                        model = CBOWModel.load(mf, training=False)
+                        model = CBOWModel.load(
+                            mf,
+                            training=False,
+                            key=jax.random.PRNGKey(seed),
+                            negative_sampling_dist=neg_sampling_dist,
+                        )
                     case never:
                         assert_never(never)
     except KeyError as e:

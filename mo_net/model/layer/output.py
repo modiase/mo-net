@@ -217,6 +217,13 @@ class SparseCategoricalSoftmaxOutputLayer(OutputLayer):
         if (output_activations := self._cache["output_activations"]) is None:
             raise ValueError("Output activations not set during forward pass.")
 
+        if output_activations.shape[0] != Y_true.shape[0]:
+            raise ValueError(
+                f"Y_true batch dim {Y_true.shape[0]} does not match output "
+                f"activations batch dim {output_activations.shape[0]}; "
+                "JAX would silently clip out-of-bounds indices."
+            )
+
         if Y_negative is None:
             result = output_activations.copy()
             result = result.at[jnp.arange(Y_true.shape[0]), Y_true].add(-1.0)
