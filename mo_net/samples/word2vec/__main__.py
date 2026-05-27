@@ -632,6 +632,13 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=None,
     )
     @click.option(
+        "--sentence-limit",
+        type=int,
+        help="Cap the number of sentences read from the English corpus. "
+        "Default: full corpus (~1.5M sentences).",
+        default=None,
+    )
+    @click.option(
         "--softmax-strategy",
         type=click.Choice(["full", "negative-sampling", "hierarchical"]),
         help="Softmax computation strategy",
@@ -701,6 +708,7 @@ def train(
     negative_samples: int,
     num_epochs: int,
     run_name: str | None,
+    sentence_limit: int | None,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
     vocab_size: int,
     warmup_epochs: int,
@@ -749,7 +757,7 @@ def train(
                         key=key,
                         negative_sampling_dist=neg_sampling_dist,
                     )
-        sentences = get_english_sentences()
+        sentences = get_english_sentences(sentence_limit)
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
         ]
@@ -758,6 +766,7 @@ def train(
             Y_train, X_train = X_train, Y_train
     else:
         vocab, X_train, Y_train = cached_english_training_set(
+            limit=sentence_limit,
             max_vocab_size=vocab_size,
             forced_words=include_words,
             context_size=context_size,

@@ -142,7 +142,7 @@ class Vocab:
     def english_sentences(
         cls,
         *,
-        limit: int = 100000,
+        limit: int | None = None,
         max_vocab_size: int = 1000,
         forced_words: Collection[str] = (),
     ) -> tuple[Vocab, Collection[TokenizedSentence]]:
@@ -191,7 +191,7 @@ def get_training_set(
 
 def _pairs_cache_key(
     corpus_path: Path,
-    limit: int,
+    limit: int | None,
     max_vocab_size: int,
     forced_words: Collection[str],
     context_size: int,
@@ -206,7 +206,7 @@ def _pairs_cache_key(
 
 def cached_english_training_set(
     *,
-    limit: int = 100000,
+    limit: int | None = None,
     max_vocab_size: int = 1000,
     forced_words: Collection[str] = (),
     context_size: int,
@@ -409,7 +409,7 @@ def get_stop_words() -> Collection[str]:
     }
 
 
-def get_english_sentences(limit: int = 100000) -> Collection[Sentence]:
+def get_english_sentences(limit: int | None = None) -> Collection[Sentence]:
     stop_words = get_stop_words()
     return [
         [
