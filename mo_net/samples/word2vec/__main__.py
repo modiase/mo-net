@@ -622,6 +622,15 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=100,
     )
     @click.option(
+        "--run-name",
+        type=str,
+        help=(
+            "Explicit run name recorded in the training-log backend. "
+            "Defaults to <model_type>_run_<seed>."
+        ),
+        default=None,
+    )
+    @click.option(
         "--softmax-strategy",
         type=click.Choice(["full", "negative-sampling", "hierarchical"]),
         help="Softmax computation strategy",
@@ -690,6 +699,7 @@ def train(
     monitor: bool,
     negative_samples: int,
     num_epochs: int,
+    run_name: str | None,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
     vocab_size: int,
     warmup_epochs: int,
@@ -826,7 +836,8 @@ def train(
         else NullBackend()
     )
     logger.info(f"Training-log backend: {backend.connection_string}")
-    run = TrainingRun(seed=seed, name=f"{model_type}_run_{seed}", backend=backend)
+    resolved_name = run_name or f"{model_type}_run_{seed}"
+    run = TrainingRun(seed=seed, name=resolved_name, backend=backend)
     optimiser = get_optimiser("adam", model, training_parameters)
 
     EmbeddingWeightDecayRegulariser.attach(

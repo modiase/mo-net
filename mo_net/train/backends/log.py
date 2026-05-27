@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import pandas as pd
 from loguru import logger
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
 
 from mo_net.settings import get_settings
@@ -152,7 +153,14 @@ class SqlBackend(LoggingBackend):
         return self._url
 
     def create(self) -> None:
-        Base.metadata.create_all(self._engine)
+        # Concurrent workers racing CREATE TABLE IF NOT EXISTS on the same
+        # empty database can both pass the existence check and then collide on
+        # pg_type_typname_nsp_index; treat that race as success.
+        try:
+            Base.metadata.create_all(self._engine)
+        except (IntegrityError, OperationalError, ProgrammingError) as e:
+            if "already exists" not in str(e).lower():
+                raise
         self._session = self._session_maker()
 
     def start_run(
