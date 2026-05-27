@@ -466,7 +466,8 @@ class BasicTrainer:
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
                 if not self._training_parameters.quiet:
                     tqdm.write(
-                        f"Epoch {self._training_parameters.current_epoch(i)}, Batch Loss = {L_batch}, Validation Loss = {L_val}"
+                        f"Epoch {self._training_parameters.current_epoch(i)}, "
+                        f"Batch Loss = {L_batch:.6f}, Validation Loss = {L_val:.6f}"
                         + (
                             f", {report}"
                             if (report := self._optimiser.report()) != ""
