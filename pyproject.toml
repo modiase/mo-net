@@ -29,6 +29,7 @@ dependencies = [
 [dependency-groups]
 cuda = ["jax[cuda12]>=0.6.2", "jax-cuda12-plugin>=0.6.2"]
 mariadb = ["pymysql>=1.1.0"]
+postgres = ["psycopg[binary]>=3.2.0"]
 trace = ["h5py>=3.13.0"]
 dev = [
   # tooling

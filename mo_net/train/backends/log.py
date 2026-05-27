@@ -328,6 +328,28 @@ class MariaDbBackend(SqlBackend):
         )
 
 
+class PostgresBackend(SqlBackend):
+    """SqlBackend pointing at PostgreSQL via psycopg (v3)."""
+
+    def __init__(
+        self,
+        *,
+        host: str = "localhost",
+        port: int = 5432,
+        database: str = "mo_net",
+        user: str = "mo_net",
+        password: str | None = None,
+        batch_size: int = 10,
+        max_queue_size: int = 1000,
+    ) -> None:
+        auth = f"{user}:{password}" if password else user
+        super().__init__(
+            url=f"postgresql+psycopg://{auth}@{host}:{port}/{database}",
+            batch_size=batch_size,
+            max_queue_size=max_queue_size,
+        )
+
+
 class InMemorySqliteBackend(LoggingBackend):
     """SQLite backend using in-memory database with auto-created tables."""
 
@@ -472,6 +494,21 @@ def parse_connection_string(connection_string: str) -> LoggingBackend:
                 if "+pymysql" in url.scheme
                 else connection_string.replace(
                     f"{url.scheme}://", "mysql+pymysql://", 1
+                )
+            )
+            return SqlBackend(url=normalised)
+        case url if url.scheme in (
+            "postgres",
+            "postgresql",
+            "postgresql+psycopg",
+        ):
+            # Force the psycopg (v3) driver — the default for "postgresql://"
+            # is psycopg2 which we don't ship.
+            normalised = (
+                connection_string
+                if "+psycopg" in url.scheme
+                else connection_string.replace(
+                    f"{url.scheme}://", "postgresql+psycopg://", 1
                 )
             )
             return SqlBackend(url=normalised)
