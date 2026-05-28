@@ -639,6 +639,16 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=None,
     )
     @click.option(
+        "--subsample-t",
+        type=float,
+        help=(
+            "Mikolov frequent-word subsampling threshold: each occurrence "
+            "of word w is dropped with probability 1 - sqrt(t/f(w)). "
+            "Set to 0 to disable. Default: 1e-5."
+        ),
+        default=1e-5,
+    )
+    @click.option(
         "--softmax-strategy",
         type=click.Choice(["full", "negative-sampling", "hierarchical"]),
         help="Softmax computation strategy",
@@ -709,6 +719,7 @@ def train(
     num_epochs: int,
     run_name: str | None,
     sentence_limit: int | None,
+    subsample_t: float,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
     vocab_size: int,
     warmup_epochs: int,
@@ -771,6 +782,7 @@ def train(
             forced_words=include_words,
             context_size=context_size,
             cache_dir=get_settings().resource_cache,
+            subsample_t=subsample_t,
         )
         if model_type == "skipgram":
             Y_train, X_train = X_train, Y_train

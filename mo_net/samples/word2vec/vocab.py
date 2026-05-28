@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import random
 import re
 from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
@@ -187,6 +188,41 @@ class Vocab:
         )
 
 
+def subsample_tokenized_sentences(
+    tokenized: Collection[TokenizedSentence],
+    vocab: Vocab,
+    t: float,
+    seed: int = 42,
+) -> list[TokenizedSentence]:
+    """Mikolov 2013 frequent-word subsampling.
+
+    Each occurrence of an in-vocab word ``w`` is dropped with probability
+    ``1 - sqrt(t / f(w))`` where ``f(w)`` is its corpus frequency. OOV
+    tokens (the catch-all ``unknown_token_id``) are never dropped — they
+    represent the long tail we already chose not to learn, and dropping
+    them only shortens windows for no signal gain. ``t = 0`` disables.
+    """
+    if t <= 0 or vocab.word_counts is None:
+        return list(tokenized)
+    total = sum(vocab.word_counts.values())
+    if total <= 0:
+        return list(tokenized)
+    sqrt_t = t**0.5
+    discard_prob: dict[int, float] = {}
+    for word, count in vocab.word_counts.items():
+        if count <= 0:
+            continue
+        freq = count / total
+        prob = 1.0 - sqrt_t / (freq**0.5)
+        if prob > 0:
+            discard_prob[vocab[word]] = prob
+    rng = random.Random(seed)
+    return [
+        [tok for tok in sentence if rng.random() >= discard_prob.get(tok, 0.0)]
+        for sentence in tokenized
+    ]
+
+
 def get_training_set(
     tokenized_sentences: Collection[TokenizedSentence], context_size: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -215,11 +251,12 @@ def _pairs_cache_key(
     max_vocab_size: int,
     forced_words: Collection[str],
     context_size: int,
+    subsample_t: float,
 ) -> str:
     h = hashlib.sha256()
     # corpus_path.name is the etag-prefixed cache filename — captures corpus identity
     h.update(corpus_path.name.encode())
-    h.update(f"|{limit}|{max_vocab_size}|{context_size}|".encode())
+    h.update(f"|{limit}|{max_vocab_size}|{context_size}|{subsample_t}|".encode())
     h.update(",".join(sorted(forced_words)).encode())
     return h.hexdigest()[:16]
 
@@ -231,6 +268,7 @@ def cached_english_training_set(
     forced_words: Collection[str] = (),
     context_size: int,
     cache_dir: Path | None = None,
+    subsample_t: float = 1e-5,
 ) -> tuple[Vocab, np.ndarray, np.ndarray]:
     """Materialise (vocab, X, Y) for the English-sentences corpus, with cache.
 
@@ -253,7 +291,12 @@ def cached_english_training_set(
     vocab_path: Path | None = None
     if cache_dir is not None:
         key = _pairs_cache_key(
-            corpus_path, limit, max_vocab_size, forced_words, context_size
+            corpus_path,
+            limit,
+            max_vocab_size,
+            forced_words,
+            context_size,
+            subsample_t,
         )
         x_path = cache_dir / f"w2v-pairs-{key}.X.npy"
         y_path = cache_dir / f"w2v-pairs-{key}.Y.npy"
@@ -271,6 +314,15 @@ def cached_english_training_set(
         max_vocab_size=max_vocab_size,
         forced_words=forced_words,
     )
+    if subsample_t > 0:
+        before = sum(len(s) for s in tokenized)
+        tokenized = subsample_tokenized_sentences(tokenized, vocab, subsample_t)
+        after = sum(len(s) for s in tokenized)
+        logger.info(
+            f"frequent-word subsampling (t={subsample_t}): "
+            f"{before:,} → {after:,} tokens "
+            f"({100 * (1 - after / max(before, 1)):.1f}% dropped)"
+        )
     X, Y = get_training_set(tokenized, context_size)
 
     if x_path is not None and y_path is not None and vocab_path is not None:
