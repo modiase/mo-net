@@ -21,6 +21,21 @@ ENGLISH_SENTENCES_URL = "s3://mo-net-resources/english-sentences.txt"
 type Sentence = Sequence[str]
 type TokenizedSentence = Sequence[int]
 
+_NON_PRINTABLE = re.compile(r"[^\x20-\x7E]")
+_PUNCTUATION = re.compile(r"[^\w\s]")
+
+
+def tokenize_line(line: str) -> list[str]:
+    """Tokenise a sentence the way the trainer wants to see it.
+
+    Treats any non-word, non-whitespace character as a token delimiter so
+    ``"...animals,Chicago has..."`` yields ``["animals", "chicago", "has"]``
+    rather than ``["animalschicago", "has"]``.
+    """
+    line = _NON_PRINTABLE.sub("", line)
+    line = _PUNCTUATION.sub(" ", line)
+    return line.lower().split()
+
 
 @dataclass(slots=True, frozen=True)
 class Vocab:
@@ -134,7 +149,12 @@ class Vocab:
     @staticmethod
     def clean_token(token: str) -> str:
         """
-        Remove non-printable characters and punctuation
+        Remove non-printable characters and punctuation.
+
+        Note: prefer :func:`tokenize_line` for new code — applying this to a
+        whitespace-split token glues neighbours together when punctuation
+        sits between them with no space (e.g. ``"animals,Chicago"`` becomes
+        ``"animalschicago"``).
         """
         return re.sub(r"[^\w\s]|[^\x20-\x7E]", "", token).lower().strip()
 
@@ -412,11 +432,7 @@ def get_stop_words() -> Collection[str]:
 def get_english_sentences(limit: int | None = None) -> Collection[Sentence]:
     stop_words = get_stop_words()
     return [
-        [
-            cleaned
-            for word in sentence.split()
-            if (cleaned := Vocab.clean_token(word)) and cleaned not in stop_words
-        ]
+        [token for token in tokenize_line(sentence) if token not in stop_words]
         for sentence in (
             get_resource("s3://mo-net-resources/english-sentences.txt")
             .read_text()
