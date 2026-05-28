@@ -23,6 +23,53 @@ test-collect:
 nb name:
     marimo edit --watch notebooks/{{name}}.py
 
+# Build the OCI training image and push it straight into a registry via skopeo.
+# Default registry host comes from $REGISTRY_HOST (set in .envrc.local), with
+# localhost:5000 as the fallback. Any missing parts of the ref are filled in:
+#   just package                                -> $REGISTRY_HOST/mo-net-cuda:<auto>
+#   just package registry.herakles.local        -> registry.herakles.local/mo-net-cuda:<auto>
+#   just package registry.herakles.local/mo:v1  -> registry.herakles.local/mo:v1
+#   just package --no-cuda                      -> $REGISTRY_HOST/mo-net:<auto>
+# <auto> is `<UTC YYYYMMDD-HHMMSS>-<short-sha>[-dirty]`.
+[doc("Build + push OCI image to a registry (defaults to $REGISTRY_HOST)")]
+package ref="" *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${REGISTRY_HOST:?set REGISTRY_HOST (e.g. in .envrc.local)}"
+    : "${BUILD_HOST:?set BUILD_HOST (e.g. in .envrc.local)}"
+    target=".#packages.x86_64-linux.mo-net-cuda-image"
+    name="mo-net-cuda"
+    for f in {{flags}}; do
+        if [[ "$f" == "--no-cuda" ]]; then
+            target=".#packages.x86_64-linux.mo-net-image"
+            name="mo-net"
+        fi
+    done
+    sha=$(git rev-parse --short HEAD 2>/dev/null || echo nogit)
+    ts=$(date -u +%Y%m%d-%H%M%S)
+    dirty=""
+    if ! git diff-index --quiet HEAD -- 2>/dev/null; then dirty="-dirty"; fi
+    auto_tag="${ts}-${sha}${dirty}"
+    ref="{{ref}}"
+    [[ -z "$ref" ]] && ref="${REGISTRY_HOST}"
+    if [[ "$ref" != */* ]]; then
+        ref="${ref}/${name}"
+    fi
+    last_segment="${ref##*/}"
+    if [[ "$last_segment" != *:* ]]; then
+        ref="${ref}:${auto_tag}"
+    fi
+    echo "Building $target ..."
+    result_path=$(nix build --no-warn-dirty --no-link --print-out-paths "$target")
+    echo "Pushing image to ${ref} ..."
+    ssh "$BUILD_HOST" "
+        set -euo pipefail
+        ${result_path} | nix shell nixpkgs#skopeo --command \
+            skopeo copy --insecure-policy --dest-tls-verify=false \
+            docker-archive:/dev/stdin 'docker://${ref}'
+    "
+    echo "Done: pushed ${ref}"
+
 [doc("CI: run tests via uv")]
 ci-test:
     #!/usr/bin/env bash
