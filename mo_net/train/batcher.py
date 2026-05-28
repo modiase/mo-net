@@ -3,8 +3,26 @@ from typing import Self
 
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 
 from mo_net.functions import TransformFn
+
+
+def _np_permutation_chunks(
+    train_set_size: int, batch_size: int, seed: int
+) -> Iterator[np.ndarray]:
+    """Permute on CPU with numpy then split into batches.
+
+    Done on host because jax.random.permutation + jnp.array_split allocate
+    the full permuted index array on-device, which OOMs the GPU once the
+    training set crosses a few tens of millions of rows. The per-batch slices
+    are small (4096 ints by default) and convert to JAX cheaply at the model
+    boundary.
+    """
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(train_set_size)
+    num_batches = max(1, train_set_size // batch_size)
+    return iter(np.array_split(perm, num_batches))
 
 
 def noop_transform(X: jnp.ndarray, key: jnp.ndarray) -> jnp.ndarray:
@@ -65,36 +83,22 @@ class IndexBatcher:
     def __init__(self, *, train_set_size: int, batch_size: int, key: jnp.ndarray):
         self.batch_size = batch_size
         self.train_set_size = train_set_size
+        # Seed the numpy permutation off the JAX key so behaviour is still
+        # reproducible from the caller's PRNG.
         self._key = key
-        self._internal_iterator: Iterator[jnp.ndarray] = iter(
-            jnp.array_split(
-                random.permutation(key, self.train_set_size),
-                self.train_set_size // self.batch_size,
-            )
-        )
+        self._internal_iterator = self._new_epoch()
 
-    def _shuffle(self) -> None:
+    def _new_epoch(self) -> Iterator[np.ndarray]:
         self._key, subkey = random.split(self._key)
-        self._internal_iterator = iter(
-            jnp.array_split(
-                random.permutation(subkey, self.train_set_size),
-                self.train_set_size // self.batch_size,
-            )
-        )
+        seed = int(subkey[0])
+        return _np_permutation_chunks(self.train_set_size, self.batch_size, seed)
 
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> jnp.ndarray:
+    def __next__(self) -> np.ndarray:
         try:
             return next(self._internal_iterator)
         except StopIteration:
-            self._shuffle()
-            self._key, subkey = random.split(self._key)
-            self._internal_iterator = iter(
-                jnp.array_split(
-                    random.permutation(subkey, self.train_set_size),
-                    self.train_set_size // self.batch_size,
-                )
-            )
+            self._internal_iterator = self._new_epoch()
             return next(self._internal_iterator)
