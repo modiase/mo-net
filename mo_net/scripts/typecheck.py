@@ -7,6 +7,15 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 
+# Marimo notebooks reuse ``_`` as the cell function name across every cell
+# which both type checkers reject; skip the notebooks dir regardless of
+# whether files were passed explicitly (pre-commit) or auto-discovered.
+EXCLUDED_PREFIXES = ("notebooks/", "./notebooks/")
+
+
+def _excluded(file: str) -> bool:
+    return any(file.startswith(prefix) for prefix in EXCLUDED_PREFIXES)
+
 
 def run_typechecker(file: str, *, checker: str, verbose: bool) -> int:
     result = subprocess.run(
@@ -41,11 +50,15 @@ def main() -> None:
     ncpu: int = os.cpu_count() or 1
 
     if args.files:
-        files = args.files
+        files = [f for f in args.files if not _excluded(f)]
     else:
         files = [
             f
-            for f in subprocess.run(["fd", "-e", "py"], capture_output=True, text=True)
+            for f in subprocess.run(
+                ["fd", "-e", "py", "--exclude", "notebooks"],
+                capture_output=True,
+                text=True,
+            )
             .stdout.strip()
             .split("\n")
             if f

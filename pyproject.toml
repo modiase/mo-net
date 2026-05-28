@@ -55,6 +55,7 @@ dev = [
   "tabulate>=0.9.0",
   # notebooks
   "jupyter>=1.1.1",
+  "marimo>=0.10.0",
   # trace analysis (also kept here so trace_statistics.py works in dev shells)
   "h5py>=3.13.0",
 ]
@@ -94,6 +95,7 @@ packages = ["mo_net"]
 
 [project.scripts]
 check_device = "mo_net.scripts.check_device:main"
+corpus_stats = "mo_net.scripts.corpus_stats:main"
 cross_validate = "mo_net.scripts.validation:main"
 infer = "mo_net.cli:infer"
 resume = "mo_net.cli:resume"

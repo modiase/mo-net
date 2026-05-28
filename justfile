@@ -19,6 +19,10 @@ test-smoke:
 test-collect:
     pytest --collect-only mo_net/tests
 
+# Open a marimo notebook: `just nb corpus_analysis` -> notebooks/corpus_analysis.py
+nb name:
+    marimo edit --watch notebooks/{{name}}.py
+
 [doc("CI: run tests via uv")]
 ci-test:
     #!/usr/bin/env bash
