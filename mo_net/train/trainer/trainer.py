@@ -332,6 +332,21 @@ class BasicTrainer:
                     "_model_training_log", ""
                 )
             )
+        # Resolve which of {best, last} we keep on disk based on the strategy.
+        # In ``both`` mode the best-val checkpoint sits next to the main path
+        # with a ``.best`` suffix and the main path holds the latest. In
+        # ``min`` mode the main path holds the best. In ``last`` mode it holds
+        # the latest. The trainer reports the main path back to callers
+        # regardless, so downstream code stays unchanged.
+        strategy = self._training_parameters.checkpoint_strategy
+        if strategy == "both":
+            self._best_checkpoint_path: Path | None = (
+                self._model_checkpoint_path.with_suffix(".best.pkl")
+            )
+        elif strategy == "min-val":
+            self._best_checkpoint_path = self._model_checkpoint_path
+        else:  # "last"
+            self._best_checkpoint_path = None
         self._logger.info(f"Saving partial results to: {self._model_checkpoint_path}.")
         self._logger.info(f"Training parameters: {self._training_parameters}.")
         self._logger.info(f"Logging to: {self._run._backend.connection_string}.")
@@ -437,13 +452,24 @@ class BasicTrainer:
                 L_val = self._model.compute_loss(
                     X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
                 )
-                if not self._monotonic or L_val < self._L_val_min:
-                    if L_val < self._L_val_min:
-                        self._L_val_min = L_val
-                        self._L_val_min_epoch = self._training_parameters.current_epoch(
-                            i
-                        )
+                improved = L_val < self._L_val_min
+                if improved:
+                    self._L_val_min = L_val
+                    self._L_val_min_epoch = self._training_parameters.current_epoch(i)
+                # ``monotonic`` mode independently requires reverts of
+                # non-improving steps; honour its accept/reject signal for the
+                # ``last``-style write but always overwrite ``best`` when val
+                # improves.
+                strategy = self._training_parameters.checkpoint_strategy
+                accept_last = not self._monotonic or improved
+                if strategy in ("last", "both") and accept_last:
                     self._model.dump(self._model_checkpoint_path)
+                if (
+                    strategy in ("min-val", "both")
+                    and improved
+                    and self._best_checkpoint_path is not None
+                ):
+                    self._model.dump(self._best_checkpoint_path)
 
                 if (post_epoch_check := self._post_epoch(L_val)) is not None:
                     return TrainingFailed(

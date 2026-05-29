@@ -1,12 +1,15 @@
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, model_validator
 
 from mo_net.protos import NormalisationType
 
+type CheckpointStrategy = Literal["min-val", "last", "both"]
+
 
 class TrainingParameters(BaseModel):
     batch_size: int
+    checkpoint_strategy: CheckpointStrategy = "min-val"
     dropout_keep_probs: tuple[float, ...]
     history_max_len: int
     learning_rate_limits: tuple[float, float]

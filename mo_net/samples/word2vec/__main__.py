@@ -667,6 +667,17 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=1,
     )
     @click.option(
+        "--checkpoint-strategy",
+        type=click.Choice(["min-val", "last", "both"]),
+        help=(
+            "Which model snapshot to persist: 'min-val' = lowest val_loss "
+            "seen (selecting on val leaks slightly, default), 'last' = "
+            "end-of-run weights, 'both' = main path is latest + sibling "
+            ".best.pkl."
+        ),
+        default="min-val",
+    )
+    @click.option(
         "--include",
         "include_words",
         type=str,
@@ -703,6 +714,7 @@ def cli():
 def train(
     *,
     batch_size: int,
+    checkpoint_strategy: Literal["min-val", "last", "both"],
     context_size: int,
     embedding_dim: int,
     history_max_len: int,
@@ -834,6 +846,7 @@ def train(
 
     training_parameters = TrainingParameters(
         batch_size=batch_size,
+        checkpoint_strategy=checkpoint_strategy,
         dropout_keep_probs=(),
         history_max_len=history_max_len,
         # Cosine schedule decays from learning_rate to learning_rate/100 over
