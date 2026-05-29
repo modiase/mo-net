@@ -68,7 +68,7 @@ default HTTPS-only behaviour is the right one.
 `mo-net`'s `just package` recipe pushes images to
 `docker://localhost:5000#mo-net-cuda:<auto-tag>` via skopeo (which is fine
 because skopeo has its own `--dest-tls-verify=false` flag and uses it). The
-*pull* side (enroot import, triggered by pyxis on the compute nodes) is the
+_pull_ side (enroot import, triggered by pyxis on the compute nodes) is the
 piece that needs the system-level allow.
 
 ## Verification
@@ -85,6 +85,48 @@ the equivalent pyxis sbatch invocation will too:
 ```bash
 sbatch --container-image=docker://localhost:5000#mo-net-cuda:<tag> --wrap=...
 ```
+
+## Status as of 2026-05-29
+
+The setting is on disk:
+
+```
+$ ssh herakles 'cat /etc/enroot/enroot.conf | grep -i ALLOW'
+ENROOT_ALLOW_HTTP      yes
+```
+
+But it's not being honoured at runtime — manual `enroot import …` still
+hits `TLS connect error: wrong version number`, while the same command with
+`ENROOT_ALLOW_HTTP=yes` set inline as an env var succeeds. So enroot
+isn't reading `/etc/enroot/enroot.conf` for this setting, or is reading
+a different file first.
+
+Things to check on the dotfiles side:
+
+1. Does the enroot binary in PATH read `/etc/enroot/enroot.conf` or some
+   other path? Run `strings $(which enroot) | grep enroot.conf` (or check
+   the nix derivation overrides) to confirm.
+2. Is there a per-user config at `~/.config/enroot/.credentials` or
+   `~/.config/enroot/.environ` that's shadowing it?
+3. Is `ENROOT_CONFIG_PATH` exported anywhere (systemd unit, profile script,
+   pyxis launcher) that points enroot at a different file?
+4. Format note: the file currently uses `KEY      VALUE` (multiple spaces).
+   enroot's parser should tolerate that, but worth trying `KEY VALUE`
+   (single space) just in case the upstream parser is stricter than
+   advertised.
+
+Until that's resolved, the mo-net side falls back to a pre-import
+workaround:
+
+```bash
+ssh herakles 'ENROOT_ALLOW_HTTP=yes enroot import \
+  -o /tmp/mo-net-stage/images/mo-net-cuda-<tag>.sqsh \
+  docker://localhost:5000#mo-net-cuda:<tag>'
+```
+
+then `--container-image=/tmp/mo-net-stage/images/mo-net-cuda-<tag>.sqsh`
+in the sbatch invocation. That works because the env var applies to the
+pre-import call directly; pyxis only runs the container, doesn't re-pull.
 
 ## Not in scope for this change
 
