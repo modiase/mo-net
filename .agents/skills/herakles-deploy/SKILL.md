@@ -59,7 +59,7 @@ ssh herakles "sbatch \
 
 Key points:
 
-- **`--container-image`** uses `docker://<registry>#<repo>:<tag>` — the `docker://` scheme is required and the `#` separator between registry and repo is mandatory when the registry has a port (`localhost:5000`). Without `#`, enroot's parser splits on the wrong colon and fails with ``Invalid image reference``. skopeo wants the same `docker://` prefix; only pyxis args for registries without ports tolerate the shorthand.
+- **`--container-image`** uses `docker://<registry>#<repo>:<tag>` — the `docker://` scheme is required and the `#` separator between registry and repo is mandatory when the registry has a port (`localhost:5000`). Without `#`, enroot's parser splits on the wrong colon and fails with `Invalid image reference`. skopeo wants the same `docker://` prefix; only pyxis args for registries without ports tolerate the shorthand.
 - **`--wrap`** turns the inline shell command into the job body. Avoids needing a script file for one-offs.
 - **Image refs encode the commit + timestamp**, so the sbatch line is itself a reproducibility record.
 
@@ -103,7 +103,7 @@ nix shell nixpkgs#skopeo --command skopeo list-tags docker://localhost:5000/mo-n
 - **`unknown transport "registry.herakles.local/..."`** — skopeo needs an explicit `docker://` prefix on its args. `just package` already does this; if you're invoking skopeo directly, remember the prefix.
 - **`no such host: registry.herakles.local`** — resolution failure on the host running skopeo or pyxis. Either add to `/etc/hosts` on herakles (`127.0.0.1 registry.herakles.local`) or set `REGISTRY_HOST=localhost:5000` and accept the less-self-documenting tag prefix.
 - **pyxis `Invalid image reference: docker://localhost:5000/...`** — missing `#` separator between registry and repo. With a port in the registry the parser can't tell the port colon from the tag colon. Write `docker://localhost:5000#mo-net-cuda:tag`, not `docker://localhost:5000/mo-net-cuda:tag`.
-- **pyxis `TLS connect error: wrong version number`** — enroot is forcing HTTPS and registry:2 is plain HTTP. Set `ENROOT_ALLOW_HTTP yes` in the herakles enroot config (NixOS module level — single line). Until that ships, a one-off pre-import works: ``ssh herakles 'ENROOT_ALLOW_HTTP=yes enroot import -o /tmp/.../image.sqsh docker://localhost:5000#mo-net-cuda:tag'`` and then ``--container-image=/tmp/.../image.sqsh``.
+- **pyxis `TLS connect error: wrong version number`** — enroot is forcing HTTPS and registry:2 is plain HTTP. Set `ENROOT_ALLOW_HTTP yes` in the herakles enroot config (NixOS module level — single line). Until that ships, a one-off pre-import works: `ssh herakles 'ENROOT_ALLOW_HTTP=yes enroot import -o /tmp/.../image.sqsh docker://localhost:5000#mo-net-cuda:tag'` and then `--container-image=/tmp/.../image.sqsh`.
 - **Sweep image suddenly changes mid-run** — happens if the sbatch script references a mutable tag (e.g. `:latest`). Always pin to a specific timestamp-sha tag.
 
 ## Quick checklist before submitting a sweep
