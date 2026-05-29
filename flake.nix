@@ -52,7 +52,8 @@
         pkgs = mkPkgs false;
         pkgsCuda = if pkgs.stdenv.isLinux then mkPkgs true else null;
 
-        # Note: Don't include nvidia_x11 - use system driver to avoid version mismatch
+        # Don't pin nvidia_x11 — the system driver lives at /run/opengl-driver/lib
+        # and the versions diverge fast enough that bundling it guarantees mismatch.
         cudaLibs = lib.optionals (pkgsCuda != null) (
           with pkgsCuda;
           [
@@ -243,9 +244,7 @@
 
         venv = pythonSet.mkVirtualEnv "mo-net-env" workspace.deps.default;
 
-        # CUDA variant of `venv` — adds the `cuda` extras (jax-cuda12-* plus
-        # the nvidia-*-cu12 wheels that bring cuDNN 9.10, cuBLAS 12.9 etc.).
-        # Linux-only: the cuda extras are platform-specific wheels.
+        # Linux-only: the cuda extras pull in platform-specific nvidia wheels.
         cudaVenv = pythonSet.mkVirtualEnv "mo-net-cuda-env" {
           mo-net = [
             "cuda"
@@ -253,12 +252,9 @@
           ];
         };
 
-        # Wheel-bundled NVIDIA libs land under `<venv>/lib/python3.12/site-
-        # packages/nvidia/<libname>/lib`. JAX dlopens via LD_LIBRARY_PATH, and
-        # the wheel cuDNN 9.10 / cuBLAS 12.9 are what jax-cuda12-plugin 0.6.2
-        # actually wants — so put them first. /run/opengl-driver/lib is
-        # mounted into the container by the CDI runtime and contains libcuda
-        # from the host driver.
+        # Order matters: wheel-bundled cuDNN 9.10 / cuBLAS 12.9 are what
+        # jax-cuda12-plugin 0.6.2 actually loads. Older nix-store cuDNN ahead
+        # of these triggers a version-check abort.
         nvidiaWheelLibPath = lib.concatStringsSep ":" (
           map (sub: "${cudaVenv}/lib/python3.12/site-packages/nvidia/${sub}/lib") [
             "cublas"
@@ -275,9 +271,8 @@
           ]
         );
 
-        # Entrypoint wrapper: when MO_NET_LOKI_URL is set, tees stdout/stderr
-        # to per-stream files that fluent-bit tails and ships to Loki. Otherwise
-        # exec's python directly so the wrapper is a no-op for ad-hoc runs.
+        # When MO_NET_LOKI_URL is set, tees stdout/stderr to files that
+        # fluent-bit ships to Loki. Otherwise execs python directly.
         trainEntrypoint = pkgs.writeShellApplication {
           name = "mo-net-train";
           runtimeInputs = [
@@ -298,7 +293,6 @@
             : > "$stdout_log"
             : > "$stderr_log"
 
-            # Split URL like http://host:3100 into host + port.
             url=''${MO_NET_LOKI_URL#http://}
             url=''${url#https://}
             loki_host=''${url%%:*}
@@ -339,8 +333,8 @@
             fluent-bit --config="$fb_config" > /tmp/fluent-bit.log 2>&1 &
             fb_pid=$!
 
-            # Mirror file growth to the container's own stdout/stderr so sbatch
-            # --output still captures everything for sacct correlation.
+            # Mirror to the container's stdout/stderr so sbatch --output
+            # still captures everything for sacct.
             tail -F -q "$stdout_log" &
             tail_out=$!
             tail -F -q "$stderr_log" >&2 &
@@ -379,13 +373,10 @@
                 "PYTHONUNBUFFERED=1"
                 "PATH=${pyVenv}/bin:/bin"
                 "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-                # mo_net.settings reads these; mount a host dir at /var/lib/mo-net
-                # to persist train.db / run / output artefacts across container runs.
+                # Mount a host dir at /var/lib/mo-net to persist these.
                 "MO_NET_DATA_DIR=/var/lib/mo-net/data"
                 "MO_NET_RESOURCE_CACHE=/var/lib/mo-net/cache"
-                # Build provenance — read by the trainer and forwarded to Loki
-                # as labels so every log line is correlatable with the commit
-                # that produced the image.
+                # Build provenance, forwarded to Loki labels by the entrypoint.
                 "MO_NET_BUILD_REV=${self.shortRev or self.dirtyShortRev or "unknown"}"
                 "MO_NET_BUILD_DATE=${self.lastModifiedDate}"
                 "MO_NET_BUILD_DIRTY=${if self ? dirtyShortRev then "1" else "0"}"
@@ -440,7 +431,6 @@
                 )
               }:$PKG_CONFIG_PATH"
               export REPO_ROOT="$PWD"
-              # Prevent uv from managing Python - Nix handles this
               export UV_NO_SYNC=1
               export UV_PYTHON="${activeVenv}/bin/python"
               export UV_PYTHON_DOWNLOADS=never
@@ -451,13 +441,10 @@
                     export CUDA_PATH="${pkgsCuda.cudatoolkit}"
                     export CUDA_ROOT="${pkgsCuda.cudatoolkit}"
                     export CUDNN_PATH="${pkgsCuda.cudaPackages.cudnn}"
-                    # JAX dlopens libcuda*, libcudnn*, libcublas*, etc. via
-                    # LD_LIBRARY_PATH. The wheel-bundled nvidia/* libs (cuDNN 9.10,
-                    # cuBLAS 12.9) match jax-cuda12-plugin's required versions; the
-                    # nix `cudaPackages.cudnn` (9.8) and `cudatoolkit` (12.8) do not
-                    # — putting them first triggers the "cuDNN < 9.10.0" version
-                    # check and, if bypassed, a real ABI crash on matmul. So:
-                    # wheel libs first, then driver, then system libs.
+                    # Wheel libs first (jax-cuda12-plugin 0.6.2 demands
+                    # cuDNN >= 9.10 / cuBLAS 12.9, which nix-store cuDNN 9.8
+                    # fails — and a real ABI crash on matmul if bypassed),
+                    # then driver, then system libs.
                     WHEEL_NVIDIA_LIBS=$(ls -d ${activeVenv}/lib/python3.12/site-packages/nvidia/*/lib 2>/dev/null | tr '\n' ':')
                     export LD_LIBRARY_PATH="''${WHEEL_NVIDIA_LIBS}/run/opengl-driver/lib:${pkgs.lib.makeLibraryPath systemLibs}:''${LD_LIBRARY_PATH:-}"
                     export PATH="${pkgsCuda.cudatoolkit}/bin:$PATH"
