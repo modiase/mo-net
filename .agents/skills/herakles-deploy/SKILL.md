@@ -1,0 +1,112 @@
+---
+name: herakles-deploy
+description: How to package the mo-net training image and launch jobs on herakles via just package + sbatch. Use whenever the user asks about deploying, packaging, pushing images, running spikes, or submitting sweeps on herakles.
+allowed-tools: [Bash, Read, Edit, Write]
+---
+
+# Herakles deploy: just package + sbatch
+
+The deploy loop has two halves: **build + push image** (`just package`), and **run a job** (`sbatch` invoked over ssh).
+
+## Prerequisites
+
+Two env vars must be set in `.envrc.local` (already gitignored via `**/*.local*`):
+
+```bash
+export REGISTRY_HOST=localhost:5000       # the herakles registry:2 endpoint as seen from herakles
+export BUILD_HOST=herakles                # ssh target for the streamLayeredImage execution step
+```
+
+Plus on **pallas/hestia** (whatever the dev host is), the `heraklesBuildServer` dotfile module must be attached so the nix-daemon has `nix.buildMachines` configured for ssh-ng → herakles. Without that, `nix build` will fail to find a builder and fall back to local (which can't produce x86_64-linux from darwin). See `~/Dotfiles/systems/hestia/configuration.nix` line ~40 for the import pattern; pallas needs the same wiring.
+
+`heraklesBuildServer` also handles the harder part: nix-daemon (running as root) needs SSH access to herakles. The module deploys an SSH identity at `/root/.ssh/...` via sops and adds a system-level ssh_config entry so root's ssh uses it. CLI `--builders` from a non-trusted user is NOT a substitute — the daemon silently drops it.
+
+## Build + push: `just package`
+
+```
+just package                            # → $REGISTRY_HOST/mo-net-cuda:<ts>-<sha>[-dirty]
+just package --no-cuda                  # cpu variant: mo-net:<ts>-<sha>[-dirty]
+just package my-registry.io             # → my-registry.io/mo-net-cuda:<ts>-<sha>[-dirty]
+just package my-registry.io/mo:v1.2     # exact ref, no auto-tag
+```
+
+Tag format: `<UTC YYYYMMDD-HHMMSS>-<short-sha>[-dirty]`. Sortable chronologically, pinned to a commit, `-dirty` suffix flags uncommitted changes.
+
+What the recipe does:
+
+1. `nix build .#packages.x86_64-linux.mo-net-cuda-image` — routes through the daemon-configured `buildMachines`, runs the build on herakles, no source rsync (nix-daemon protocol ships inputs over ssh-ng).
+2. `ssh $BUILD_HOST "<store-path> | skopeo copy docker-archive:/dev/stdin docker://<ref>"` — runs the streamLayeredImage script on herakles (it's a linux-only script that can't execute on darwin), pipes its tar straight into skopeo, which pushes to the registry. No `docker load` round-trip, no tarball on disk.
+
+The recipe ends with `Done: pushed <ref>`. Copy that ref into the sbatch command.
+
+## Run a one-off spike
+
+```bash
+ssh herakles "sbatch \
+  --job-name=w2v-spike \
+  --gres=gpu:1 --cpus-per-task=4 --mem=16G --time=60:00 \
+  --output=/data/mo-net/sweeps/w2v/logs/%j.out \
+  --container-image=registry.herakles.local/mo-net-cuda:20260528-235451-ec771cc \
+  --container-mounts=/tmp/mo-net-stage/mo-net-cache:/var/lib/mo-net/cache:rw,/data/mo-net/sweeps/w2v/spike-out:/var/lib/mo-net/data \
+  --container-workdir=/workspace \
+  --container-env=MO_NET_LOKI_URL,SLURM_JOB_ID \
+  --wrap='mo-net-train -m mo_net.samples.word2vec train \
+            --model-type cbow --softmax-strategy full \
+            --embedding-dim 256 --learning-rate 1e-4 --num-epochs 8 \
+            --vocab-size 3000 --batch-size 4096 --subsample-t 1e-5 \
+            --logging-backend-connection-string postgresql://mo_net@127.0.0.1:5432/mo_net'"
+```
+
+Key points:
+
+- **`--container-image`** is a plain `host/repo:tag` (no `docker://` prefix needed for pyxis or enroot — they default to docker registry). skopeo IS strict and needs `docker://`, but that's only inside `just package`.
+- **`--wrap`** turns the inline shell command into the job body. Avoids needing a script file for one-offs.
+- **Image refs encode the commit + timestamp**, so the sbatch line is itself a reproducibility record.
+
+## Run an array sweep
+
+Inline isn't ergonomic for array jobs (grid expansion is bash logic that doesn't fit `--wrap='…'` cleanly). Use a script on herakles in `/tmp/mo-net-stage/sweeps/w2v/`:
+
+```bash
+#!/usr/bin/env bash
+#SBATCH --job-name=w2v-sweepN
+#SBATCH --gres=gpu:1 --cpus-per-task=4 --mem=16G --time=180:00
+#SBATCH --array=0-N%2
+#SBATCH --output=/data/mo-net/sweeps/w2v/logs/%A_%a.out
+
+set -euo pipefail
+# grid decoder from $SLURM_ARRAY_TASK_ID → (model, softmax, embed, lr, vocab)
+# … usual pattern …
+srun \
+  --container-image=registry.herakles.local/mo-net-cuda:<pinned-tag> \
+  --container-mounts=…:rw,$JOB_DIR:/var/lib/mo-net/data \
+  --container-workdir=/workspace \
+  --container-env=MO_NET_LOKI_URL,MO_NET_LOKI_LABELS,SLURM_JOB_ID,SLURM_ARRAY_JOB_ID,SLURM_ARRAY_TASK_ID \
+  mo-net-train -m mo_net.samples.word2vec train …
+```
+
+Pin the image tag in the script. Re-deploying images mid-sweep would mean different tasks ran on different code — `:dirty` aside, that's exactly the thing tag-pinning fixes.
+
+## Inspecting the registry
+
+From herakles:
+
+```
+curl -s http://localhost:5000/v2/_catalog
+curl -s http://localhost:5000/v2/mo-net-cuda/tags/list
+nix shell nixpkgs#skopeo --command skopeo list-tags docker://localhost:5000/mo-net-cuda
+```
+
+## Common pitfalls
+
+- **`Failed to find a machine for remote build!`** — nix-daemon either doesn't have `buildMachines` configured (attach `heraklesBuildServer` to the host's dotfile config) or can't ssh to herakles as root (sops-deployed SSH key missing). The error message about feature mismatch is misleading; the real cause is usually SSH-from-daemon failing silently.
+- **`unknown transport "registry.herakles.local/..."`** — skopeo needs an explicit `docker://` prefix on its args. `just package` already does this; if you're invoking skopeo directly, remember the prefix.
+- **`no such host: registry.herakles.local`** — resolution failure on the host running skopeo or pyxis. Either add to `/etc/hosts` on herakles (`127.0.0.1 registry.herakles.local`) or set `REGISTRY_HOST=localhost:5000` and accept the less-self-documenting tag prefix.
+- **Sweep image suddenly changes mid-run** — happens if the sbatch script references a mutable tag (e.g. `:latest`). Always pin to a specific timestamp-sha tag.
+
+## Quick checklist before submitting a sweep
+
+1. `git status` is clean (`-dirty` in your image tag flags this in the registry too, but a clean working tree is the only way the tag really means a specific commit).
+2. `just package` succeeded and printed a ref.
+3. The ref is in the sbatch script (or `--container-image=...` arg) — not a stale tag.
+4. Postgres (`psql -h 127.0.0.1 -U mo_net -d mo_net -c "\\dt"`) and Loki (`curl http://localhost:3100/loki/api/v1/labels`) are responsive on herakles, or expect silent logging gaps.
