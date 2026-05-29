@@ -306,7 +306,7 @@
             [ "$loki_port" = "$url" ] && loki_port=3100
 
             extra_labels=''${MO_NET_LOKI_LABELS:-}
-            base_labels="job=mo-net,slurm_job_id=''${SLURM_JOB_ID:-na},slurm_array_job_id=''${SLURM_ARRAY_JOB_ID:-na},slurm_array_task_id=''${SLURM_ARRAY_TASK_ID:-na}"
+            base_labels="job=mo-net,slurm_job_id=''${SLURM_JOB_ID:-na},slurm_array_job_id=''${SLURM_ARRAY_JOB_ID:-na},slurm_array_task_id=''${SLURM_ARRAY_TASK_ID:-na},build_rev=''${MO_NET_BUILD_REV:-unknown},build_date=''${MO_NET_BUILD_DATE:-unknown},build_dirty=''${MO_NET_BUILD_DIRTY:-unknown}"
             [ -n "$extra_labels" ] && base_labels="$base_labels,$extra_labels"
 
             fb_config=$(mktemp /tmp/fluent-bit-XXXXXX.yaml)
@@ -383,6 +383,12 @@
                 # to persist train.db / run / output artefacts across container runs.
                 "MO_NET_DATA_DIR=/var/lib/mo-net/data"
                 "MO_NET_RESOURCE_CACHE=/var/lib/mo-net/cache"
+                # Build provenance — read by the trainer and forwarded to Loki
+                # as labels so every log line is correlatable with the commit
+                # that produced the image.
+                "MO_NET_BUILD_REV=${self.shortRev or self.dirtyShortRev or "unknown"}"
+                "MO_NET_BUILD_DATE=${self.lastModifiedDate}"
+                "MO_NET_BUILD_DIRTY=${if self ? dirtyShortRev then "1" else "0"}"
               ]
               ++ extraEnv;
               Entrypoint = [ "${trainEntrypoint}/bin/mo-net-train" ];

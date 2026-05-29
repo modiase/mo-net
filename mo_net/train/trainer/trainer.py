@@ -308,6 +308,13 @@ class BasicTrainer:
             return self._training_loop()
 
     def train(self) -> TrainingResult:
+        import os as _os
+
+        self._logger.info(
+            f"Build: rev={_os.environ.get('MO_NET_BUILD_REV', 'unknown')} "
+            f"date={_os.environ.get('MO_NET_BUILD_DATE', 'unknown')} "
+            f"dirty={_os.environ.get('MO_NET_BUILD_DIRTY', 'unknown')}"
+        )
         self._logger.info(
             f"Training model {self._model.__class__.__name__}"
             f" for {self._training_parameters.num_epochs=} iterations"
