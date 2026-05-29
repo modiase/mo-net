@@ -17,7 +17,7 @@ import jax.numpy as jnp
 from loguru import logger
 
 if TYPE_CHECKING:
-    from mo_net.samples.word2vec.__main__ import CBOWModel, SkipGramModel
+    from mo_net.samples.word2vec.models import CBOWModel, SkipGramModel
     from mo_net.samples.word2vec.vocab import Vocab
 
 

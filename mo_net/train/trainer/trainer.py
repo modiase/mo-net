@@ -1,3 +1,4 @@
+import os
 import signal
 import sys
 import time
@@ -14,6 +15,7 @@ from InquirerPy import inquirer
 from loguru import logger
 from tqdm import tqdm
 
+from mo_net.archive import LRSchedulePhase, TrainingState
 from mo_net.config import TrainingParameters
 from mo_net.functions import LossFn, TransformFn
 from mo_net.settings import get_settings
@@ -154,6 +156,13 @@ class BasicTrainer:
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
+        self._current_iteration: int = (
+            self._start_epoch * self._training_parameters.batches_per_epoch
+        )
+        if self._start_epoch > 0:
+            # Resuming from an archive: position the optimiser so Adam's bias
+            # correction and the cosine LR schedule start at the right phase.
+            self._optimiser.advance_to(self._current_iteration)
         self._on_shutdown_handlers: Sequence[Callable[[], None]] = (
             lambda: self._run.end_run(),
         )
@@ -288,6 +297,37 @@ class BasicTrainer:
         )
         self._model.update_parameters()
         self._last_update = None
+
+    def current_state(self, *, parent_run_name: str | None = None) -> TrainingState:
+        """Snapshot what an archive manifest needs to record about this run.
+
+        Reads from existing trainer fields and the optimiser; the caller
+        provides ``parent_run_name`` because lineage is external to the trainer.
+        """
+        params = self._training_parameters
+        completed_epoch = (
+            self._current_iteration // params.batches_per_epoch
+            if params.batches_per_epoch > 0
+            else 0
+        )
+        phase: LRSchedulePhase = (
+            "warmup" if completed_epoch < params.warmup_epochs else "cosine"
+        )
+        return TrainingState(
+            completed_epoch=completed_epoch,
+            current_iteration=self._current_iteration,
+            current_learning_rate=float(self._optimiser.learning_rate),
+            lr_schedule_phase=phase,
+            checkpoint_strategy=params.checkpoint_strategy,
+            seed=params.seed,
+            run_name=self._run.name,
+            parent_run_name=parent_run_name,
+            best_val_loss=(
+                float(self._L_val_min) if hasattr(self, "_L_val_min") else None
+            ),
+            best_val_loss_epoch=self._L_val_min_epoch,
+            build_rev=os.environ.get("MO_NET_BUILD_REV"),
+        )
 
     def resume(
         self,
@@ -488,6 +528,7 @@ class BasicTrainer:
                 if interrupt_result := self._handle_interrupt():
                     return interrupt_result
 
+            self._current_iteration = i + 1
             self._run.log_iteration(
                 epoch=self._training_parameters.current_epoch(i),
                 batch=i + 1,

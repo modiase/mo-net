@@ -82,6 +82,10 @@ class RMSProp(Base[Config]):
     def report(self) -> str:
         return f"Learning Rate: {self._global_learning_rate:.10f}"
 
+    def advance_to(self, iteration: int) -> None:
+        super().advance_to(iteration)
+        self._global_learning_rate = self._scheduler(iteration)
+
     def snapshot(self) -> None:
         super().snapshot()
         self._snapshot_squared_grad_avg = tuple(

@@ -94,6 +94,16 @@ class Base(ABC, Generic[ConfigT]):
             raise ValueError("No snapshot to restore.")
         self._iterations = self._learning_rate_snapshot_iterations
 
+    def advance_to(self, iteration: int) -> None:
+        """Fast-forward the optimiser to a given iteration.
+
+        Used when resuming from an archive: positions the step counter so
+        Adam's bias correction stays consistent and lets schedulers (in
+        subclasses that own one) recompute the right learning rate from
+        the iteration count.
+        """
+        self._iterations = iteration
+
     @property
     def config(self) -> ConfigT:
         return self._config

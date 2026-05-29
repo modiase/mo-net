@@ -40,7 +40,7 @@ class TestCBOWIntegration:
         )
 
         # Prepare training data - context windows
-        from mo_net.samples.word2vec.__main__ import all_windows
+        from mo_net.samples.word2vec.analogy import all_windows
 
         windows = list(all_windows(tokenized, window_size=3))
         X_train = jnp.array([[w[0], w[2]] for w in windows])  # [left, right] context
@@ -132,7 +132,7 @@ class TestSkipGramIntegration:
 
         # Prepare training data - center word predicts each context word as a
         # separate row so X_train and Y_train have matching first dimensions.
-        from mo_net.samples.word2vec.__main__ import all_windows
+        from mo_net.samples.word2vec.analogy import all_windows
 
         windows = list(all_windows(tokenized, window_size=3))
         centers = jnp.array([[w[1]] for w in windows])
@@ -231,3 +231,191 @@ class TestModelSaveLoad:
 
             # Embeddings should match
             assert jnp.allclose(model.embeddings, loaded_model.embeddings)
+
+
+class TestArchiveResume:
+    """Verifies the .mar archive round-trip preserves enough state to resume."""
+
+    def _make_training_data(self):
+        """Build a small fixture corpus + (X_train, Y_train, X_val, Y_val) tuple
+        large enough for two non-trivial training epochs."""
+        sentences = [
+            ["the", "quick", "brown", "fox"],
+            ["the", "lazy", "dog"],
+            ["the", "cat", "sat"],
+            ["quick", "brown", "fox", "jumps"],
+        ] * 20
+        vocab, tokenized = Vocab.from_sentences(sentences, max_size=1000)
+        from mo_net.samples.word2vec.analogy import all_windows
+
+        windows = list(all_windows(tokenized, window_size=3))
+        X = jnp.array([[w[0], w[2]] for w in windows])
+        Y = jnp.array([w[1] for w in windows])
+        split = int(0.8 * len(X))
+        return vocab, X[:split], Y[:split], X[split:], Y[split:]
+
+    def _training_parameters(self, *, train_set_size: int, num_epochs: int):
+        """Shared TrainingParameters factory so segments differ only in epoch count."""
+        return TrainingParameters(
+            batch_size=8,
+            num_epochs=num_epochs,
+            quiet=True,
+            train_set_size=train_set_size,
+            no_monitoring=True,
+            dropout_keep_probs=(),
+            history_max_len=100,
+            learning_rate_limits=(1e-5, 1e-3),
+            log_level="INFO",
+            max_restarts=0,
+            monotonic=False,
+            normalisation_type=NormalisationType.NONE,
+            regulariser_lambda=0.0,
+            seed=42,
+            trace_logging=False,
+            warmup_epochs=0,
+            workers=0,
+        )
+
+    def test_resume_advances_epoch_and_optimiser(self):
+        """Archiving after 1 epoch and resuming should pick up at epoch 1.
+
+        Verifies the key resume mechanics: ``start_epoch`` is honoured by the
+        trainer, the optimiser's iteration counter is positioned consistent
+        with the manifest, and the second archive's manifest references the
+        first via ``parent_run_name`` for lineage.
+        """
+        import tempfile
+
+        from mo_net.archive import Manifest, ModelMetadata
+        from mo_net.samples.word2vec.archive import (
+            load_word2vec_archive,
+            save_word2vec_archive,
+        )
+
+        vocab, X_train, Y_train, X_val, Y_val = self._make_training_data()
+        model = CBOWModel.create(
+            vocab=vocab,
+            embedding_dim=16,
+            context_size=1,
+            softmax_config=SoftmaxConfig.negative_sampling(k=5),
+            key=jax.random.PRNGKey(42),
+        )
+
+        params_seg1 = self._training_parameters(
+            train_set_size=len(X_train), num_epochs=1
+        )
+        run_seg1 = TrainingRun(
+            seed=42, name="segment-1", backend=InMemorySqliteBackend()
+        )
+        optimiser_seg1 = get_optimiser("adam", model, params_seg1)
+        trainer_seg1 = BasicTrainer(
+            X_train=X_train,
+            Y_train=Y_train,
+            X_val=X_val,
+            Y_val=Y_val,
+            model=model,
+            optimiser=optimiser_seg1,
+            run=run_seg1,
+            training_parameters=params_seg1,
+            loss_fn=sparse_cross_entropy,
+            key=jax.random.PRNGKey(42),
+            disable_shutdown=True,
+        )
+        result_seg1 = trainer_seg1.train()
+        assert isinstance(result_seg1, TrainingSuccessful)
+
+        state_seg1 = trainer_seg1.current_state()
+        assert state_seg1.completed_epoch >= 1
+        assert state_seg1.current_iteration > 0
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / "segment_1.mar"
+            save_word2vec_archive(
+                archive_path,
+                model=model,
+                vocab=vocab,
+                manifest=Manifest(
+                    metadata=ModelMetadata(
+                        type="cbow", softmax_strategy="negative-sampling"
+                    ),
+                    training_state=state_seg1,
+                ),
+            )
+
+            loaded_model, loaded_vocab, loaded_manifest = load_word2vec_archive(
+                archive_path, training=True, prefer="last"
+            )
+            assert loaded_manifest.training_state is not None
+            assert (
+                loaded_manifest.training_state.completed_epoch
+                == state_seg1.completed_epoch
+            )
+            assert (
+                loaded_manifest.training_state.current_iteration
+                == state_seg1.current_iteration
+            )
+
+            params_seg2 = self._training_parameters(
+                train_set_size=len(X_train),
+                num_epochs=loaded_manifest.training_state.completed_epoch + 1,
+            )
+            run_seg2 = TrainingRun(
+                seed=42, name="segment-2", backend=InMemorySqliteBackend()
+            )
+            optimiser_seg2 = get_optimiser("adam", loaded_model, params_seg2)
+            trainer_seg2 = BasicTrainer(
+                X_train=X_train,
+                Y_train=Y_train,
+                X_val=X_val,
+                Y_val=Y_val,
+                model=loaded_model,
+                optimiser=optimiser_seg2,
+                run=run_seg2,
+                training_parameters=params_seg2,
+                loss_fn=sparse_cross_entropy,
+                key=jax.random.PRNGKey(7),
+                start_epoch=loaded_manifest.training_state.completed_epoch,
+                disable_shutdown=True,
+            )
+
+            # Sanity: the trainer accepted the start_epoch and the optimiser
+            # was advanced to the resume iteration.
+            assert (
+                trainer_seg2._start_epoch
+                == loaded_manifest.training_state.completed_epoch
+            )
+            assert (
+                trainer_seg2._current_iteration
+                == loaded_manifest.training_state.current_iteration
+            )
+            assert (
+                optimiser_seg2._iterations
+                == loaded_manifest.training_state.current_iteration
+            )
+
+            result_seg2 = trainer_seg2.train()
+            assert isinstance(result_seg2, TrainingSuccessful)
+
+            state_seg2 = trainer_seg2.current_state(parent_run_name="segment-1")
+            assert state_seg2.parent_run_name == "segment-1"
+            assert state_seg2.current_iteration > state_seg1.current_iteration
+
+            chained_path = Path(tmpdir) / "segment_2.mar"
+            save_word2vec_archive(
+                chained_path,
+                model=loaded_model,
+                vocab=loaded_vocab,
+                manifest=Manifest(
+                    metadata=ModelMetadata(
+                        type="cbow", softmax_strategy="negative-sampling"
+                    ),
+                    training_state=state_seg2,
+                ),
+            )
+            _, _, chained_manifest = load_word2vec_archive(chained_path, prefer="last")
+            assert chained_manifest.training_state is not None
+            assert chained_manifest.training_state.parent_run_name == "segment-1"
+
+        # Clean up the intermediate pkl checkpoints the trainer dropped.
+        result_seg1.model_checkpoint_path.unlink(missing_ok=True)
+        result_seg2.model_checkpoint_path.unlink(missing_ok=True)
