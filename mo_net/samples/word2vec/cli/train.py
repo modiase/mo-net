@@ -30,7 +30,7 @@ from mo_net.samples.word2vec.archive import (
 )
 from mo_net.samples.word2vec.cli.group import cli, training_options
 from mo_net.samples.word2vec.models import CBOWModel, SkipGramModel
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import (
     TokenizedSentence,
     cached_english_training_set,
@@ -53,10 +53,12 @@ from mo_net.train.trainer.trainer import (
 @training_options
 def train(
     *,
+    # keep-sorted start
     batch_size: int,
     checkpoint_strategy: Literal["min-val", "last", "both"],
     context_size: int,
     embedding_dim: int,
+    health_frequency: int | None,
     history_max_len: int,
     include_words: tuple[str, ...],
     lambda_: float,
@@ -71,10 +73,11 @@ def train(
     num_epochs: int,
     run_name: str | None,
     sentence_limit: int | None,
-    subsample_t: float,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
+    subsample_t: float,
     vocab_size: int,
     warmup_epochs: int,
+    # keep-sorted end
 ):
     """Train a Word2Vec model on English text"""
     setup_logging(log_level)
@@ -254,6 +257,21 @@ def train(
         lineage_id=resume_lineage_id,
         parent_run_id=parent_run_id,
     )
+
+    if health_frequency is not None:
+        from mo_net.samples.word2vec import health
+
+        trainer.subscribe_metric_provider(
+            health.provider(
+                model=cast(CBOWModel | SkipGramModel, model),
+                vocab=vocab,
+                every_n_batches=health_frequency or None,
+            )
+        )
+        logger.info(
+            "Embedding-health logging enabled "
+            f"({'epoch-end' if not health_frequency else f'every {health_frequency} batches'})."
+        )
 
     logger.info(
         f"Starting {model_type} training with {len(X_train_split)} training samples"

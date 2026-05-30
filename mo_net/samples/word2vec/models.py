@@ -37,7 +37,7 @@ from mo_net.protos import (
     Dimensions,
     SupportsDeserialize,
 )
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig, SoftmaxStrategy
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig, SoftmaxStrategy
 from mo_net.samples.word2vec.vocab import Vocab
 
 

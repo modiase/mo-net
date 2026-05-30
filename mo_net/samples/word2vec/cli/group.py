@@ -33,6 +33,17 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=10000,
     )
     @click.option(
+        "--checkpoint-strategy",
+        type=click.Choice(["min-val", "last", "both"]),
+        help=(
+            "Which model snapshot to persist: 'min-val' = lowest val_loss "
+            "seen (selecting on val leaks slightly, default), 'last' = "
+            "end-of-run weights, 'both' = main path is latest + sibling "
+            ".best.pkl."
+        ),
+        default="min-val",
+    )
+    @click.option(
         "--context-size",
         type=int,
         help="Context size",
@@ -43,6 +54,30 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=int,
         help="Embedding dimension",
         default=32,
+    )
+    @click.option(
+        "--health-frequency",
+        type=int,
+        default=None,
+        help=(
+            "Cadence in batches for logging embedding-health metrics "
+            "(anisotropy / uniformity / PC variance / within-between cosine). "
+            "0 = once per epoch; N>0 = every N batches; omitted = disabled."
+        ),
+    )
+    @click.option(
+        "--history-max-len",
+        type=int,
+        default=10,
+        help="Number of epochs to track before checking for rising validation loss",
+    )
+    @click.option(
+        "--include",
+        "include_words",
+        type=str,
+        multiple=True,
+        help="Words to force include in vocabulary (can be used multiple times)",
+        default=(),
     )
     @click.option(
         "--lambda",
@@ -93,6 +128,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default="cbow",
     )
     @click.option(
+        "--monitor/--no-monitor",
+        "monitor",
+        default=False,
+        help="Enable training monitor (early stopping on rising validation loss)",
+    )
+    @click.option(
         "--negative-samples",
         type=int,
         help="Number of negative samples (only used with negative-sampling strategy)",
@@ -121,6 +162,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=None,
     )
     @click.option(
+        "--softmax-strategy",
+        type=click.Choice(["full", "negative-sampling", "hierarchical"]),
+        help="Softmax computation strategy",
+        default="negative-sampling",
+    )
+    @click.option(
         "--subsample-t",
         type=float,
         help=(
@@ -129,12 +176,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
             "Set to 0 to disable. Default: 1e-5."
         ),
         default=1e-5,
-    )
-    @click.option(
-        "--softmax-strategy",
-        type=click.Choice(["full", "negative-sampling", "hierarchical"]),
-        help="Softmax computation strategy",
-        default="negative-sampling",
     )
     @click.option(
         "--vocab-size",
@@ -147,37 +188,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         type=int,
         help="Warmup epochs",
         default=1,
-    )
-    @click.option(
-        "--checkpoint-strategy",
-        type=click.Choice(["min-val", "last", "both"]),
-        help=(
-            "Which model snapshot to persist: 'min-val' = lowest val_loss "
-            "seen (selecting on val leaks slightly, default), 'last' = "
-            "end-of-run weights, 'both' = main path is latest + sibling "
-            ".best.pkl."
-        ),
-        default="min-val",
-    )
-    @click.option(
-        "--include",
-        "include_words",
-        type=str,
-        multiple=True,
-        help="Words to force include in vocabulary (can be used multiple times)",
-        default=(),
-    )
-    @click.option(
-        "--monitor/--no-monitor",
-        "monitor",
-        default=False,
-        help="Enable training monitor (early stopping on rising validation loss)",
-    )
-    @click.option(
-        "--history-max-len",
-        type=int,
-        default=10,
-        help="Number of epochs to track before checking for rising validation loss",
     )
     @functools.wraps(f)
     def wrapper(*args, **kwargs):

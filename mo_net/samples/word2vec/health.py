@@ -7,13 +7,19 @@ cosine ratio over a user-supplied set of "highlight" words.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
+import jax
 import numpy as np
+from loguru import logger
 
 from mo_net.samples.word2vec.vocab import Vocab
+
+if TYPE_CHECKING:
+    from mo_net.samples.word2vec.models import CBOWModel, SkipGramModel
+    from mo_net.train.trainer.trainer import MetricContext, MetricProvider
 
 DEFAULT_HIGHLIGHT_WORDS: Final[tuple[str, ...]] = (
     "king",
@@ -158,3 +164,60 @@ def compute_health_metrics(
         between_cosine=between,
         within_between_ratio=ratio,
     )
+
+
+def provider(
+    *,
+    model: CBOWModel | SkipGramModel,
+    vocab: Vocab,
+    highlight_words: Sequence[str] = DEFAULT_HIGHLIGHT_WORDS,
+    every_n_batches: int | None = None,
+    metric_prefix: str = "embedding_health/",
+) -> MetricProvider:
+    """Build a metric provider that snapshots embedding-health periodically.
+
+    ``every_n_batches=None`` (default) fires only at epoch boundaries
+    (``ctx.is_epoch_end``). A positive integer overrides that and fires on
+    every Nth batch — useful for long-epoch jobs where one snapshot per
+    epoch is too coarse.
+    """
+    _logger = logger.bind(name="health")
+    state = {"batch_counter": 0}
+
+    def _provider(ctx: MetricContext) -> Mapping[str, float] | None:
+        state["batch_counter"] += 1
+        if every_n_batches is None:
+            if not ctx.is_epoch_end:
+                return None
+        elif state["batch_counter"] % every_n_batches != 0:
+            return None
+
+        try:
+            embeddings = np.asarray(jax.device_get(model.embeddings))
+            health = compute_health_metrics(embeddings, vocab, highlight_words)
+        except Exception as exc:
+            _logger.warning(
+                f"Embedding-health computation failed at step {ctx.iteration}: {exc}"
+            )
+            return None
+
+        return _flatten(health, metric_prefix)
+
+    return _provider
+
+
+def _flatten(health: HealthMetrics, prefix: str) -> dict[str, float]:
+    out: dict[str, float] = {
+        f"{prefix}anisotropy": health.anisotropy,
+        f"{prefix}uniformity": health.uniformity,
+        f"{prefix}top1_pc_variance": health.top1_pc_variance,
+        f"{prefix}top3_pc_variance": health.top3_pc_variance,
+        f"{prefix}n_highlight_matched": float(health.n_highlight_matched),
+    }
+    if health.within_highlight_cosine is not None:
+        out[f"{prefix}within_highlight_cosine"] = health.within_highlight_cosine
+    if health.between_cosine is not None:
+        out[f"{prefix}between_cosine"] = health.between_cosine
+    if health.within_between_ratio is not None:
+        out[f"{prefix}within_between_ratio"] = health.within_between_ratio
+    return out

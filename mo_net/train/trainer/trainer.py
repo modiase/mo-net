@@ -2,7 +2,7 @@ import os
 import signal
 import sys
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +56,18 @@ class TrainingFailed:
 type TrainingResult = TrainingSuccessful | TrainingFailed
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MetricContext:
+    iteration: int
+    epoch: int
+    is_epoch_end: bool
+    batch_loss: float
+    val_loss: float
+
+
+type MetricProvider = Callable[[MetricContext], Mapping[str, float] | None]
+
+
 type OptimizerType = Literal["adam", "none"]
 
 
@@ -104,6 +116,18 @@ type AfterTrainingStepHandler = Callable[
     [Sequence[SupportsGradientOperations], Sequence[SupportsGradientOperations]],
     None | CheckFailed,
 ]
+
+
+def _default_loss_provider(ctx: MetricContext) -> Mapping[str, float]:
+    return {"batch_loss": ctx.batch_loss, "val_loss": ctx.val_loss}
+
+
+def _learning_rate_provider(optimiser: Base[Any]) -> MetricProvider:
+    def _provider(ctx: MetricContext) -> Mapping[str, float]:
+        del ctx
+        return {"learning_rate": float(optimiser.learning_rate)}
+
+    return _provider
 
 
 class BasicTrainer:
@@ -157,6 +181,10 @@ class BasicTrainer:
         self._X_val = jnp.asarray(X_val)
         self._Y_val = jnp.asarray(Y_val)
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
+        self._metric_providers: list[MetricProvider] = [
+            _default_loss_provider,
+            _learning_rate_provider(self._optimiser),
+        ]
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
         self._resume_lineage_id = lineage_id
@@ -182,6 +210,9 @@ class BasicTrainer:
             *self._after_training_step,
             subscription_handler,
         )
+
+    def subscribe_metric_provider(self, provider: MetricProvider) -> None:
+        self._metric_providers.append(provider)
 
     def subscribe_to_shutdown(self, handler: Callable[[], None]) -> None:
         self._on_shutdown_handlers = (*self._on_shutdown_handlers, handler)
@@ -539,14 +570,28 @@ class BasicTrainer:
                     return interrupt_result
 
             self._current_iteration = i + 1
-            self._run.log_iteration(
+            ctx = MetricContext(
+                iteration=i + 1,
                 epoch=self._training_parameters.current_epoch(i),
-                step=i + 1,
-                metrics={
-                    "batch_loss": float(L_batch),
-                    "val_loss": float(L_val),
-                    "learning_rate": float(self._optimiser.learning_rate),
-                },
+                is_epoch_end=(
+                    (i + 1) % self._training_parameters.batches_per_epoch == 0
+                ),
+                batch_loss=float(L_batch),
+                val_loss=float(L_val),
+            )
+            metrics: dict[str, float] = {}
+            for provider in self._metric_providers:
+                try:
+                    contribution = provider(ctx)
+                except Exception as exc:
+                    self._logger.warning(
+                        f"Metric provider failed at step {ctx.iteration}: {exc}"
+                    )
+                    continue
+                if contribution is not None:
+                    metrics.update(contribution)
+            self._run.log_iteration(
+                epoch=ctx.epoch, step=ctx.iteration, metrics=metrics
             )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:

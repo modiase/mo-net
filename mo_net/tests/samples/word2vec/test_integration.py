@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from pathlib import Path
 
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import Vocab
 from mo_net.samples.word2vec import CBOWModel, SkipGramModel
 from mo_net.train import TrainingParameters

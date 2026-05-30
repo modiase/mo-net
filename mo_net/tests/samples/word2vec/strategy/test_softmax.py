@@ -2,7 +2,7 @@
 
 import pytest
 
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig, SoftmaxStrategy
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig, SoftmaxStrategy
 
 
 class TestSoftmaxStrategy:

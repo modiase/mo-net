@@ -32,7 +32,7 @@ from mo_net.samples.word2vec.archive import (
     peek_manifest,
     save_word2vec_archive,
 )
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import Vocab
 
 

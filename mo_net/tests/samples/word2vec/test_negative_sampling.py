@@ -3,12 +3,10 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from dataclasses import dataclass
 
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import Vocab
 from mo_net.samples.word2vec import SkipGramModel
-from mo_net.model.layer.output import SparseCategoricalSoftmaxOutputLayer
 
 
 class TestNegativeSamplingDistribution:

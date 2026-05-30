@@ -10,19 +10,13 @@ Full integration into model.create() methods is left for future work.
 
 from typing import cast
 
-import pytest
 import jax
 import jax.numpy as jnp
 
 from mo_net.samples.word2vec.vocab import Vocab
-from mo_net.samples.word2vec.softmax_strategy import SoftmaxConfig, SoftmaxStrategy
+from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig, SoftmaxStrategy
 from mo_net.data_structures.huffman_tree import HuffmanTree
 from mo_net.model.layer.output import HierarchicalSoftmaxOutputLayer
-from mo_net.model.layer.embedding import Embedding
-from mo_net.model.layer.average import Average
-from mo_net.model.layer.base import Hidden
-from mo_net.model.module.base import Output
-from mo_net.model.model import Model
 
 
 class TestHierarchicalSoftmaxIntegration:
@@ -197,11 +191,11 @@ class TestComponentsReady:
     def test_all_components_importable(self):
         """Test that all components can be imported."""
         # This test verifies the implementation is complete
-        from mo_net.samples.word2vec.softmax_strategy import (
+        from mo_net.samples.word2vec.strategy.softmax import (
             SoftmaxConfig,
             SoftmaxStrategy,
         )
-        from mo_net.data_structures.huffman_tree import HuffmanTree, HuffmanNode
+        from mo_net.data_structures.huffman_tree import HuffmanNode
         from mo_net.model.layer.output import HierarchicalSoftmaxOutputLayer
 
         assert SoftmaxConfig is not None
