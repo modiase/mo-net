@@ -375,6 +375,7 @@ class TestArchiveResume:
                 loss_fn=sparse_cross_entropy,
                 key=jax.random.PRNGKey(7),
                 start_epoch=loaded_manifest.training_state.completed_epoch,
+                lineage_id=loaded_manifest.training_state.lineage_id,
                 disable_shutdown=True,
             )
 
@@ -399,6 +400,9 @@ class TestArchiveResume:
             state_seg2 = trainer_seg2.current_state(parent_run_name="segment-1")
             assert state_seg2.parent_run_name == "segment-1"
             assert state_seg2.current_iteration > state_seg1.current_iteration
+            # Lineage carries across the resume chain.
+            assert state_seg1.lineage_id is not None
+            assert state_seg2.lineage_id == state_seg1.lineage_id
 
             chained_path = Path(tmpdir) / "segment_2.mar"
             save_word2vec_archive(

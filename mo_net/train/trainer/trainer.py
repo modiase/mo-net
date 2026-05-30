@@ -125,6 +125,9 @@ class BasicTrainer:
         key: jnp.ndarray,
         output_path: Path | None = None,
         monotonic: bool = False,
+        # Carried from a parent .mar manifest on resume; None for fresh runs.
+        lineage_id: str | None = None,
+        parent_run_id: int | None = None,
     ) -> None:
         key1, key2 = jax.random.split(key, 2)
         self._disable_shutdown = disable_shutdown
@@ -156,6 +159,8 @@ class BasicTrainer:
         self._after_training_step: Sequence[AfterTrainingStepHandler] = ()
         self._last_update: UpdateGradientType | None = None
         self._L_val_min_epoch: int | None = None
+        self._resume_lineage_id = lineage_id
+        self._resume_parent_run_id = parent_run_id
         self._current_iteration: int = (
             self._start_epoch * self._training_parameters.batches_per_epoch
         )
@@ -313,6 +318,11 @@ class BasicTrainer:
         phase: LRSchedulePhase = (
             "warmup" if completed_epoch < params.warmup_epochs else "cosine"
         )
+        # None when the caller snapshots before start_run has fired.
+        try:
+            lineage_id: str | None = self._run.lineage_id
+        except ValueError:
+            lineage_id = None
         return TrainingState(
             completed_epoch=completed_epoch,
             current_iteration=self._current_iteration,
@@ -322,6 +332,7 @@ class BasicTrainer:
             seed=params.seed,
             run_name=self._run.name,
             parent_run_name=parent_run_name,
+            lineage_id=lineage_id,
             best_val_loss=(
                 float(self._L_val_min) if hasattr(self, "_L_val_min") else None
             ),
@@ -368,17 +379,16 @@ class BasicTrainer:
         self._run.start_run(
             total_batches=self._training_parameters.total_batches,
             total_epochs=self._training_parameters.num_epochs,
+            lineage_id=self._resume_lineage_id,
+            parent_run_id=self._resume_parent_run_id,
+            build_rev=os.environ.get("MO_NET_BUILD_REV"),
         )
         if self._output_path is not None:
             self._model_checkpoint_path = self._output_path
         else:
             run_dir = get_settings().run_dir
             run_dir.mkdir(parents=True, exist_ok=True)
-            self._model_checkpoint_path = Path(
-                str((run_dir / self._run.id).with_suffix(".pkl")).replace(
-                    "_model_training_log", ""
-                )
-            )
+            self._model_checkpoint_path = run_dir / f"{self._run.id}.pkl"
         # Resolve which of {best, last} we keep on disk based on the strategy.
         # In ``both`` mode the best-val checkpoint sits next to the main path
         # with a ``.best`` suffix and the main path holds the latest. In
@@ -531,10 +541,12 @@ class BasicTrainer:
             self._current_iteration = i + 1
             self._run.log_iteration(
                 epoch=self._training_parameters.current_epoch(i),
-                batch=i + 1,
-                batch_loss=L_batch,
-                val_loss=L_val,
-                learning_rate=self._optimiser.learning_rate,
+                step=i + 1,
+                metrics={
+                    "batch_loss": float(L_batch),
+                    "val_loss": float(L_val),
+                    "learning_rate": float(self._optimiser.learning_rate),
+                },
             )
 
             if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
@@ -550,13 +562,8 @@ class BasicTrainer:
                     )
                 last_log_time = time.time()
 
-        self._run.log_iteration(
-            epoch=self._training_parameters.num_epochs,
-            batch=self._training_parameters.total_batches,
-            batch_loss=L_batch,
-            val_loss=L_val,
-            learning_rate=self._optimiser.learning_rate,
-        )
+        # No post-loop log: the loop already logged at step=total_batches
+        # and (run_id, step) is the iterations PK — duplicates would collide.
         return TrainingSuccessful(
             model_checkpoint_path=self._model_checkpoint_path,
         )

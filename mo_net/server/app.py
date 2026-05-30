@@ -45,11 +45,16 @@ state = StateManager()
 
 
 def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
+    """Per-epoch summary for one run.
+
+    Returns the last logged iteration per epoch, with batch_loss / val_loss /
+    learning_rate columns pivoted out of the EAV `metrics` table.
+    """
     with with_session() as session:
         run = (
             session.query(DbRun).filter(DbRun.id == run_id).first()
             if run_id
-            else session.query(DbRun).order_by(DbRun.updated_at.desc()).first()
+            else session.query(DbRun).order_by(DbRun.started_at.desc()).first()
         )
 
         if not run:
@@ -57,69 +62,62 @@ def get_run_data(run_id: int | None = None) -> tuple[pd.DataFrame, int, DbRun]:
 
         query = text("""
             WITH LastIterationPerEpoch AS (
-                SELECT 
-                    id,
-                    run_id,
-                    batch_loss,
-                    val_loss,
-                    batch,
-                    epoch,
-                    learning_rate,
-                    timestamp,
+                SELECT
+                    run_id, step, epoch, timestamp,
                     ROW_NUMBER() OVER (
-                        PARTITION BY epoch 
-                        ORDER BY timestamp DESC, batch DESC
-                    ) as rn
-                FROM iterations 
+                        PARTITION BY epoch
+                        ORDER BY step DESC
+                    ) AS rn
+                FROM iterations
                 WHERE run_id = :run_id
+            ),
+            LastRows AS (
+                SELECT run_id, step, epoch, timestamp
+                FROM LastIterationPerEpoch
+                WHERE rn = 1
             )
-            SELECT 
-                id,
-                run_id,
-                batch_loss,
-                val_loss,
-                batch,
-                epoch,
-                learning_rate,
-                timestamp
-            FROM LastIterationPerEpoch 
-            WHERE rn = 1
-            ORDER BY epoch, timestamp
+            SELECT
+                lr.epoch,
+                lr.step AS batch,
+                lr.timestamp,
+                m.name,
+                m.value
+            FROM LastRows lr
+            JOIN metrics m USING (run_id, step)
+            ORDER BY lr.epoch, m.name
         """)
 
-        result = session.execute(query, {"run_id": run.id})
-        iterations = result.fetchall()
+        rows = session.execute(query, {"run_id": run.id}).fetchall()
 
-        if not iterations:
-            # Return empty DataFrame with correct structure when no iterations found
-            empty_data = pd.DataFrame(
-                columns=[
-                    "batch_loss",
-                    "val_loss",
-                    "batch",
-                    "epoch",
-                    "learning_rate",
-                    "timestamp",
-                ]
-            )
+        empty_columns = [
+            "batch_loss",
+            "val_loss",
+            "batch",
+            "epoch",
+            "learning_rate",
+            "timestamp",
+        ]
+        if not rows:
+            empty_data = pd.DataFrame(columns=empty_columns)
             empty_data["monotonic_val_loss"] = pd.Series(dtype=float)
             return empty_data, run.id, run
 
-        data = pd.DataFrame(
-            [
-                {
-                    "batch_loss": it.batch_loss,
-                    "val_loss": it.val_loss,
-                    "batch": it.batch,
-                    "epoch": it.epoch,
-                    "learning_rate": it.learning_rate,
-                    "timestamp": it.timestamp,
-                }
-                for it in iterations
-            ]
+        long_df = pd.DataFrame(
+            rows, columns=["epoch", "batch", "timestamp", "name", "value"]
         )
-        data["monotonic_val_loss"] = data["val_loss"].cummin()
-        return data, run.id, run
+        wide_df = long_df.pivot_table(
+            index=["epoch", "batch", "timestamp"],
+            columns="name",
+            values="value",
+            aggfunc="first",
+        ).reset_index()
+        wide_df.columns.name = None
+        for col in ("batch_loss", "val_loss", "learning_rate"):
+            if col not in wide_df.columns:
+                wide_df[col] = pd.NA
+        wide_df = wide_df.sort_values("epoch").reset_index(drop=True)
+        wide_df["monotonic_val_loss"] = wide_df["val_loss"].cummin()
+        return wide_df, run.id, run
 
 
 async def update_data():
@@ -213,24 +211,19 @@ async def get_status():
     }
 
     if current_state.current_run:
-        progress = (
-            (current_state.current_run.current_epoch)
-            / current_state.current_run.total_epochs
-            if current_state.current_run.total_epochs > 0
-            else 0
-        )
+        run = current_state.current_run
         status.update(
             {
-                "progress": progress,
-                "total_epochs": current_state.current_run.total_epochs,
-                "is_completed": current_state.current_run.completed_at is not None,
-                "started_at": current_state.current_run.started_at.isoformat(),
-                "completed_at": current_state.current_run.completed_at.isoformat()
-                if current_state.current_run.completed_at
+                "total_epochs": run.total_epochs,
+                "is_completed": run.completed_at is not None,
+                "started_at": run.started_at.isoformat(),
+                "completed_at": run.completed_at.isoformat()
+                if run.completed_at
                 else None,
-                "current_batch": current_state.current_run.current_batch,
-                "total_batches": current_state.current_run.total_batches,
-                "run_name": current_state.current_run.name,
+                "total_batches": run.total_batches,
+                "run_name": run.name,
+                "lineage_id": run.lineage_id,
+                "parent_run_id": run.parent_run_id,
             }
         )
 
@@ -239,9 +232,23 @@ async def get_status():
         status.update(
             {
                 "current_epoch": int(latest["epoch"]),
-                "current_batch_loss": float(latest["batch_loss"]),
-                "current_val_loss": float(latest["val_loss"]),
-                "current_learning_rate": float(latest["learning_rate"]),
+                "current_batch": int(latest["batch"]),
+                "current_batch_loss": float(latest["batch_loss"])
+                if pd.notna(latest.get("batch_loss"))
+                else None,
+                "current_val_loss": float(latest["val_loss"])
+                if pd.notna(latest.get("val_loss"))
+                else None,
+                "current_learning_rate": float(latest["learning_rate"])
+                if pd.notna(latest.get("learning_rate"))
+                else None,
+                "progress": int(latest["epoch"])
+                / current_state.current_run.total_epochs
+                if (
+                    current_state.current_run
+                    and current_state.current_run.total_epochs > 0
+                )
+                else 0,
             }
         )
     return JSONResponse(content=status)
@@ -281,10 +288,13 @@ async def get_available_runs():
                         "id": run.id,
                         "name": run.name,
                         "seed": run.seed,
-                        "updated_at": run.updated_at.isoformat(),
+                        "started_at": run.started_at.isoformat(),
+                        "last_iteration_at": run.last_iteration_at.isoformat()
+                        if run.last_iteration_at
+                        else None,
                     }
                     for run in session.query(DbRun)
-                    .order_by(DbRun.updated_at.desc())
+                    .order_by(DbRun.started_at.desc())
                     .all()
                 ]
             }
@@ -301,19 +311,53 @@ async def get_all_runs():
                         "id": run.id,
                         "name": run.name,
                         "seed": run.seed,
+                        "lineage_id": run.lineage_id,
+                        "parent_run_id": run.parent_run_id,
                         "started_at": run.started_at.isoformat(),
-                        "updated_at": run.updated_at.isoformat(),
+                        "last_iteration_at": run.last_iteration_at.isoformat()
+                        if run.last_iteration_at
+                        else None,
                         "completed_at": run.completed_at.isoformat()
                         if run.completed_at
                         else None,
-                        "current_epoch": run.current_epoch,
                         "total_epochs": run.total_epochs,
                         "is_completed": run.completed_at is not None,
                     }
                     for run in session.query(DbRun)
-                    .order_by(DbRun.updated_at.desc())
+                    .order_by(DbRun.started_at.desc())
                     .all()
                 ]
+            }
+        )
+
+
+@app.get("/api/lineage/{lineage_id}")
+async def get_lineage(lineage_id: str):
+    """All runs in a resume chain, in order."""
+    with with_session() as session:
+        runs = (
+            session.query(DbRun)
+            .filter(DbRun.lineage_id == lineage_id)
+            .order_by(DbRun.started_at)
+            .all()
+        )
+        if not runs:
+            raise HTTPException(status_code=404, detail="Lineage not found")
+        return JSONResponse(
+            content={
+                "lineage_id": lineage_id,
+                "runs": [
+                    {
+                        "id": r.id,
+                        "name": r.name,
+                        "parent_run_id": r.parent_run_id,
+                        "started_at": r.started_at.isoformat(),
+                        "completed_at": r.completed_at.isoformat()
+                        if r.completed_at
+                        else None,
+                    }
+                    for r in runs
+                ],
             }
         )
 

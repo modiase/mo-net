@@ -7,11 +7,11 @@ import pandas as pd
 import plotille
 from InquirerPy import inquirer
 from loguru import logger
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from mo_net.settings import get_settings
-from mo_net.train.backends.models import DbRun, Iteration
+from mo_net.train.backends.models import DbRun
 
 DEFAULT_REFRESH_SECONDS: Final[int] = 1
 DEFAULT_WIDTH: Final[int] = 150
@@ -19,32 +19,37 @@ DEFAULT_HEIGHT: Final[int] = 40
 
 
 def get_run_data(session, run_id: int) -> pd.DataFrame | None:
-    iterations = (
-        session.query(Iteration)
-        .filter(Iteration.run_id == run_id)
-        .order_by(Iteration.timestamp)
-        .all()
-    )
-    if not iterations:
+    """Pivot the EAV `metrics` table into per-step rows for ``run_id``."""
+    rows = session.execute(
+        text(
+            """
+            SELECT i.step AS batch, i.epoch, i.timestamp, m.name, m.value
+            FROM iterations i
+            JOIN metrics m USING (run_id, step)
+            WHERE i.run_id = :run_id
+            ORDER BY i.step
+            """
+        ),
+        {"run_id": run_id},
+    ).fetchall()
+    if not rows:
         return None
 
-    return pd.DataFrame(
-        [
-            {
-                "batch_loss": it.batch_loss,
-                "val_loss": it.val_loss,
-                "batch": it.batch,
-                "epoch": it.epoch,
-                "learning_rate": it.learning_rate,
-                "timestamp": it.timestamp,
-            }
-            for it in iterations
-        ]
+    long_df = pd.DataFrame(
+        rows, columns=["batch", "epoch", "timestamp", "name", "value"]
     )
+    wide_df = long_df.pivot_table(
+        index=["batch", "epoch", "timestamp"],
+        columns="name",
+        values="value",
+        aggfunc="first",
+    ).reset_index()
+    wide_df.columns.name = None
+    return wide_df.sort_values("batch").reset_index(drop=True)
 
 
 def get_available_runs(session) -> list[DbRun]:
-    return session.query(DbRun).order_by(DbRun.updated_at.desc()).all()
+    return session.query(DbRun).order_by(DbRun.started_at.desc()).all()
 
 
 def prompt_for_run_selection(session) -> int:
@@ -55,9 +60,8 @@ def prompt_for_run_selection(session) -> int:
 
     choices = []
     for run in runs:
-        display_name = (
-            f"Run {run.id} (Started: {run.started_at}, Updated: {run.updated_at})"
-        )
+        last_ts = run.last_iteration_at or run.started_at
+        display_name = f"Run {run.id} (Started: {run.started_at}, Last: {last_ts})"
         choices.append({"name": display_name, "value": run.id})
 
     run_id = inquirer.select(  # type: ignore[attr-defined]

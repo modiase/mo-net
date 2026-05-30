@@ -224,6 +224,21 @@ def train(
         model=cast(CBOWModel | SkipGramModel, model),
     )
 
+    # Resolve parent_run_id by name so we need to bring the schema up first;
+    # backend.create() is idempotent so start_run can call it again.
+    parent_run_id: int | None = None
+    resume_lineage_id: str | None = None
+    if resume_state is not None:
+        backend.create()
+        if parent_run_name is not None:
+            parent_run_id = backend.lookup_run_id_by_name(parent_run_name)
+            if parent_run_id is None:
+                logger.warning(
+                    f"Parent run {parent_run_name!r} not found in backend; "
+                    f"lineage_id will be carried but parent_run_id is NULL."
+                )
+        resume_lineage_id = resume_state.lineage_id
+
     trainer = BasicTrainer(
         X_train=X_train_split,
         Y_train=Y_train_split,
@@ -236,6 +251,8 @@ def train(
         loss_fn=sparse_cross_entropy,
         key=jax.random.PRNGKey(seed),
         start_epoch=resume_state.completed_epoch if resume_state else None,
+        lineage_id=resume_lineage_id,
+        parent_run_id=parent_run_id,
     )
 
     logger.info(

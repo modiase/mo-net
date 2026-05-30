@@ -59,7 +59,7 @@ class Tracer:
     def __init__(
         self,
         *,
-        run_id: str,
+        run_id: int,
         model: Model,
         tracer_config: TracerConfig,
     ):

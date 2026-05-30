@@ -1,30 +1,58 @@
+"""Training-log backends.
+
+The :class:`LoggingBackend` protocol takes iterations with a free-form
+``metrics`` mapping; SQL backends fan that mapping into the EAV
+``metrics`` table. ``lineage_id`` is threaded through ``start_run`` so
+resumed runs share an id with their parent and chain trajectories join
+in O(1).
+"""
+
+from __future__ import annotations
+
 import threading
-from collections.abc import MutableSequence, Sequence
+import uuid
+from collections.abc import Mapping, MutableSequence, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import IO, Protocol
+from typing import Protocol
 from urllib.parse import urlparse
 
-import pandas as pd
 from loguru import logger
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, insert
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from mo_net.settings import get_settings
-from mo_net.train.backends.models import Base, DbRun, Iteration
+from mo_net.train.backends.models import (
+    DbRun,
+    Iteration,
+    Metric,
+    install_schema,
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LogEntry:
-    batch_loss: float
-    val_loss: float
-    batch: int
-    epoch: int
-    learning_rate: float
+    """One queued iteration awaiting a batched flush."""
+
+    run_id: int
+    lineage_id: str
+    epoch: int | None
+    step: int
     timestamp: datetime
+    metrics: tuple[tuple[str, float], ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RunHandle:
+    """Returned by :meth:`LoggingBackend.start_run`."""
+
+    run_id: int
+    lineage_id: str
 
 
 class LoggingBackend(Protocol):
@@ -32,103 +60,64 @@ class LoggingBackend(Protocol):
     def connection_string(self) -> str: ...
 
     def create(self) -> None:
-        """Create any connections or files."""
+        """Create any connections or tables."""
 
     def start_run(
         self,
+        *,
         name: str,
         seed: int,
         total_batches: int,
         total_epochs: int,
-    ) -> str:
-        """Create a new run using backend."""
+        lineage_id: str | None,
+        parent_run_id: int | None,
+        build_rev: str | None,
+    ) -> RunHandle:
+        """Start a new run; mint a ``lineage_id`` if one wasn't supplied."""
         ...
 
-    def end_run(self, run_id: str) -> None:
-        """End the run using backend."""
+    def end_run(self, run_id: int) -> None:
+        """Mark the run completed."""
 
     def teardown(self) -> None:
-        """Teardown any connections or files."""
+        """Flush buffers, close connections."""
 
     def log_iteration(
         self,
         *,
-        batch_loss: float,
-        val_loss: float,
-        batch: int,
-        epoch: int,
-        learning_rate: float,
+        run_id: int,
+        lineage_id: str,
+        epoch: int | None,
+        step: int,
         timestamp: datetime,
+        metrics: Mapping[str, float],
     ) -> None: ...
 
+    def lookup_run_id_by_name(self, name: str) -> int | None:
+        """Resolve a run's id by name (used to derive parent_run_id on resume).
 
-class CsvBackend(LoggingBackend):
-    def __init__(self, *, path: Path) -> None:
-        self._path = path.resolve()
-        self._columns = [
-            "batch_loss",
-            "val_loss",
-            "batch",
-            "epoch",
-            "learning_rate",
-            "timestamp",
-        ]
-        self._file: IO[str] | None = None
+        Returns ``None`` when the backend can't satisfy the query (e.g.
+        :class:`NullBackend`) or the name isn't present.
+        """
+        ...
 
-    @property
-    def connection_string(self) -> str:
-        return f"csv://{str(self._path)}"
 
-    def create(self) -> None:
-        self._file = open(self._path, "w")
+@event.listens_for(Engine, "connect")
+def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record) -> None:
+    """Enable ``PRAGMA foreign_keys = ON`` for every sqlite connection.
 
-    def start_run(
-        self,
-        name: str,
-        seed: int,
-        total_batches: int,
-        total_epochs: int,
-    ) -> str:
-        del name, seed, total_batches, total_epochs  # unused
-        pd.DataFrame(columns=self._columns).to_csv(self._file, index=False)
-        if self._file is not None:
-            self._file.flush()
-        return str(self._path.name.replace(self._path.suffix, ""))
-
-    def end_run(self, run_id: str) -> None:
-        del run_id  # unused
-
-    def teardown(self) -> None:
-        if self._file is not None:
-            self._file.close()
-
-    def log_iteration(
-        self,
-        *,
-        batch_loss: float,
-        val_loss: float,
-        batch: int,
-        epoch: int,
-        learning_rate: float,
-        timestamp: datetime,
-    ) -> None:
-        pd.DataFrame(
-            {
-                "batch_loss": batch_loss,
-                "val_loss": val_loss,
-                "batch": batch,
-                "epoch": epoch,
-                "learning_rate": learning_rate,
-                "timestamp": timestamp,
-            },
-            index=[0],
-        ).to_csv(self._file, index=False, header=False)
-        if self._file is not None:
-            self._file.flush()
+    Without this, ``ON DELETE CASCADE`` on the metrics→iterations FK
+    silently no-ops. Other dialects ignore PRAGMA.
+    """
+    del connection_record  # unused
+    if "sqlite3" in type(dbapi_connection).__module__:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 class SqlBackend(LoggingBackend):
-    """SQLAlchemy-backed logger. Subclassed for dialect-specific conveniences."""
+    """SQLAlchemy-backed logger. Subclassed for dialect-specific URLs."""
 
     def __init__(
         self,
@@ -139,7 +128,7 @@ class SqlBackend(LoggingBackend):
     ) -> None:
         self._url = url
         self._session: Session | None = None
-        self._current_run: DbRun | None = None
+        self._current_handle: RunHandle | None = None
         self._engine = create_engine(url)
         self._session_maker = sessionmaker(bind=self._engine)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="logging")
@@ -157,7 +146,7 @@ class SqlBackend(LoggingBackend):
         # empty database can both pass the existence check and then collide on
         # pg_type_typname_nsp_index; treat that race as success.
         try:
-            Base.metadata.create_all(self._engine)
+            install_schema(self._engine)
         except (IntegrityError, OperationalError, ProgrammingError) as e:
             if "already exists" not in str(e).lower():
                 raise
@@ -165,41 +154,47 @@ class SqlBackend(LoggingBackend):
 
     def start_run(
         self,
+        *,
         name: str,
         seed: int,
         total_batches: int,
         total_epochs: int,
-    ) -> str:
+        lineage_id: str | None,
+        parent_run_id: int | None,
+        build_rev: str | None,
+    ) -> RunHandle:
         if not self._session:
             raise RuntimeError("Session not created. Call create() first.")
 
+        resolved_lineage = lineage_id if lineage_id is not None else str(uuid.uuid4())
         run = DbRun.create(
             name=name,
             seed=seed,
+            lineage_id=resolved_lineage,
+            parent_run_id=parent_run_id,
             total_batches=total_batches,
             total_epochs=total_epochs,
+            build_rev=build_rev,
             started_at=datetime.now(),
         )
         self._session.add(run)
         self._session.commit()
-        self._current_run = run
-        return str(run.id)
+        self._current_handle = RunHandle(run_id=run.id, lineage_id=resolved_lineage)
+        return self._current_handle
 
-    def end_run(self, run_id: str) -> None:
+    def end_run(self, run_id: int) -> None:
         if not self._session:
             raise RuntimeError("Session not created. Call create() first.")
 
-        if run := self._session.get(DbRun, int(run_id)):
+        if run := self._session.get(DbRun, run_id):
             run.completed_at = datetime.now()
-            run.current_epoch = run.total_epochs
-            run.current_batch = run.total_batches
             self._session.commit()
-        self._current_run = None
+        self._current_handle = None
 
     def teardown(self) -> None:
-        if self._current_run is not None and self._pending_entries:
+        if self._current_handle is not None and self._pending_entries:
             with self._lock:
-                self._flush_batch(self._pending_entries, run_id=self._current_run.id)
+                self._flush_batch(self._pending_entries)
                 self._pending_entries.clear()
 
         if self._session:
@@ -210,72 +205,93 @@ class SqlBackend(LoggingBackend):
     def log_iteration(
         self,
         *,
-        batch_loss: float,
-        val_loss: float,
-        batch: int,
-        epoch: int,
-        learning_rate: float,
+        run_id: int,
+        lineage_id: str,
+        epoch: int | None,
+        step: int,
         timestamp: datetime,
+        metrics: Mapping[str, float],
     ) -> None:
-        if not self._session or not self._current_run:
+        if not self._session or not self._current_handle:
             raise RuntimeError("No active run. Call start_run() first.")
 
         if len(self._pending_entries) >= self._max_queue_size:
             logger.warning("Log queue is full. Dropping log entry.")
             return
 
-        self._executor.submit(
-            self._log_iteration_sync,
-            run_id=self._current_run.id,
-            entry=LogEntry(
-                batch_loss=batch_loss,
-                val_loss=val_loss,
-                batch=batch,
-                epoch=epoch,
-                learning_rate=learning_rate,
-                timestamp=timestamp,
-            ),
+        entry = LogEntry(
+            run_id=run_id,
+            lineage_id=lineage_id,
+            epoch=epoch,
+            step=step,
+            timestamp=timestamp,
+            metrics=tuple(metrics.items()),
         )
+        self._executor.submit(self._log_iteration_sync, entry=entry)
 
-    def _log_iteration_sync(self, *, run_id: int, entry: LogEntry) -> None:
+    def _log_iteration_sync(self, *, entry: LogEntry) -> None:
         try:
             with self._lock:
                 self._pending_entries.append(entry)
                 if len(self._pending_entries) >= self._batch_size:
-                    self._flush_batch(self._pending_entries, run_id=run_id)
+                    self._flush_batch(self._pending_entries)
                     self._pending_entries.clear()
         except Exception as e:
             logger.error(f"Error logging iteration: {e}")
 
-    def _flush_batch(self, entries: Sequence[LogEntry], run_id: int) -> None:
+    def _flush_batch(self, entries: Sequence[LogEntry]) -> None:
+        if not entries:
+            return
         try:
             with self._session_maker() as session:
-                if run := session.get(DbRun, run_id):
-                    latest = entries[-1]
-                    run.current_batch = latest.batch
-                    run.current_batch_loss = latest.batch_loss
-                    run.current_epoch = latest.epoch
-                    run.current_learning_rate = latest.learning_rate
-                    run.current_val_loss = latest.val_loss
-                    run.current_timestamp = latest.timestamp
-                    run.updated_at = latest.timestamp
-
-                    for entry in entries:
-                        session.add(
-                            Iteration(
-                                run_id=run.id,
-                                batch_loss=entry.batch_loss,
-                                batch=entry.batch,
-                                epoch=entry.epoch,
-                                learning_rate=entry.learning_rate,
-                                timestamp=entry.timestamp,
-                                val_loss=entry.val_loss,
-                            )
-                        )
-
-                    session.commit()
+                iteration_rows = [
+                    {
+                        "run_id": entry.run_id,
+                        "step": entry.step,
+                        "epoch": entry.epoch,
+                        "lineage_id": entry.lineage_id,
+                        "timestamp": entry.timestamp,
+                    }
+                    for entry in entries
+                ]
+                metric_rows = [
+                    {
+                        "run_id": entry.run_id,
+                        "step": entry.step,
+                        "name": name,
+                        "value": value,
+                    }
+                    for entry in entries
+                    for name, value in entry.metrics
+                ]
+                # Intermediate flush lets sqlite's PRAGMA-enforced FK see
+                # the iteration rows before the metric INSERTs hit it.
+                session.execute(insert(Iteration), iteration_rows)
+                session.flush()
+                if metric_rows:
+                    session.execute(insert(Metric), metric_rows)
+                latest_by_run: dict[int, datetime] = {}
+                for entry in entries:
+                    prior = latest_by_run.get(entry.run_id)
+                    if prior is None or entry.timestamp > prior:
+                        latest_by_run[entry.run_id] = entry.timestamp
+                for run_id, ts in latest_by_run.items():
+                    if run := session.get(DbRun, run_id):
+                        run.last_iteration_at = ts
+                session.commit()
         except Exception as e:
             logger.error(f"Error flushing batch: {e}")
+
+    def lookup_run_id_by_name(self, name: str) -> int | None:
+        if not self._session:
+            raise RuntimeError("Session not created. Call create() first.")
+        run = (
+            self._session.query(DbRun)
+            .filter(DbRun.name == name)
+            .order_by(DbRun.started_at.desc())
+            .first()
+        )
+        return run.id if run else None
 
     def get_run(self, run_id: int) -> DbRun | None:
         if not self._session:
@@ -288,7 +304,7 @@ class SqlBackend(LoggingBackend):
         return (
             self._session.query(Iteration)
             .filter(Iteration.run_id == run_id)
-            .order_by(Iteration.timestamp)
+            .order_by(Iteration.step)
             .all()
         )
 
@@ -358,92 +374,60 @@ class PostgresBackend(SqlBackend):
         )
 
 
-class InMemorySqliteBackend(LoggingBackend):
-    """SQLite backend using in-memory database with auto-created tables."""
+class InMemorySqliteBackend(SqlBackend):
+    """SQLite in-memory backend with a shared connection.
+
+    Writes go straight through the main session (no executor queue) so
+    tests can read what they just wrote without waiting for a background
+    flush. ``StaticPool`` keeps a single shared connection so every
+    session sees the same in-memory database (each fresh
+    ``sqlite:///:memory:`` connection would otherwise see an empty DB).
+    """
 
     def __init__(self) -> None:
-        self._engine = create_engine("sqlite:///:memory:")
-        self._session_maker = sessionmaker(bind=self._engine)
+        self._url = "sqlite:///:memory:"
         self._session: Session | None = None
-        self._current_run: DbRun | None = None
-
-    @property
-    def connection_string(self) -> str:
-        return "sqlite://:memory:"
-
-    def create(self) -> None:
-        Base.metadata.create_all(self._engine)
-        self._session = self._session_maker()
-
-    def start_run(
-        self,
-        name: str,
-        seed: int,
-        total_batches: int,
-        total_epochs: int,
-    ) -> str:
-        if not self._session:
-            raise RuntimeError("Session not created. Call create() first.")
-
-        run = DbRun.create(
-            name=name,
-            seed=seed,
-            total_batches=total_batches,
-            total_epochs=total_epochs,
-            started_at=datetime.now(),
+        self._current_handle: RunHandle | None = None
+        self._engine = create_engine(
+            self._url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
         )
-        self._session.add(run)
-        self._session.commit()
-        self._current_run = run
-        return str(run.id)
-
-    def end_run(self, run_id: str) -> None:
-        if not self._session:
-            raise RuntimeError("Session not created. Call create() first.")
-
-        if run := self._session.get(DbRun, int(run_id)):
-            run.completed_at = datetime.now()
-            run.current_epoch = run.total_epochs
-            run.current_batch = run.total_batches
-            self._session.commit()
-        self._current_run = None
-
-    def teardown(self) -> None:
-        if self._session:
-            self._session.close()
-            self._session = None
+        self._session_maker = sessionmaker(bind=self._engine)
+        # Inherited from SqlBackend but unused: this subclass writes
+        # synchronously through the main session.
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="logging")
+        self._lock = threading.Lock()
+        self._batch_size = 1
+        self._max_queue_size = 10_000
+        self._pending_entries: MutableSequence[LogEntry] = []
 
     def log_iteration(
         self,
         *,
-        batch_loss: float,
-        val_loss: float,
-        batch: int,
-        epoch: int,
-        learning_rate: float,
+        run_id: int,
+        lineage_id: str,
+        epoch: int | None,
+        step: int,
         timestamp: datetime,
+        metrics: Mapping[str, float],
     ) -> None:
-        if not self._session or not self._current_run:
+        if not self._session or not self._current_handle:
             raise RuntimeError("No active run. Call start_run() first.")
-
         self._session.add(
             Iteration(
-                run_id=self._current_run.id,
-                batch_loss=batch_loss,
-                batch=batch,
+                run_id=run_id,
+                step=step,
                 epoch=epoch,
-                learning_rate=learning_rate,
+                lineage_id=lineage_id,
                 timestamp=timestamp,
-                val_loss=val_loss,
             )
         )
-        self._current_run.current_batch = batch
-        self._current_run.current_batch_loss = batch_loss
-        self._current_run.current_epoch = epoch
-        self._current_run.current_learning_rate = learning_rate
-        self._current_run.current_val_loss = val_loss
-        self._current_run.current_timestamp = timestamp
-        self._current_run.updated_at = timestamp
+        self._session.flush()
+        for name, value in metrics.items():
+            self._session.add(Metric(run_id=run_id, step=step, name=name, value=value))
+        if run := self._session.get(DbRun, run_id):
+            run.last_iteration_at = timestamp
         self._session.commit()
 
 
@@ -460,16 +444,21 @@ class NullBackend(LoggingBackend):
 
     def start_run(
         self,
+        *,
         name: str,
         seed: int,
         total_batches: int,
         total_epochs: int,
-    ) -> str:
-        del name, seed, total_batches, total_epochs  # unused
-        return "-1"
+        lineage_id: str | None,
+        parent_run_id: int | None,
+        build_rev: str | None,
+    ) -> RunHandle:
+        del name, seed, total_batches, total_epochs, parent_run_id, build_rev
+        resolved = lineage_id if lineage_id is not None else str(uuid.uuid4())
+        return RunHandle(run_id=-1, lineage_id=resolved)
 
-    def end_run(self, run_id: str) -> None:
-        del run_id  # unused
+    def end_run(self, run_id: int) -> None:
+        del run_id
 
     def teardown(self) -> None:
         pass
@@ -477,22 +466,24 @@ class NullBackend(LoggingBackend):
     def log_iteration(
         self,
         *,
-        batch_loss: float,
-        val_loss: float,
-        batch: int,
-        epoch: int,
-        learning_rate: float,
+        run_id: int,
+        lineage_id: str,
+        epoch: int | None,
+        step: int,
         timestamp: datetime,
+        metrics: Mapping[str, float],
     ) -> None:
-        del batch_loss, val_loss, batch, epoch, learning_rate, timestamp  # unused
+        del run_id, lineage_id, epoch, step, timestamp, metrics
+
+    def lookup_run_id_by_name(self, name: str) -> int | None:
+        del name
+        return None
 
 
 def parse_connection_string(connection_string: str) -> LoggingBackend:
     match url := urlparse(connection_string):
         case url if url.scheme == "null":
             return NullBackend()
-        case url if url.scheme == "csv":
-            return CsvBackend(path=Path(url.path))
         case url if url.scheme == "sqlite":
             return SqliteBackend(path=Path(url.path))
         case url if url.scheme in ("mysql", "mariadb", "mysql+pymysql"):
@@ -505,11 +496,7 @@ def parse_connection_string(connection_string: str) -> LoggingBackend:
                 )
             )
             return SqlBackend(url=normalised)
-        case url if url.scheme in (
-            "postgres",
-            "postgresql",
-            "postgresql+psycopg",
-        ):
+        case url if url.scheme in ("postgres", "postgresql", "postgresql+psycopg"):
             # Force the psycopg (v3) driver — the default for "postgresql://"
             # is psycopg2 which we don't ship.
             normalised = (

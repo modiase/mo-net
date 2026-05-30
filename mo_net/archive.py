@@ -63,6 +63,9 @@ class TrainingState(BaseModel):
     seed: int
     run_name: str | None = None
     parent_run_name: str | None = None
+    # Shared across every segment of a resume chain; minted by the logging
+    # backend on the first run and inherited via the manifest on resume.
+    lineage_id: str | None = None
     best_val_loss: float | None = None
     best_val_loss_epoch: int | None = None
     build_rev: str | None = None

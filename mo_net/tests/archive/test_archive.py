@@ -62,6 +62,7 @@ def _full_manifest() -> Manifest:
             seed=1234567890,
             run_name="test-run",
             parent_run_name=None,
+            lineage_id="abc-def-123",
             best_val_loss=5.123,
             best_val_loss_epoch=2,
             build_rev="abc1234",
