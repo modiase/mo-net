@@ -51,6 +51,10 @@ class TrainingRun:
     def name(self) -> str:
         return self._name
 
+    @property
+    def is_started(self) -> bool:
+        return self._run_id is not None
+
     def log_iteration(
         self,
         *,

@@ -404,13 +404,14 @@ class BasicTrainer:
             f"Model has dimensions: {', '.join(f'[{dim}]' for dim in self._model.module_dimensions)} and parameter count: {self._model.parameter_count}."
         )
 
-        self._run.start_run(
-            total_batches=self._training_parameters.total_batches,
-            total_epochs=self._training_parameters.num_epochs,
-            lineage_id=self._resume_lineage_id,
-            parent_run_id=self._resume_parent_run_id,
-            build_rev=os.environ.get("MO_NET_BUILD_REV"),
-        )
+        if not self._run.is_started:
+            self._run.start_run(
+                total_batches=self._training_parameters.total_batches,
+                total_epochs=self._training_parameters.num_epochs,
+                lineage_id=self._resume_lineage_id,
+                parent_run_id=self._resume_parent_run_id,
+                build_rev=os.environ.get("MO_NET_BUILD_REV"),
+            )
         if self._output_path is not None:
             self._model_checkpoint_path = self._output_path
         else:
@@ -439,6 +440,18 @@ class BasicTrainer:
 
         self._L_val_min = self._model.compute_loss(
             X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+        )
+
+        # Heartbeat: land one metric row at step=0 so the dashboard surfaces
+        # the run (and its Loki logs) immediately, even if training fails
+        # before the first batch.
+        self._run.log_iteration(
+            epoch=0,
+            step=0,
+            metrics={
+                "val_loss": float(self._L_val_min),
+                "learning_rate": float(self._optimiser.learning_rate),
+            },
         )
 
         if self._training_parameters.trace_logging:
@@ -539,7 +552,9 @@ class BasicTrainer:
                 improved = L_val < self._L_val_min
                 if improved:
                     self._L_val_min = L_val
-                    self._L_val_min_epoch = self._training_parameters.current_epoch(i)
+                    self._L_val_min_epoch = (
+                        self._training_parameters.current_epoch(i) + 1
+                    )
                 # ``monotonic`` mode independently requires reverts of
                 # non-improving steps; honour its accept/reject signal for the
                 # ``last``-style write but always overwrite ``best`` when val
@@ -568,7 +583,9 @@ class BasicTrainer:
             self._current_iteration = i + 1
             ctx = MetricContext(
                 iteration=i + 1,
-                epoch=self._training_parameters.current_epoch(i),
+                # 1-indexed for display: the final iteration of the run lands
+                # `epoch == num_epochs` instead of `num_epochs - 1`.
+                epoch=self._training_parameters.current_epoch(i) + 1,
                 is_epoch_end=(
                     (i + 1) % self._training_parameters.batches_per_epoch == 0
                 ),

@@ -247,6 +247,20 @@ def train(
                 )
         resume_lineage_id = resume_state.lineage_id
 
+    # Register the run upfront so the dashboard surfaces it (and its Loki
+    # logs) before training does any heavy work. The trainer's own
+    # start_run call is now a no-op via the `is_started` guard.
+    import os as _os
+
+    run.start_run(
+        total_batches=training_parameters.total_batches,
+        total_epochs=training_parameters.num_epochs,
+        lineage_id=resume_lineage_id,
+        parent_run_id=parent_run_id,
+        build_rev=_os.environ.get("MO_NET_BUILD_REV"),
+    )
+    logger.info(f"Registered run {run.name!r} (run_id={run.id}).")
+
     trainer = BasicTrainer(
         X_train=X_train_split,
         Y_train=Y_train_split,

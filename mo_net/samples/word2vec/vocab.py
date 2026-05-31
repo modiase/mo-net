@@ -6,7 +6,6 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from itertools import chain
 from pathlib import Path
 from re import Pattern
 from typing import Final, Self, cast
@@ -229,23 +228,29 @@ def subsample_tokenized_sentences(
 def get_training_set(
     tokenized_sentences: Collection[TokenizedSentence], context_size: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    context, target = zip(
-        *[
-            (
-                tuple(
-                    chain(
-                        sentence[i - context_size : i],
-                        sentence[i + 1 : i + context_size + 1],
-                    )
-                ),
-                sentence[i],
-            )
-            for sentence in tokenized_sentences
-            for i in range(context_size, len(sentence) - context_size)
-        ],
-        strict=True,
-    )
-    return np.array(context), np.array(list(target))
+    """Build (X, Y) training arrays from tokenised sentences.
+
+    Two-pass: count windows, preallocate X/Y, then fill per-sentence via
+    vectorised slicing. Peak memory ≈ output size; the previous
+    list-of-tuples + ``zip(*…)`` + ``np.array(...)`` pipeline overshot
+    by ~10× and OOM'd at FineWeb scale.
+    """
+    n_pairs = sum(max(0, len(s) - 2 * context_size) for s in tokenized_sentences)
+    X = np.empty((n_pairs, 2 * context_size), dtype=np.int32)
+    Y = np.empty(n_pairs, dtype=np.int32)
+    pos = 0
+    for sentence in tokenized_sentences:
+        n = len(sentence) - 2 * context_size
+        if n <= 0:
+            continue
+        s = np.asarray(sentence, dtype=np.int32)
+        centers = np.arange(context_size, context_size + n)
+        for j in range(context_size):
+            X[pos : pos + n, j] = s[centers - context_size + j]
+            X[pos : pos + n, context_size + j] = s[centers + 1 + j]
+        Y[pos : pos + n] = s[centers]
+        pos += n
+    return X, Y
 
 
 def _pairs_cache_key(
