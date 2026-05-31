@@ -129,7 +129,7 @@ def _find_cached_by_hash(content_hash: str) -> Path | None:
 
 
 @contextmanager
-def _file_lock(lock_path: Path) -> Iterator[None]:
+def file_lock(lock_path: Path) -> Iterator[None]:
     """Exclusive cross-process file lock on ``lock_path``. Host-local."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o666)
@@ -160,7 +160,7 @@ def _download_with_etag(download_url: str) -> Path:
         return existing
 
     lock_key = etag or hashlib.sha256(download_url.encode()).hexdigest()[:32]
-    with _file_lock(cache / f".{lock_key}.lock"):
+    with file_lock(cache / f".{lock_key}.lock"):
         if etag and (existing := _find_cached_by_hash(etag)):
             logger.info(f"cache hit (after waiting on peer): {existing}")
             return existing

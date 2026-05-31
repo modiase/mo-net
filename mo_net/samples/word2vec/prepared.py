@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import random
+import shutil
 from collections import defaultdict
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -38,6 +40,7 @@ import msgpack  # type: ignore[import-untyped]
 import numpy as np
 from loguru import logger
 
+from mo_net.resources import file_lock
 from mo_net.samples.word2vec.vocab import Vocab
 
 # Filenames inside an artifact directory.
@@ -172,6 +175,13 @@ class PreparedDataset:
         Cache key is ``(content_hash, vocab_size, context_size,
         subsample_t, subsample_seed, sorted forced_words)``. Cached
         ``X`` / ``Y`` are mmap'd from disk; ``vocab`` is decoded fresh.
+
+        Concurrent callers with the same args serialise on a per-key
+        lock — the second arrival re-checks the cache after acquiring
+        it and short-circuits to the hit path. The build itself writes
+        into a sibling ``.tmp`` directory and ``os.replace``-renames on
+        success, so a partial directory never appears at the canonical
+        path even if the worker is killed mid-build.
         """
         key = args_hash(
             content_hash=self.meta.content_hash,
@@ -182,23 +192,35 @@ class PreparedDataset:
             forced_words=forced_words,
         )
         derived_path = self.path / DERIVED_DIR / key
-        if (
-            (derived_path / DERIVED_META_FILE).exists()
-            and (derived_path / DERIVED_X_FILE).exists()
-            and (derived_path / DERIVED_Y_FILE).exists()
-            and (derived_path / DERIVED_VOCAB_FILE).exists()
-        ):
+        if self._derived_complete(derived_path):
             logger.info(f"derive cache hit: {derived_path}")
             return self._load_derived(derived_path)
 
-        logger.info(f"derive cache miss; building {derived_path}")
-        return self._build_derived(
-            derived_path=derived_path,
-            vocab_size=vocab_size,
-            context_size=context_size,
-            subsample_t=subsample_t,
-            subsample_seed=subsample_seed,
-            forced_words=forced_words,
+        lock_path = self.path / DERIVED_DIR / f".{key}.lock"
+        with file_lock(lock_path):
+            if self._derived_complete(derived_path):
+                logger.info(f"derive cache hit (after waiting on peer): {derived_path}")
+                return self._load_derived(derived_path)
+            logger.info(f"derive cache miss; building {derived_path}")
+            return self._build_derived(
+                derived_path=derived_path,
+                vocab_size=vocab_size,
+                context_size=context_size,
+                subsample_t=subsample_t,
+                subsample_seed=subsample_seed,
+                forced_words=forced_words,
+            )
+
+    @staticmethod
+    def _derived_complete(derived_path: Path) -> bool:
+        return all(
+            (derived_path / f).exists()
+            for f in (
+                DERIVED_META_FILE,
+                DERIVED_X_FILE,
+                DERIVED_Y_FILE,
+                DERIVED_VOCAB_FILE,
+            )
         )
 
     def _load_derived(self, derived_path: Path) -> tuple[Vocab, np.ndarray, np.ndarray]:
@@ -283,9 +305,15 @@ class PreparedDataset:
             1, int((n_tokens - 2 * context_size * self.meta.n_rows) * 1.10)
         )
 
-        derived_path.mkdir(parents=True, exist_ok=True)
-        x_path = derived_path / DERIVED_X_FILE
-        y_path = derived_path / DERIVED_Y_FILE
+        # Build into a sibling `.tmp` dir; `os.replace` it to the canonical
+        # path on success so a partial directory never appears at
+        # `derived_path` even if this worker is killed mid-build.
+        tmp_path = derived_path.with_suffix(derived_path.suffix + ".tmp")
+        if tmp_path.exists():
+            shutil.rmtree(tmp_path)
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        x_path = tmp_path / DERIVED_X_FILE
+        y_path = tmp_path / DERIVED_Y_FILE
 
         X = np.lib.format.open_memmap(
             x_path,
@@ -343,7 +371,8 @@ class PreparedDataset:
 
         X.flush()
         Y.flush()
-        (derived_path / DERIVED_VOCAB_FILE).write_bytes(vocab.serialize())
+        del X, Y  # release mmap handles before the rename
+        (tmp_path / DERIVED_VOCAB_FILE).write_bytes(vocab.serialize())
         derived_meta = {
             "n_pairs": pos,
             "vocab_size": vocab_size,
@@ -355,9 +384,15 @@ class PreparedDataset:
             "derived_rev": DERIVED_REV,
             "derived_completed_at": datetime.now().isoformat(timespec="seconds"),
         }
-        (derived_path / DERIVED_META_FILE).write_text(
-            json.dumps(derived_meta, indent=2)
-        )
+        (tmp_path / DERIVED_META_FILE).write_text(json.dumps(derived_meta, indent=2))
+
+        # Atomic-ish swap: rmtree any stale partial at the canonical path,
+        # then rename `<args>.tmp` → `<args>`. Both steps run inside the
+        # caller's file lock so no peer is reading mid-swap.
+        if derived_path.exists():
+            shutil.rmtree(derived_path)
+        os.replace(tmp_path, derived_path)
+
         slack = (n_pairs_upper_bound - pos) / max(n_pairs_upper_bound, 1) * 100
         logger.info(
             f"  derive done; {pos:,} pairs ({slack:.1f}% trailing slack); "
@@ -365,6 +400,6 @@ class PreparedDataset:
         )
         return (
             vocab,
-            np.load(x_path, mmap_mode="r")[:pos],
-            np.load(y_path, mmap_mode="r")[:pos],
+            np.load(derived_path / DERIVED_X_FILE, mmap_mode="r")[:pos],
+            np.load(derived_path / DERIVED_Y_FILE, mmap_mode="r")[:pos],
         )

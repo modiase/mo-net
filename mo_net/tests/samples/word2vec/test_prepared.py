@@ -11,9 +11,7 @@ from click.testing import CliRunner
 from mo_net.samples.word2vec.prepared import (
     DERIVED_DIR,
     DERIVED_META_FILE,
-    DERIVED_VOCAB_FILE,
     DERIVED_X_FILE,
-    DERIVED_Y_FILE,
     PreparedDataset,
     args_hash,
 )
@@ -76,7 +74,9 @@ def test_derive_returns_vocab_and_arrays(prep_artifact: Path):
 def test_derive_cache_hit_skips_rebuild(prep_artifact: Path):
     artifact = PreparedDataset(prep_artifact)
     _, X1, Y1 = artifact.derive(vocab_size=50, context_size=2, subsample_t=0)
-    derived_subdir = next((prep_artifact / DERIVED_DIR).iterdir())
+    derived_subdir = next(
+        p for p in (prep_artifact / DERIVED_DIR).iterdir() if p.is_dir()
+    )
     mtime_before = (derived_subdir / DERIVED_X_FILE).stat().st_mtime
 
     _, X2, Y2 = artifact.derive(vocab_size=50, context_size=2, subsample_t=0)
@@ -90,7 +90,7 @@ def test_derive_different_args_produces_separate_subdirs(prep_artifact: Path):
     artifact = PreparedDataset(prep_artifact)
     artifact.derive(vocab_size=50, context_size=2, subsample_t=0)
     artifact.derive(vocab_size=50, context_size=3, subsample_t=0)
-    subdirs = sorted((prep_artifact / DERIVED_DIR).iterdir())
+    subdirs = sorted(p for p in (prep_artifact / DERIVED_DIR).iterdir() if p.is_dir())
     assert len(subdirs) == 2
 
 
@@ -117,7 +117,7 @@ def test_derive_subdir_name_matches_args_hash(prep_artifact: Path):
 def test_derived_meta_records_actual_n_pairs(prep_artifact: Path):
     artifact = PreparedDataset(prep_artifact)
     _, X, Y = artifact.derive(vocab_size=50, context_size=2, subsample_t=0)
-    derived = next((prep_artifact / DERIVED_DIR).iterdir())
+    derived = next(p for p in (prep_artifact / DERIVED_DIR).iterdir() if p.is_dir())
     import json
 
     meta = json.loads((derived / DERIVED_META_FILE).read_text())
@@ -141,3 +141,30 @@ def test_derive_loads_cached_vocab(prep_artifact: Path):
     vocab2, _, _ = artifact.derive(vocab_size=50, context_size=2, subsample_t=0)
     assert set(vocab1.vocab) == set(vocab2.vocab)
     assert vocab1.unknown_token_id == vocab2.unknown_token_id
+
+
+def test_derive_leaves_lock_file_no_partial_dirs(prep_artifact: Path):
+    """After a successful derive the lock-file sentinel persists; no
+    `.tmp` build directory should be left at the canonical path."""
+    artifact = PreparedDataset(prep_artifact)
+    artifact.derive(
+        vocab_size=50,
+        context_size=2,
+        subsample_t=0,
+        subsample_seed=42,
+        forced_words=(),
+    )
+    key = args_hash(
+        content_hash=artifact.meta.content_hash,
+        vocab_size=50,
+        context_size=2,
+        subsample_t=0,
+        subsample_seed=42,
+        forced_words=(),
+    )
+    derived_root = prep_artifact / DERIVED_DIR
+    assert (derived_root / f".{key}.lock").exists()
+    assert (derived_root / key).is_dir()
+    # No leftover *.tmp partial directories.
+    tmp_leftovers = list(derived_root.glob("*.tmp"))
+    assert tmp_leftovers == []
