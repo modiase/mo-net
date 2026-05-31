@@ -1,12 +1,11 @@
 import os
 import signal
 import sys
-import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ContextManager, Final, Literal, assert_never, cast
+from typing import Any, ContextManager, Literal, assert_never, cast
 
 import jax
 import jax.numpy as jnp
@@ -31,8 +30,6 @@ from mo_net.train.exceptions import CheckFailed
 from mo_net.train.monitor import Monitor
 from mo_net.train.run import TrainingRun
 from mo_net.train.tracer import PerEpochTracerStrategy, Tracer, TracerConfig
-
-DEFAULT_LOG_INTERVAL_SECONDS: Final[int] = 10
 
 # Trainer accepts either JAX or NumPy arrays for training data; NumPy is the
 # memmap-friendly choice for large cached datasets and JAX implicitly converts
@@ -475,7 +472,6 @@ class BasicTrainer:
             self._optimiser.snapshot()
 
     def _training_loop(self) -> TrainingResult:
-        last_log_time = time.time()
         L_val = self._model.compute_loss(
             X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
         )
@@ -593,19 +589,6 @@ class BasicTrainer:
             self._run.log_iteration(
                 epoch=ctx.epoch, step=ctx.iteration, metrics=metrics
             )
-
-            if time.time() - last_log_time > DEFAULT_LOG_INTERVAL_SECONDS:
-                if not self._training_parameters.quiet:
-                    tqdm.write(
-                        f"Epoch {self._training_parameters.current_epoch(i)}, "
-                        f"Batch Loss = {L_batch:.6f}, Validation Loss = {L_val:.6f}"
-                        + (
-                            f", {report}"
-                            if (report := self._optimiser.report()) != ""
-                            else ""
-                        )
-                    )
-                last_log_time = time.time()
 
         # No post-loop log: the loop already logged at step=total_batches
         # and (run_id, step) is the iterations PK — duplicates would collide.
