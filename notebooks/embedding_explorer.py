@@ -1,9 +1,10 @@
 """Marimo notebook for inspecting trained word2vec embeddings.
 
-Loads a saved ``.zip`` model produced by ``mo_net.samples.word2vec train``,
-projects the embedding table into 2D (PCA by default), and highlights a
-configurable list of common words so you can eyeball whether the cloud
-shows real structure or has collapsed.
+Loads a saved ``.mar`` archive (or a legacy ``.zip``) produced by
+``mo_net.samples.word2vec train``, projects the embedding table into
+2D (PCA by default), and highlights a configurable list of common words
+so you can eyeball whether the cloud shows real structure or has
+collapsed.
 
 Open with::
 
@@ -34,9 +35,10 @@ def _(mo):
     mo.md("""
     # Embedding explorer
 
-    Point at a `.zip` produced by `mo_net.samples.word2vec train`. Accepts
-    a local path or an ssh path (`herakles:/data/.../run.zip` or
-    `ssh://herakles/data/.../run.zip`); ssh paths are scp-fetched into
+    Point at a `.mar` (or legacy `.zip`) produced by
+    `mo_net.samples.word2vec train`. Accepts a local path or an ssh path
+    (`herakles:/data/.../run.mar` or `ssh://herakles/data/.../run.mar`);
+    ssh paths are scp-fetched into
     `~/.cache/mo-net/embedding_explorer/` (content-addressed by the source
     string, so re-pasting the same path won't refetch unless you tick
     re-fetch). Architecture is auto-detected from `metadata.json`; the
@@ -48,8 +50,8 @@ def _(mo):
 @app.cell
 def _(mo):
     path_input = mo.ui.text(
-        placeholder="herakles:/data/mo-net/sweeps/w2v/.../run.zip",
-        label="model zip path (local or ssh)",
+        placeholder="herakles:/data/mo-net/sweeps/w2v/.../run.mar",
+        label="model archive path (local or ssh)",
         full_width=True,
     )
     force_refresh = mo.ui.checkbox(value=False, label="force re-fetch (ssh only)")
@@ -81,7 +83,7 @@ def _(Path, force_refresh, hashlib, mo, path_input, subprocess):
             else:
                 scp_src = raw
                 _, _, rpath = raw.partition(":")
-            suffix = Path(rpath).suffix or ".zip"
+            suffix = Path(rpath).suffix or ".mar"
             key = hashlib.sha256(raw.encode()).hexdigest()[:16]
             cached = cache_dir / f"{key}{suffix}"
             if cached.exists() and not force_refresh.value:
@@ -272,6 +274,83 @@ def _(embeddings, matched, mo, np, vocab_obj):
         )
 
     _health()
+    return
+
+
+@app.cell
+def _(mo):
+    abtt_k = mo.ui.slider(
+        start=0,
+        stop=5,
+        value=1,
+        label="ABTT: top-K PCs to remove",
+        show_value=True,
+    )
+    abtt_k
+    return (abtt_k,)
+
+
+@app.cell
+def _(abtt_k, embeddings, mo, np):
+    def _abtt_compare():
+        if embeddings is None:
+            return mo.md("_load a model first to see ABTT comparison_")
+
+        _E = np.asarray(embeddings, dtype=np.float64)
+        _mean = _E.mean(axis=0, keepdims=True)
+        _centered = _E - _mean
+        _U, _s, _Vt = np.linalg.svd(_centered, full_matrices=False)
+
+        _K = int(abtt_k.value)
+        if _K == 0:
+            _cleaned = _centered.copy()
+        else:
+            _components = _Vt[:_K]
+            _projections = _centered @ _components.T
+            _cleaned = _centered - _projections @ _components
+
+        def _anisotropy(_M: np.ndarray, _seed: int = 42) -> float:
+            _norms = np.linalg.norm(_M, axis=1, keepdims=True)
+            _norms = np.where(_norms < 1e-12, 1.0, _norms)
+            _Mn = _M / _norms
+            _rng = np.random.default_rng(_seed)
+            _N = len(_Mn)
+            _n_pairs = min(5000, _N * (_N - 1) // 2)
+            _i = _rng.integers(0, _N, _n_pairs * 2)
+            _j = _rng.integers(0, _N, _n_pairs * 2)
+            _keep = _i != _j
+            _i, _j = _i[_keep][:_n_pairs], _j[_keep][:_n_pairs]
+            return float(np.sum(_Mn[_i] * _Mn[_j], axis=1).mean())
+
+        _ratios = (_s**2) / (_s**2).sum()
+        _top1_raw = float(_ratios[0])
+        _top3_raw = float(_ratios[:3].sum())
+        _aniso_raw = _anisotropy(_E)
+        _aniso_clean = _anisotropy(_cleaned)
+
+        _, _s_clean, _ = np.linalg.svd(
+            _cleaned - _cleaned.mean(axis=0), full_matrices=False
+        )
+        _ratios_clean = (_s_clean**2) / (_s_clean**2).sum()
+        _top1_clean = float(_ratios_clean[0])
+        _top3_clean = float(_ratios_clean[:3].sum())
+
+        return mo.md(
+            f"### ABTT comparison (top-{_K} PCs removed)\n\n"
+            f"| metric | raw | cleaned | delta |\n|---|---|---|---|\n"
+            f"| anisotropy | {_aniso_raw:.4f} | {_aniso_clean:.4f} | "
+            f"{_aniso_clean - _aniso_raw:+.4f} |\n"
+            f"| top-1 PC variance | {_top1_raw:.4f} | {_top1_clean:.4f} | "
+            f"{_top1_clean - _top1_raw:+.4f} |\n"
+            f"| top-3 PC variance | {_top3_raw:.4f} | {_top3_clean:.4f} | "
+            f"{_top3_clean - _top3_raw:+.4f} |\n\n"
+            f"_If anisotropy drops near 0 after removing 1-2 PCs, the "
+            f"collapse was cosmetic and the structure underneath is "
+            f"recoverable — bake ABTT into your eval/inference path. "
+            f"If it stays high, the geometry itself is degenerate._"
+        )
+
+    _abtt_compare()
     return
 
 
@@ -474,7 +553,8 @@ def _(mo):
                 "_lens choices: `cosine-raw` (no preprocessing — bias toward "
                 "frequent words), `cosine-centred` (subtract embedding-table "
                 "mean — strips common component, default), `cosine-debiased` "
-                "(centre + remove top-2 PCs — Mu et al. all-but-the-top)._"
+                "(centre + remove top-K PCs — Mu et al. all-but-the-top; "
+                "uses the K from the ABTT slider above)._"
             ),
             mo.hstack([analogy_a, analogy_b, analogy_c]),
             mo.hstack([analogy_lens, analogy_k]),
@@ -485,6 +565,7 @@ def _(mo):
 
 @app.cell
 def _(
+    abtt_k,
     analogy_a,
     analogy_b,
     analogy_c,
@@ -512,12 +593,16 @@ def _(
 
         E = np.asarray(embeddings, dtype=np.float64)
         lens = analogy_lens.value
+        K_used = 0
         if lens in ("cosine-centred", "cosine-debiased"):
             E = E - E.mean(axis=0, keepdims=True)
         if lens == "cosine-debiased":
-            _, _, vt = np.linalg.svd(E, full_matrices=False)
-            top = vt[:2]
-            E = E - (E @ top.T) @ top
+            K_used = int(abtt_k.value)
+            if K_used > 0:
+                _, _, vt = np.linalg.svd(E, full_matrices=False)
+                top = vt[:K_used]
+                E = E - (E @ top.T) @ top
+        fingerprint = float(np.linalg.norm(E[:1])) if len(E) else 0.0
         norms = np.linalg.norm(E, axis=1, keepdims=True)
         norms = np.where(norms < 1e-12, 1.0, norms)
         E_n = E / norms
@@ -526,6 +611,7 @@ def _(
         sims = E_n @ target_n
         for w in (a, b, c):
             sims[vocab_obj[w]] = -np.inf
+        sims[vocab_obj.unknown_token_id] = -np.inf
 
         k = analogy_k.value
         top_idx = np.argpartition(-sims, k)[:k]
@@ -535,7 +621,8 @@ def _(
             for rank, idx in enumerate(top_idx, 1)
         )
         return mo.md(
-            f"**`{a} − {b} + {c}` →** _(`{lens}`, A/B/C excluded)_\n\n"
+            f"**`{a} − {b} + {c}` →** _(`{lens}`, K={K_used}, "
+            f"A/B/C excluded; ||E[0]|| = {fingerprint:.4f})_\n\n"
             f"| rank | word | cos sim |\n|---|---|---|\n{rows}"
         )
 

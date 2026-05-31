@@ -27,7 +27,7 @@ nb name host="0.0.0.0" port="2718":
     set -euo pipefail
     lan_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "<your-ip>")
     echo "LAN URL: http://${lan_ip}:{{port}}"
-    nix develop -c marimo edit --watch --host {{host}} --port {{port}} notebooks/{{name}}.py
+    nix develop -c marimo edit --watch --no-token --host {{host}} --port {{port}} notebooks/{{name}}.py
 
 # Build the OCI training image and push it straight into a registry via skopeo.
 # Default registry host comes from $REGISTRY_HOST (set in .envrc.local), with
