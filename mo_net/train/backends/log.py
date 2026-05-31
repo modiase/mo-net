@@ -79,6 +79,11 @@ class LoggingBackend(Protocol):
     def end_run(self, run_id: int) -> None:
         """Mark the run completed."""
 
+    def update_run_totals(self, run_id: int, *, total_batches: int) -> None:
+        """Back-fill the ``total_batches`` column for a run registered
+        upfront with a placeholder (e.g. before data-prep had finished
+        and the real count was knowable)."""
+
     def teardown(self) -> None:
         """Flush buffers, close connections."""
 
@@ -190,6 +195,13 @@ class SqlBackend(LoggingBackend):
             run.completed_at = datetime.now()
             self._session.commit()
         self._current_handle = None
+
+    def update_run_totals(self, run_id: int, *, total_batches: int) -> None:
+        if not self._session:
+            raise RuntimeError("Session not created. Call create() first.")
+        if run := self._session.get(DbRun, run_id):
+            run.total_batches = total_batches
+            self._session.commit()
 
     def teardown(self) -> None:
         if self._current_handle is not None and self._pending_entries:
@@ -459,6 +471,9 @@ class NullBackend(LoggingBackend):
 
     def end_run(self, run_id: int) -> None:
         del run_id
+
+    def update_run_totals(self, run_id: int, *, total_batches: int) -> None:
+        del run_id, total_batches
 
     def teardown(self) -> None:
         pass

@@ -268,6 +268,21 @@ def _pairs_cache_key(
     return h.hexdigest()[:16]
 
 
+def _vocab_cache_key(
+    corpus_url: str,
+    limit: int | None,
+    max_vocab_size: int,
+    forced_words: Collection[str],
+) -> str:
+    """Vocab is invariant to context_size / subsample_t — give it its own key so
+    hyperparameter tweaks on those axes don't redo the expensive vocab pass."""
+    h = hashlib.sha256()
+    h.update(corpus_url.encode())
+    h.update(f"|{limit}|{max_vocab_size}|".encode())
+    h.update(",".join(sorted(forced_words)).encode())
+    return h.hexdigest()[:16]
+
+
 def cached_english_training_set(
     *,
     limit: int | None = None,
@@ -394,33 +409,45 @@ def build_streaming_training_set(
                 break
             yield text
 
-    logger.info("streaming pass 1/3: building vocab")
-    counter: Counter[str] = Counter()
-    n_rows = 0
-    for text in _rows():
-        counter.update(t for t in tokenize_line(text) if t not in stop_words)
-        n_rows += 1
-        if n_rows % 100_000 == 0:
-            logger.info(f"  pass 1: {n_rows:,} rows, {len(counter):,} unique tokens")
-    logger.info(f"  pass 1 done: {n_rows:,} rows, {len(counter):,} unique tokens")
+    vocab_only_key = _vocab_cache_key(corpus_url, limit, max_vocab_size, forced_words)
+    vocab_only_path = cache_dir / f"w2v-vocab-{vocab_only_key}.msgpack"
+    if vocab_only_path.exists():
+        logger.info(f"vocab cache hit: {vocab_only_path}")
+        vocab = Vocab.from_bytes(vocab_only_path.read_bytes())
+    else:
+        logger.info("streaming pass 1/3: building vocab")
+        counter: Counter[str] = Counter()
+        n_rows = 0
+        for text in _rows():
+            counter.update(t for t in tokenize_line(text) if t not in stop_words)
+            n_rows += 1
+            if n_rows % 100_000 == 0:
+                logger.info(
+                    f"  pass 1: {n_rows:,} rows, {len(counter):,} unique tokens"
+                )
+        logger.info(f"  pass 1 done: {n_rows:,} rows, {len(counter):,} unique tokens")
 
-    most_common = {tok for tok, _ in counter.most_common(max_vocab_size)}
-    for w in forced_words:
-        most_common.add(w)
-    vocab_tuple = tuple(most_common)
-    word_counts = {tok: counter[tok] for tok in vocab_tuple}
-    vocab = Vocab(
-        vocab=vocab_tuple,
-        token_to_id={t: i for i, t in enumerate(vocab_tuple)},
-        id_to_token=defaultdict(
-            lambda: "<unknown>",
-            {i: t for i, t in enumerate(vocab_tuple)},
-        ),
-        unknown_token_id=len(vocab_tuple),
-        word_counts=word_counts,
-    )
-    del counter
+        most_common = {tok for tok, _ in counter.most_common(max_vocab_size)}
+        for w in forced_words:
+            most_common.add(w)
+        vocab_tuple = tuple(most_common)
+        word_counts = {tok: counter[tok] for tok in vocab_tuple}
+        vocab = Vocab(
+            vocab=vocab_tuple,
+            token_to_id={t: i for i, t in enumerate(vocab_tuple)},
+            id_to_token=defaultdict(
+                lambda: "<unknown>",
+                {i: t for i, t in enumerate(vocab_tuple)},
+            ),
+            unknown_token_id=len(vocab_tuple),
+            word_counts=word_counts,
+        )
+        del counter
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        vocab_only_path.write_bytes(vocab.serialize())
+        logger.info(f"cached vocab to {vocab_only_path}")
 
+    word_counts = vocab.word_counts or {}
     discard_prob: dict[int, float] = {}
     if subsample_t > 0:
         total = sum(word_counts.values())

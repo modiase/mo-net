@@ -1,6 +1,5 @@
 """Tests for Vocab class."""
 
-import pytest
 import jax.numpy as jnp
 from pathlib import Path
 import tempfile
@@ -412,3 +411,50 @@ class TestStreamingTrainingSet:
         )
         # The 2-token sentence yields 0 windows at ctx=3; the longer ones do.
         assert X.shape[0] > 0
+
+    def test_vocab_cache_hits_when_only_context_size_changes(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from mo_net.samples.word2vec import vocab as vocab_module
+        from mo_net.samples.word2vec.vocab import build_streaming_training_set
+
+        monkeypatch.setenv("MO_NET_RESOURCE_CACHE", str(tmp_path / "cache"))
+        from mo_net.settings import get_settings
+
+        get_settings.cache_clear()
+        url = self._corpus(tmp_path)
+        cache = tmp_path / "pair-cache"
+        cache.mkdir()
+
+        n_iter_calls = 0
+        original_iter = vocab_module.iter_text_rows
+
+        def _counting_iter(u):
+            nonlocal n_iter_calls
+            n_iter_calls += 1
+            yield from original_iter(u)
+
+        monkeypatch.setattr(vocab_module, "iter_text_rows", _counting_iter)
+
+        build_streaming_training_set(
+            corpus_url=url,
+            max_vocab_size=100,
+            context_size=2,
+            cache_dir=cache,
+            subsample_t=0,
+        )
+        cold = n_iter_calls
+        assert cold == 3, f"cold cache should drive 3 passes, got {cold}"
+
+        n_iter_calls = 0
+        build_streaming_training_set(
+            corpus_url=url,
+            max_vocab_size=100,
+            context_size=3,
+            cache_dir=cache,
+            subsample_t=0,
+        )
+        warm = n_iter_calls
+        assert warm == 2, (
+            f"vocab cache should let context-size tweak skip pass 1; got {warm}"
+        )

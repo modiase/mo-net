@@ -97,3 +97,10 @@ class TrainingRun:
         if self._run_id is None:
             raise ValueError("Cannot end run. Call start_run() first.")
         self._backend.end_run(run_id=self._run_id)
+
+    def update_totals(self, *, total_batches: int) -> None:
+        """Back-fill ``total_batches`` after registering the run upfront
+        with a placeholder. No-op if the run isn't started yet."""
+        if self._run_id is None:
+            return
+        self._backend.update_run_totals(self._run_id, total_batches=total_batches)

@@ -34,6 +34,7 @@ from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import (
     ENGLISH_SENTENCES_URL,
     TokenizedSentence,
+    Vocab,
     build_streaming_training_set,
     cached_english_training_set,
     get_english_sentences,
@@ -107,15 +108,17 @@ def train(
     include_words = tuple(word.lower() for word in include_words)
     parent_run_name: str | None = None
     resume_state = None
+    resumed_vocab: Vocab | None = None
+    resumed_model: CBOWModel | SkipGramModel | None = None
     if model_path is not None:
         # Resume from a prior archive: load weights, capture the training_state
         # so we can position the optimiser and propagate lineage into the new
         # manifest. ``prefer="last"`` because resumes continue from the most
         # recent state, not the historical best.
-        model_, vocab, manifest = load_word2vec_archive(
+        model_, resumed_vocab, manifest = load_word2vec_archive(
             model_path, training=True, key=key, prefer="last"
         )
-        model: CBOWModel | SkipGramModel = model_
+        resumed_model = model_
         if manifest.training_state is None:
             logger.warning(
                 f"{model_path} has no training_state; starting from epoch 0."
@@ -128,6 +131,52 @@ def train(
                 f"{resume_state.completed_epoch} (iteration "
                 f"{resume_state.current_iteration})."
             )
+
+    # Construct backend + run + resolve parent BEFORE data prep so the
+    # dashboard surfaces the row (and Loki logs route to it) from minute one.
+    backend = (
+        parse_connection_string(logging_backend_connection_string)
+        if logging_backend_connection_string
+        else NullBackend()
+    )
+    logger.info(f"Training-log backend: {backend.connection_string}")
+    resolved_name = run_name or f"{model_type}_run_{seed}"
+    run = TrainingRun(seed=seed, name=resolved_name, backend=backend)
+
+    parent_run_id: int | None = None
+    resume_lineage_id: str | None = None
+    if resume_state is not None:
+        backend.create()
+        if parent_run_name is not None:
+            parent_run_id = backend.lookup_run_id_by_name(parent_run_name)
+            if parent_run_id is None:
+                logger.warning(
+                    f"Parent run {parent_run_name!r} not found in backend; "
+                    f"lineage_id will be carried but parent_run_id is NULL."
+                )
+        resume_lineage_id = resume_state.lineage_id
+
+    import os as _os
+
+    # total_batches is unknown until data prep yields train_set_size; back-fill
+    # via run.update_totals() once that's known.
+    run.start_run(
+        total_batches=0,
+        total_epochs=num_epochs,
+        lineage_id=resume_lineage_id,
+        parent_run_id=parent_run_id,
+        build_rev=_os.environ.get("MO_NET_BUILD_REV"),
+    )
+    logger.info(
+        f"Registered run {run.name!r} (run_id={run.id}); "
+        "total_batches will be back-filled after data prep."
+    )
+
+    if resumed_model is not None:
+        # Resume branch: vocab + model already loaded; tokenise via resumed vocab.
+        assert resumed_vocab is not None
+        vocab = resumed_vocab
+        model: CBOWModel | SkipGramModel = resumed_model
         sentences = get_english_sentences(sentence_limit, url=resolved_corpus_url)
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
@@ -220,14 +269,12 @@ def train(
         workers=0,
     )
 
-    backend = (
-        parse_connection_string(logging_backend_connection_string)
-        if logging_backend_connection_string
-        else NullBackend()
+    run.update_totals(total_batches=training_parameters.total_batches)
+    logger.info(
+        f"Back-filled run {run.name!r} totals "
+        f"(total_batches={training_parameters.total_batches})."
     )
-    logger.info(f"Training-log backend: {backend.connection_string}")
-    resolved_name = run_name or f"{model_type}_run_{seed}"
-    run = TrainingRun(seed=seed, name=resolved_name, backend=backend)
+
     optimiser = get_optimiser("adam", model, training_parameters)
 
     EmbeddingWeightDecayRegulariser.attach(
@@ -236,35 +283,6 @@ def train(
         optimiser=optimiser,
         model=cast(CBOWModel | SkipGramModel, model),
     )
-
-    # Resolve parent_run_id by name so we need to bring the schema up first;
-    # backend.create() is idempotent so start_run can call it again.
-    parent_run_id: int | None = None
-    resume_lineage_id: str | None = None
-    if resume_state is not None:
-        backend.create()
-        if parent_run_name is not None:
-            parent_run_id = backend.lookup_run_id_by_name(parent_run_name)
-            if parent_run_id is None:
-                logger.warning(
-                    f"Parent run {parent_run_name!r} not found in backend; "
-                    f"lineage_id will be carried but parent_run_id is NULL."
-                )
-        resume_lineage_id = resume_state.lineage_id
-
-    # Register the run upfront so the dashboard surfaces it (and its Loki
-    # logs) before training does any heavy work. The trainer's own
-    # start_run call is now a no-op via the `is_started` guard.
-    import os as _os
-
-    run.start_run(
-        total_batches=training_parameters.total_batches,
-        total_epochs=training_parameters.num_epochs,
-        lineage_id=resume_lineage_id,
-        parent_run_id=parent_run_id,
-        build_rev=_os.environ.get("MO_NET_BUILD_REV"),
-    )
-    logger.info(f"Registered run {run.name!r} (run_id={run.id}).")
 
     trainer = BasicTrainer(
         X_train=X_train_split,
