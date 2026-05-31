@@ -34,6 +34,7 @@ from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import (
     ENGLISH_SENTENCES_URL,
     TokenizedSentence,
+    build_streaming_training_set,
     cached_english_training_set,
     get_english_sentences,
     get_training_set,
@@ -76,6 +77,7 @@ def train(
     run_name: str | None,
     sentence_limit: int | None,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
+    stream: bool,
     subsample_t: float,
     vocab_size: int,
     warmup_epochs: int,
@@ -134,7 +136,10 @@ def train(
         if model_type == "skipgram":
             Y_train, X_train = X_train, Y_train
     else:
-        vocab, X_train, Y_train = cached_english_training_set(
+        builder = (
+            build_streaming_training_set if stream else cached_english_training_set
+        )
+        vocab, X_train, Y_train = builder(
             limit=sentence_limit,
             max_vocab_size=vocab_size,
             forced_words=include_words,

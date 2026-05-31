@@ -63,6 +63,71 @@ def get_resource(url: str) -> "datasets.Dataset":
     return handler(parsed)
 
 
+def iter_text_rows(url: str) -> Iterator[str]:
+    """Yield text rows one at a time without materialising the corpus.
+
+    ``hf://`` URLs route through ``datasets.load_dataset(streaming=True)``
+    so peak memory stays bounded by one row. ``http``/``https``/``s3``
+    fall back to the ETag-cached file then iterate lines; ``file://``
+    opens the path directly.
+    """
+    parsed = urlparse(url)
+    match parsed.scheme:
+        case "hf":
+            yield from _stream_hf(parsed)
+        case "http" | "https":
+            yield from _stream_text_file(_download_with_etag(parsed.geturl()))
+        case "s3":
+            yield from _stream_text_file(_download_with_etag(_s3_to_https(parsed)))
+        case "file":
+            path = Path(parsed.path).resolve()
+            if not path.exists():
+                raise FileNotFoundError(path)
+            yield from _stream_text_file(path)
+        case other:
+            raise ValueError(
+                f"Unsupported URL scheme {other!r} for streaming text rows"
+            )
+
+
+def _stream_hf(parsed: ParseResult) -> Iterator[str]:
+    import datasets
+
+    params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+    repo_id = _hf_repo_id(parsed)
+    config = params.get("config")
+    split = params.get("split", "train")
+    text_field = params.get("text_field", "text")
+    cache_dir = get_settings().resource_cache / "huggingface"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        f"streaming hf://{repo_id} (config={config!r}, split={split!r}, "
+        f"cache_dir={cache_dir})"
+    )
+    ds = datasets.load_dataset(
+        repo_id,
+        config,
+        split=split,
+        cache_dir=str(cache_dir),
+        streaming=True,
+    )
+    for row in ds:
+        yield row[text_field]
+
+
+def _stream_text_file(path: Path) -> Iterator[str]:
+    suffix = path.suffix.lower()
+    if suffix not in {".txt", ".text"}:
+        raise ValueError(
+            f"Cannot stream {suffix!r} as text rows (supported: .txt, .text)"
+        )
+    logger.info(f"streaming text rows from {path}")
+    with open(path) as f:
+        for line in f:
+            yield line.rstrip("\n")
+
+
 def head_resource(url: str) -> None:
     """Verify ``url`` is reachable without materialising its payload.
 

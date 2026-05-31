@@ -181,6 +181,18 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default="negative-sampling",
     )
     @click.option(
+        "--stream/--no-stream",
+        "stream",
+        default=False,
+        help=(
+            "Build (vocab, X, Y) via three streaming passes over the "
+            "corpus instead of loading the full tokenised list into RAM. "
+            "Required for corpora that don't fit in memory (e.g. full "
+            "FineWeb sample-10BT). Output arrays land on memmap'd .npy "
+            "files; the trainer reads them via mmap_mode='r'."
+        ),
+    )
+    @click.option(
         "--subsample-t",
         type=float,
         help=(

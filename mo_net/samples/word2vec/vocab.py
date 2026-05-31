@@ -4,7 +4,7 @@ import hashlib
 import random
 import re
 from collections import Counter, defaultdict
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from re import Pattern
@@ -15,7 +15,7 @@ import msgpack  # type: ignore[import-untyped]
 import numpy as np
 from loguru import logger
 
-from mo_net.resources import get_resource
+from mo_net.resources import get_resource, iter_text_rows
 
 
 type Sentence = Sequence[str]
@@ -346,6 +346,136 @@ def cached_english_training_set(
             logger.debug(f"could not write training-set cache to {x_path}: {e}")
 
     return vocab, np.asarray(X), np.asarray(Y)
+
+
+def build_streaming_training_set(
+    *,
+    corpus_url: str,
+    limit: int | None = None,
+    max_vocab_size: int = 1000,
+    forced_words: Collection[str] = (),
+    context_size: int,
+    cache_dir: Path,
+    subsample_t: float = 1e-5,
+    subsample_seed: int = 42,
+) -> tuple[Vocab, np.ndarray, np.ndarray]:
+    """Three-pass streaming pair build for arbitrarily large corpora.
+
+    Peak RAM ≈ vocab Counter + one row's tokens. Pair arrays land
+    directly on memmap-backed ``.npy`` files; subsequent runs hit the
+    same cache path as :func:`cached_english_training_set` so the
+    in-memory and streaming paths interchange.
+
+    Three passes are unavoidable: pass 1 needs the full token Counter
+    before vocab can be frozen, pass 2 needs the final vocab to size
+    the output arrays, pass 3 fills them. Each pass re-reads the same
+    HF parquet shards / cached file — after pass 1 the OS page cache
+    keeps them hot, so passes 2 and 3 are I/O-cheap.
+    """
+    stop_words = get_stop_words()
+
+    key = _pairs_cache_key(
+        corpus_url, limit, max_vocab_size, forced_words, context_size, subsample_t
+    )
+    x_path = cache_dir / f"w2v-pairs-{key}.X.npy"
+    y_path = cache_dir / f"w2v-pairs-{key}.Y.npy"
+    vocab_path = cache_dir / f"w2v-pairs-{key}.vocab.msgpack"
+    if x_path.exists() and y_path.exists() and vocab_path.exists():
+        logger.info(f"mmap-loading cached training set from {x_path.parent}")
+        return (
+            Vocab.from_bytes(vocab_path.read_bytes()),
+            np.load(x_path, mmap_mode="r"),
+            np.load(y_path, mmap_mode="r"),
+        )
+
+    def _rows() -> Iterator[str]:
+        for n, text in enumerate(iter_text_rows(corpus_url)):
+            if limit is not None and n >= limit:
+                break
+            yield text
+
+    logger.info("streaming pass 1/3: building vocab")
+    counter: Counter[str] = Counter()
+    n_rows = 0
+    for text in _rows():
+        counter.update(t for t in tokenize_line(text) if t not in stop_words)
+        n_rows += 1
+        if n_rows % 100_000 == 0:
+            logger.info(f"  pass 1: {n_rows:,} rows, {len(counter):,} unique tokens")
+    logger.info(f"  pass 1 done: {n_rows:,} rows, {len(counter):,} unique tokens")
+
+    most_common = {tok for tok, _ in counter.most_common(max_vocab_size)}
+    for w in forced_words:
+        most_common.add(w)
+    vocab_tuple = tuple(most_common)
+    word_counts = {tok: counter[tok] for tok in vocab_tuple}
+    vocab = Vocab(
+        vocab=vocab_tuple,
+        token_to_id={t: i for i, t in enumerate(vocab_tuple)},
+        id_to_token=defaultdict(
+            lambda: "<unknown>",
+            {i: t for i, t in enumerate(vocab_tuple)},
+        ),
+        unknown_token_id=len(vocab_tuple),
+        word_counts=word_counts,
+    )
+    del counter
+
+    discard_prob: dict[int, float] = {}
+    if subsample_t > 0:
+        total = sum(word_counts.values())
+        if total > 0:
+            sqrt_t = subsample_t**0.5
+            for tok, count in word_counts.items():
+                freq = count / total
+                p = 1.0 - sqrt_t / (freq**0.5)
+                if p > 0:
+                    discard_prob[vocab[tok]] = p
+
+    def _tokenise_subsample(text: str, rng: random.Random) -> list[int]:
+        ids = [vocab[t] for t in tokenize_line(text) if t not in stop_words]
+        if not discard_prob:
+            return ids
+        return [tok for tok in ids if rng.random() >= discard_prob.get(tok, 0.0)]
+
+    logger.info("streaming pass 2/3: counting training pairs")
+    rng = random.Random(subsample_seed)
+    n_pairs = 0
+    for text in _rows():
+        ids = _tokenise_subsample(text, rng)
+        n_pairs += max(0, len(ids) - 2 * context_size)
+    logger.info(f"  pass 2 done: {n_pairs:,} training pairs")
+
+    logger.info("streaming pass 3/3: writing memmap arrays")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    X = np.lib.format.open_memmap(
+        x_path, mode="w+", dtype=np.int32, shape=(n_pairs, 2 * context_size)
+    )
+    Y = np.lib.format.open_memmap(y_path, mode="w+", dtype=np.int32, shape=(n_pairs,))
+    rng = random.Random(subsample_seed)
+    pos = 0
+    for text in _rows():
+        ids = _tokenise_subsample(text, rng)
+        n = len(ids) - 2 * context_size
+        if n <= 0:
+            continue
+        s = np.asarray(ids, dtype=np.int32)
+        centers = np.arange(context_size, context_size + n)
+        for j in range(context_size):
+            X[pos : pos + n, j] = s[centers - context_size + j]
+            X[pos : pos + n, context_size + j] = s[centers + 1 + j]
+        Y[pos : pos + n] = s[centers]
+        pos += n
+    X.flush()
+    Y.flush()
+    vocab_path.write_bytes(vocab.serialize())
+    logger.info(f"  pass 3 done; cached at {x_path.parent}")
+
+    return (
+        vocab,
+        np.load(x_path, mmap_mode="r"),
+        np.load(y_path, mmap_mode="r"),
+    )
 
 
 def get_stop_words() -> Collection[str]:
