@@ -8,7 +8,8 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Self, cast
+from re import Pattern
+from typing import Final, Self, cast
 
 import jax.numpy as jnp
 import msgpack  # type: ignore[import-untyped]
@@ -17,13 +18,14 @@ from loguru import logger
 
 from mo_net.resources import get_resource
 
-ENGLISH_SENTENCES_URL = "s3://mo-net-resources/english-sentences.txt"
 
 type Sentence = Sequence[str]
 type TokenizedSentence = Sequence[int]
 
-_NON_PRINTABLE = re.compile(r"[^\x20-\x7E]")
-_PUNCTUATION = re.compile(r"[^\w\s]")
+_NON_PRINTABLE: Final[Pattern] = re.compile(r"[^\x20-\x7E]")
+_PUNCTUATION: Final[Pattern] = re.compile(r"[^\w\s]")
+
+ENGLISH_SENTENCES_URL: Final[str] = "s3://mo-net-resources/english-sentences.txt"
 
 
 def tokenize_line(line: str) -> list[str]:
@@ -166,9 +168,10 @@ class Vocab:
         limit: int | None = None,
         max_vocab_size: int = 1000,
         forced_words: Collection[str] = (),
+        corpus_url: str = ENGLISH_SENTENCES_URL,
     ) -> tuple[Vocab, Collection[TokenizedSentence]]:
         return cls.from_sentences(
-            get_english_sentences(limit),
+            get_english_sentences(limit, url=corpus_url),
             max_size=max_vocab_size,
             forced_words=forced_words,
         )
@@ -246,7 +249,7 @@ def get_training_set(
 
 
 def _pairs_cache_key(
-    corpus_path: Path,
+    corpus_url: str,
     limit: int | None,
     max_vocab_size: int,
     forced_words: Collection[str],
@@ -254,8 +257,7 @@ def _pairs_cache_key(
     subsample_t: float,
 ) -> str:
     h = hashlib.sha256()
-    # corpus_path.name is the etag-prefixed cache filename — captures corpus identity
-    h.update(corpus_path.name.encode())
+    h.update(corpus_url.encode())
     h.update(f"|{limit}|{max_vocab_size}|{context_size}|{subsample_t}|".encode())
     h.update(",".join(sorted(forced_words)).encode())
     return h.hexdigest()[:16]
@@ -269,8 +271,9 @@ def cached_english_training_set(
     context_size: int,
     cache_dir: Path | None = None,
     subsample_t: float = 1e-5,
+    corpus_url: str = ENGLISH_SENTENCES_URL,
 ) -> tuple[Vocab, np.ndarray, np.ndarray]:
-    """Materialise (vocab, X, Y) for the English-sentences corpus, with cache.
+    """Materialise (vocab, X, Y) for an English-text corpus, with cache.
 
     Caches X and Y as separate uncompressed ``.npy`` files so subsequent
     loads use ``mmap_mode='r'`` — the OS page cache is then shared between
@@ -283,15 +286,16 @@ def cached_english_training_set(
     The (X, Y) shape is the same for CBOW and SkipGram — the X/Y swap
     that distinguishes the two models happens at the call-site after
     this returns, so a single cache file serves both.
-    """
-    corpus_path = get_resource(ENGLISH_SENTENCES_URL)
 
+    ``corpus_url`` is the pair-cache key, independent of the byte-level
+    resource cache.
+    """
     x_path: Path | None = None
     y_path: Path | None = None
     vocab_path: Path | None = None
     if cache_dir is not None:
         key = _pairs_cache_key(
-            corpus_path,
+            corpus_url,
             limit,
             max_vocab_size,
             forced_words,
@@ -313,6 +317,7 @@ def cached_english_training_set(
         limit=limit,
         max_vocab_size=max_vocab_size,
         forced_words=forced_words,
+        corpus_url=corpus_url,
     )
     if subsample_t > 0:
         before = sum(len(s) for s in tokenized)
@@ -481,13 +486,23 @@ def get_stop_words() -> Collection[str]:
     }
 
 
-def get_english_sentences(limit: int | None = None) -> Collection[Sentence]:
+def get_english_sentences(
+    limit: int | None = None,
+    *,
+    url: str = ENGLISH_SENTENCES_URL,
+) -> Collection[Sentence]:
+    """Tokenise the corpus at ``url``, dropping stop words, capped at ``limit`` rows.
+
+    Each row's ``text`` column becomes one "sentence" — one line for
+    ``.txt``, one document for HF datasets. :func:`get_training_set`
+    slides a fixed window inside each, so longer documents are fine.
+    """
     stop_words = get_stop_words()
+    ds = get_resource(url)
+    texts: list[str] = ds["text"]
+    if limit is not None:
+        texts = texts[:limit]
     return [
-        [token for token in tokenize_line(sentence) if token not in stop_words]
-        for sentence in (
-            get_resource("s3://mo-net-resources/english-sentences.txt")
-            .read_text()
-            .split("\n")[:limit]
-        )
+        [token for token in tokenize_line(text) if token not in stop_words]
+        for text in texts
     ]

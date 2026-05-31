@@ -21,7 +21,7 @@ from mo_net.model.layer.reshape import Flatten
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import NormalisationType
-from mo_net.resources import MNIST_TRAIN_URL
+from mo_net.samples.mnist import MNIST_TRAIN_URL
 from mo_net.train import TrainingParameters
 from mo_net.train.augment import affine_transform2D
 from mo_net.train.backends.log import NullBackend

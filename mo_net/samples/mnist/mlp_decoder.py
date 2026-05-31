@@ -28,7 +28,7 @@ from mo_net.model.module.base import Output
 from mo_net.model.module.dense import Dense
 from mo_net.protos import NormalisationType, SupportsDeserialize
 from mo_net.regulariser.l1_regulariser import L1Regulariser
-from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
+from mo_net.samples.mnist import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun

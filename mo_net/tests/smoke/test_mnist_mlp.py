@@ -13,7 +13,7 @@ from mo_net.data import SplitConfig, load_data
 from mo_net.functions import cross_entropy, get_activation_fn
 from mo_net.model.model import Model
 from mo_net.protos import NormalisationType
-from mo_net.resources import MNIST_TRAIN_URL
+from mo_net.samples.mnist import MNIST_TRAIN_URL
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import NullBackend
 from mo_net.train.run import TrainingRun

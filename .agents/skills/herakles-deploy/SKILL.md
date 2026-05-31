@@ -39,6 +39,8 @@ What the recipe does:
 
 The recipe ends with `Done: pushed <ref>`. Copy that ref into the sbatch command.
 
+**Before pressing go on new files**: `git add -A` (don't commit, just stage). flit_core's sdist generation only includes git-tracked files, so any _new_ file (e.g. a freshly-created `mo_net/scripts/foo.py`) gets silently dropped from the built wheel — manifests at runtime as `ModuleNotFoundError`. Modified files of already-tracked paths are fine without staging.
+
 ## Run a one-off spike
 
 ```bash
@@ -47,7 +49,7 @@ ssh herakles "sbatch \
   --gres=gpu:1 --cpus-per-task=4 --mem=16G --time=60:00 \
   --output=/data/mo-net/sweeps/w2v/logs/%j.out \
   --container-image=registry.herakles.local/mo-net-cuda:20260528-235451-ec771cc \
-  --container-mounts=/tmp/mo-net-stage/mo-net-cache:/var/lib/mo-net/cache:rw,/data/mo-net/sweeps/w2v/spike-out:/var/lib/mo-net/data \
+  --container-mounts=/data/mo-net/cache:/var/lib/mo-net/cache:rw,/data/mo-net/sweeps/w2v/spike-out:/var/lib/mo-net/data \
   --container-workdir=/workspace \
   --container-env=MO_NET_LOKI_URL,SLURM_JOB_ID \
   --wrap='mo-net-train -m mo_net.samples.word2vec train \
@@ -86,6 +88,38 @@ srun \
 ```
 
 Pin the image tag in the script. Re-deploying images mid-sweep would mean different tasks ran on different code — `:dirty` aside, that's exactly the thing tag-pinning fixes.
+
+## Hugging Face datasets + cache pre-warming
+
+`HF_HOME` is baked into the image at `/var/lib/mo-net/cache/huggingface` (see `flake.nix`), so anything `datasets.load_dataset` materialises lands under the persistent cache mount automatically — no `--container-env=HF_HOME` needed.
+
+**One-time host prep** (cache directory must exist and be user-writable):
+
+```bash
+ssh herakles 'sudo mkdir -p /data/mo-net/cache && sudo chown $USER /data/mo-net/cache'
+```
+
+`/data/mo-net/cache` is on `/data` (persistent across reboots), unlike the legacy `/tmp/mo-net-stage/mo-net-cache` which tmpfs wipes — multi-GB HF dataset downloads would have to repeat every reboot otherwise.
+
+**Pre-warm before launching a sweep** (avoid burning a GPU node on downloads):
+
+```bash
+# FineWeb sample-10BT — ~28 GB on disk, 10B tokens.
+ssh herakles 'nix develop -c mo-net-prewarm \
+  "hf://HuggingFaceFW/fineweb?config=sample-10BT&split=train&text_field=text"'
+
+# Cheap sanity-check it landed:
+ssh herakles 'du -sh /data/mo-net/cache/huggingface'
+```
+
+**Pass an HF corpus to a training job** — `--corpus-url` accepts any scheme `mo_net.resources` knows:
+
+```bash
+mo-net-train -m mo_net.samples.word2vec train \
+  --corpus-url 'hf://HuggingFaceFW/fineweb?config=sample-10BT&split=train&text_field=text' \
+  --model-type cbow --softmax-strategy negative-sampling \
+  --vocab-size 50000 --batch-size 4096 …
+```
 
 ## Inspecting the registry
 

@@ -351,6 +351,19 @@
           '';
         };
 
+        # The training image expects writable state under this prefix —
+        # data outputs at $stateRoot/data, byte + HF caches at
+        # $stateRoot/cache. The values below are the *in-container*
+        # paths; what they map to on the host is decided by the
+        # `--container-mounts` argument of whatever launches the
+        # container (e.g. a slurm/pyxis sbatch script can mount any
+        # persistent host directory at `$stateRoot/cache` to share the
+        # cache across sweep tasks). Don't assume these strings name
+        # filesystem locations on the host.
+        stateRoot = "/var/lib/mo-net";
+        dataDir = "${stateRoot}/data";
+        cacheDir = "${stateRoot}/cache";
+
         mkTrainingImage =
           {
             name,
@@ -373,9 +386,13 @@
                 "PYTHONUNBUFFERED=1"
                 "PATH=${pyVenv}/bin:/bin"
                 "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-                # Mount a host dir at /var/lib/mo-net to persist these.
-                "MO_NET_DATA_DIR=/var/lib/mo-net/data"
-                "MO_NET_RESOURCE_CACHE=/var/lib/mo-net/cache"
+                "MO_NET_DATA_DIR=${dataDir}"
+                "MO_NET_RESOURCE_CACHE=${cacheDir}"
+                # HF_HOME is the umbrella var; covers datasets and hub caches.
+                # Lands under the resource-cache directory so sweep tasks hit
+                # the dataset cache instead of re-downloading — assumes the
+                # launcher mounts a persistent host dir at $cacheDir.
+                "HF_HOME=${cacheDir}/huggingface"
                 # Build provenance, forwarded to Loki labels by the entrypoint.
                 "MO_NET_BUILD_REV=${self.shortRev or self.dirtyShortRev or "unknown"}"
                 "MO_NET_BUILD_DATE=${self.lastModifiedDate}"

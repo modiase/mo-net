@@ -32,6 +32,7 @@ from mo_net.samples.word2vec.cli.group import cli, training_options
 from mo_net.samples.word2vec.models import CBOWModel, SkipGramModel
 from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
 from mo_net.samples.word2vec.vocab import (
+    ENGLISH_SENTENCES_URL,
     TokenizedSentence,
     cached_english_training_set,
     get_english_sentences,
@@ -57,6 +58,7 @@ def train(
     batch_size: int,
     checkpoint_strategy: Literal["min-val", "last", "both"],
     context_size: int,
+    corpus_url: str | None,
     embedding_dim: int,
     health_frequency: int | None,
     history_max_len: int,
@@ -83,6 +85,8 @@ def train(
     setup_logging(log_level)
 
     print_device_info()
+
+    resolved_corpus_url = corpus_url or ENGLISH_SENTENCES_URL
 
     seed = time.time_ns() // 1000
     logger.info(f"Using seed: {seed}")
@@ -122,7 +126,7 @@ def train(
                 f"{resume_state.completed_epoch} (iteration "
                 f"{resume_state.current_iteration})."
             )
-        sentences = get_english_sentences(sentence_limit)
+        sentences = get_english_sentences(sentence_limit, url=resolved_corpus_url)
         tokenized_sentences: Collection[TokenizedSentence] = [
             [vocab[token] for token in sentence] for sentence in sentences if sentence
         ]
@@ -137,6 +141,7 @@ def train(
             context_size=context_size,
             cache_dir=get_settings().resource_cache,
             subsample_t=subsample_t,
+            corpus_url=resolved_corpus_url,
         )
         if model_type == "skipgram":
             Y_train, X_train = X_train, Y_train

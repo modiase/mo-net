@@ -15,7 +15,7 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 from mo_net.cli import train, training_options
-from mo_net.resources import get_resource
+from mo_net.resources import head_resource
 from mo_net.train.trainer.trainer import TrainingResult
 
 
@@ -152,7 +152,7 @@ async def validate(**kwargs) -> None:
 
     if (dataset_url := kwargs.get("dataset_url")) is None:
         raise ValueError("dataset_url is required")
-    get_resource(dataset_url)
+    head_resource(dataset_url)
 
     with tempfile.TemporaryDirectory() as tmp_dir_name:
         logger.info(f"Using temporary directory: {Path(tmp_dir_name)}")

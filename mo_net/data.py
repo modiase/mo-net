@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import ceil
-from pathlib import Path
 from typing import Final, Self, overload
 
 import jax.numpy as jnp
@@ -75,8 +74,7 @@ class SplitConfig:
         return val_start, val_end
 
 
-def _load_data(data_path: Path, *, one_hot: bool) -> tuple[jnp.ndarray, jnp.ndarray]:
-    df = pd.read_csv(data_path)
+def _load_data(df: pd.DataFrame, *, one_hot: bool) -> tuple[jnp.ndarray, jnp.ndarray]:
     return (
         jnp.array(df.iloc[:, 1:]) / MAX_PIXEL_VALUE,
         (
@@ -88,10 +86,8 @@ def _load_data(data_path: Path, *, one_hot: bool) -> tuple[jnp.ndarray, jnp.ndar
 
 
 def _load_data_split(
-    data_path: Path, split: SplitConfig, *, one_hot: bool
+    df: pd.DataFrame, split: SplitConfig, *, one_hot: bool
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    df = pd.read_csv(data_path)
-
     train_indices = split.get_train_indices(len(df))
     val_start, val_end = split.get_val_indices(len(df))
 
@@ -142,9 +138,13 @@ def load_data(
     | tuple[jnp.ndarray, jnp.ndarray]
 ):
     logger.info(f"Loading data from {dataset_url}.")
-    data_path = get_resource(dataset_url)
+    df = get_resource(dataset_url).to_pandas()
+    assert isinstance(df, pd.DataFrame), (
+        "Dataset.to_pandas() returned an iterator (batched=True path) — "
+        "this loader only handles a single in-memory DataFrame."
+    )
     return (
-        _load_data_split(data_path, split, one_hot=one_hot)
+        _load_data_split(df, split, one_hot=one_hot)
         if split
-        else _load_data(data_path, one_hot=one_hot)
+        else _load_data(df, one_hot=one_hot)
     )

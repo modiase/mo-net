@@ -50,6 +50,19 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=4,
     )
     @click.option(
+        "--corpus-url",
+        type=str,
+        help=(
+            "Resource URL of the training corpus. Any scheme that "
+            "mo_net.resources supports works: s3://, https://, file://, "
+            "and hf:// for Hugging Face datasets, e.g. "
+            "'hf://HuggingFaceFW/fineweb?config=sample-10BT"
+            "&split=train&text_field=text'. Default: the project's S3 "
+            "English-sentences corpus."
+        ),
+        default=None,
+    )
+    @click.option(
         "--embedding-dim",
         type=int,
         help="Embedding dimension",

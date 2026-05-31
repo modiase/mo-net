@@ -178,9 +178,8 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    corpus_path = get_resource(args.corpus_url)
-    logger.info(f"loading corpus from {corpus_path}")
-    corpus_lines = corpus_path.read_text().splitlines()
+    logger.info(f"loading corpus from {args.corpus_url}")
+    corpus_lines = list(get_resource(args.corpus_url)["text"])
     logger.info(f"{len(corpus_lines):,} sentences loaded")
 
     logger.info(

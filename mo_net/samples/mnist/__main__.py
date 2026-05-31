@@ -14,7 +14,7 @@ from mo_net.data import SplitConfig, load_data
 from mo_net.settings import get_settings
 from mo_net.log import LogLevel, setup_logging
 from mo_net.model import Model
-from mo_net.resources import MNIST_TEST_URL, MNIST_TRAIN_URL
+from mo_net.samples.mnist import MNIST_TEST_URL, MNIST_TRAIN_URL
 from mo_net.samples.mnist.cnn import cli as cnn_cli
 from mo_net.samples.mnist.mlp import cli as mlp_cli
 from mo_net.samples.mnist.mlp_decoder import cli as mlp_decoder_cli

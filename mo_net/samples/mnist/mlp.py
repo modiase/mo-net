@@ -20,7 +20,7 @@ from mo_net.model.layer.output import SparseCategoricalSoftmaxOutputLayer
 from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.protos import NormalisationType
-from mo_net.resources import MNIST_TRAIN_URL
+from mo_net.samples.mnist import MNIST_TRAIN_URL
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
@@ -295,7 +295,7 @@ def predict(
 
     if data_path is None:
         from mo_net.data import SplitConfig, load_data
-        from mo_net.resources import MNIST_TEST_URL
+        from mo_net.samples.mnist import MNIST_TEST_URL
 
         X_test, Y_test, _, __ = load_data(
             MNIST_TEST_URL,
