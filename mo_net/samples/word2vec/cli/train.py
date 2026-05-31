@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import time
-from collections.abc import Collection
 from pathlib import Path
 from typing import Literal, assert_never, cast
 
@@ -31,15 +30,7 @@ from mo_net.samples.word2vec.archive import (
 from mo_net.samples.word2vec.cli.group import cli, training_options
 from mo_net.samples.word2vec.models import CBOWModel, SkipGramModel
 from mo_net.samples.word2vec.strategy.softmax import SoftmaxConfig
-from mo_net.samples.word2vec.vocab import (
-    ENGLISH_SENTENCES_URL,
-    TokenizedSentence,
-    Vocab,
-    build_streaming_training_set,
-    cached_english_training_set,
-    get_english_sentences,
-    get_training_set,
-)
+from mo_net.samples.word2vec.prepared import PreparedDataset
 from mo_net.settings import get_settings
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import NullBackend, parse_connection_string
@@ -60,7 +51,6 @@ def train(
     batch_size: int,
     checkpoint_strategy: Literal["min-val", "last", "both"],
     context_size: int,
-    corpus_url: str | None,
     embedding_dim: int,
     health_frequency: int | None,
     history_max_len: int,
@@ -75,21 +65,19 @@ def train(
     monitor: bool,
     negative_samples: int,
     num_epochs: int,
+    prepared_dataset: Path,
     run_name: str | None,
-    sentence_limit: int | None,
     softmax_strategy: Literal["full", "negative-sampling", "hierarchical"],
-    stream: bool,
+    subsample_seed: int,
     subsample_t: float,
     vocab_size: int,
     warmup_epochs: int,
     # keep-sorted end
 ):
-    """Train a Word2Vec model on English text"""
+    """Train a Word2Vec model on a pre-built prepared dataset."""
     setup_logging(log_level)
 
     print_device_info()
-
-    resolved_corpus_url = corpus_url or ENGLISH_SENTENCES_URL
 
     seed = time.time_ns() // 1000
     logger.info(f"Using seed: {seed}")
@@ -108,14 +96,16 @@ def train(
     include_words = tuple(word.lower() for word in include_words)
     parent_run_name: str | None = None
     resume_state = None
-    resumed_vocab: Vocab | None = None
     resumed_model: CBOWModel | SkipGramModel | None = None
     if model_path is not None:
         # Resume from a prior archive: load weights, capture the training_state
         # so we can position the optimiser and propagate lineage into the new
         # manifest. ``prefer="last"`` because resumes continue from the most
-        # recent state, not the historical best.
-        model_, resumed_vocab, manifest = load_word2vec_archive(
+        # recent state, not the historical best. Caller is responsible for
+        # passing a --prepared-dataset whose derived vocab matches the
+        # archive's vocab; a mismatch will surface as an embedding-shape
+        # error at training time.
+        model_, _archive_vocab, manifest = load_word2vec_archive(
             model_path, training=True, key=key, prefer="last"
         )
         resumed_model = model_
@@ -172,33 +162,26 @@ def train(
         "total_batches will be back-filled after data prep."
     )
 
+    artifact = PreparedDataset(prepared_dataset)
+    logger.info(
+        f"Prepared dataset: {prepared_dataset} "
+        f"(corpus={artifact.meta.corpus_url}, n_rows={artifact.meta.n_rows:,}, "
+        f"n_tokens={artifact.meta.n_tokens:,}, "
+        f"full_vocab_size={artifact.meta.full_vocab_size:,})"
+    )
+    vocab, X_train, Y_train = artifact.derive(
+        vocab_size=vocab_size,
+        context_size=context_size,
+        subsample_t=subsample_t,
+        subsample_seed=subsample_seed,
+        forced_words=include_words,
+    )
+    if model_type == "skipgram":
+        Y_train, X_train = X_train, Y_train
+
     if resumed_model is not None:
-        # Resume branch: vocab + model already loaded; tokenise via resumed vocab.
-        assert resumed_vocab is not None
-        vocab = resumed_vocab
         model: CBOWModel | SkipGramModel = resumed_model
-        sentences = get_english_sentences(sentence_limit, url=resolved_corpus_url)
-        tokenized_sentences: Collection[TokenizedSentence] = [
-            [vocab[token] for token in sentence] for sentence in sentences if sentence
-        ]
-        X_train, Y_train = get_training_set(tokenized_sentences, context_size)
-        if model_type == "skipgram":
-            Y_train, X_train = X_train, Y_train
     else:
-        builder = (
-            build_streaming_training_set if stream else cached_english_training_set
-        )
-        vocab, X_train, Y_train = builder(
-            limit=sentence_limit,
-            max_vocab_size=vocab_size,
-            forced_words=include_words,
-            context_size=context_size,
-            cache_dir=get_settings().resource_cache,
-            subsample_t=subsample_t,
-            corpus_url=resolved_corpus_url,
-        )
-        if model_type == "skipgram":
-            Y_train, X_train = X_train, Y_train
         neg_sampling_dist = vocab.get_negative_sampling_distribution()
         match model_type:
             case "cbow":

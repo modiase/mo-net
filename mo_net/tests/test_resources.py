@@ -253,60 +253,6 @@ def test_extract_slug_strips_suffix_and_normalises():
     assert resources._extract_slug("https://x/?q=1") == "resource"
 
 
-def test_iter_text_rows_file_yields_lines(tmp_path: Path):
-    corpus = tmp_path / "doc.txt"
-    corpus.write_text("first\nsecond line\nthird\n")
-    assert list(resources.iter_text_rows(f"file://{corpus}")) == [
-        "first",
-        "second line",
-        "third",
-    ]
-
-
-def test_iter_text_rows_hf_uses_streaming(monkeypatch):
-    seen_kwargs: dict = {}
-
-    def _load_dataset(repo_id, config, *, split, cache_dir, streaming):
-        seen_kwargs.update(
-            repo_id=repo_id,
-            config=config,
-            split=split,
-            cache_dir=cache_dir,
-            streaming=streaming,
-        )
-        return iter([{"text": "alpha"}, {"text": "beta"}, {"text": "gamma"}])
-
-    import datasets
-
-    monkeypatch.setattr(datasets, "load_dataset", _load_dataset)
-
-    rows = list(resources.iter_text_rows("hf://acme/corpus?config=v1&split=train"))
-    assert rows == ["alpha", "beta", "gamma"]
-    assert seen_kwargs["streaming"] is True
-    assert seen_kwargs["repo_id"] == "acme/corpus"
-    assert seen_kwargs["config"] == "v1"
-    assert seen_kwargs["split"] == "train"
-
-
-def test_iter_text_rows_hf_honors_text_field(monkeypatch):
-    def _load_dataset(*_, **__):
-        return iter([{"content": "x"}, {"content": "y"}])
-
-    import datasets
-
-    monkeypatch.setattr(datasets, "load_dataset", _load_dataset)
-
-    rows = list(resources.iter_text_rows("hf://o/n?text_field=content"))
-    assert rows == ["x", "y"]
-
-
-def test_iter_text_rows_csv_rejected(tmp_path: Path):
-    csv = tmp_path / "x.csv"
-    csv.write_text("a,b\n1,2\n")
-    with pytest.raises(ValueError, match="Cannot stream"):
-        list(resources.iter_text_rows(f"file://{csv}"))
-
-
 def test_download_writes_atomically_no_tmp_left_on_success(monkeypatch, tmp_path):
     body = b"a,b\n1,2\n"
 

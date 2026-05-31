@@ -50,19 +50,6 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=4,
     )
     @click.option(
-        "--corpus-url",
-        type=str,
-        help=(
-            "Resource URL of the training corpus. Any scheme that "
-            "mo_net.resources supports works: s3://, https://, file://, "
-            "and hf:// for Hugging Face datasets, e.g. "
-            "'hf://HuggingFaceFW/fineweb?config=sample-10BT"
-            "&split=train&text_field=text'. Default: the project's S3 "
-            "English-sentences corpus."
-        ),
-        default=None,
-    )
-    @click.option(
         "--embedding-dim",
         type=int,
         help="Embedding dimension",
@@ -168,11 +155,15 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=None,
     )
     @click.option(
-        "--sentence-limit",
-        type=int,
-        help="Cap the number of sentences read from the English corpus. "
-        "Default: full corpus (~1.5M sentences).",
-        default=None,
+        "--prepared-dataset",
+        "prepared_dataset",
+        type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+        required=True,
+        help=(
+            "Path to a prep-artifact directory built by "
+            "`mo-net-build-w2v-dataset`. Required; the trainer no longer "
+            "tokenises corpora inline."
+        ),
     )
     @click.option(
         "--softmax-strategy",
@@ -181,15 +172,12 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default="negative-sampling",
     )
     @click.option(
-        "--stream/--no-stream",
-        "stream",
-        default=False,
+        "--subsample-seed",
+        type=int,
+        default=42,
         help=(
-            "Build (vocab, X, Y) via three streaming passes over the "
-            "corpus instead of loading the full tokenised list into RAM. "
-            "Required for corpora that don't fit in memory (e.g. full "
-            "FineWeb sample-10BT). Output arrays land on memmap'd .npy "
-            "files; the trainer reads them via mmap_mode='r'."
+            "RNG seed for Mikolov subsampling. Part of the derive-cache key "
+            "so changing it forces a fresh (X, Y) build."
         ),
     )
     @click.option(

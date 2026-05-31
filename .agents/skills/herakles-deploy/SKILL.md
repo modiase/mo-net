@@ -39,7 +39,7 @@ What the recipe does:
 
 The recipe ends with `Done: pushed <ref>`. Copy that ref into the sbatch command.
 
-**Before pressing go on new files**: `git add -A` (don't commit, just stage). flit_core's sdist generation only includes git-tracked files, so any _new_ file (e.g. a freshly-created `mo_net/scripts/foo.py`) gets silently dropped from the built wheel — manifests at runtime as `ModuleNotFoundError`. Modified files of already-tracked paths are fine without staging.
+**Before pressing go on new files**: `git add -A` (don't commit, just stage). flit*core's sdist generation only includes git-tracked files, so any \_new* file (e.g. a freshly-created `mo_net/scripts/foo.py`) gets silently dropped from the built wheel — manifests at runtime as `ModuleNotFoundError`. Modified files of already-tracked paths are fine without staging.
 
 ## Run a one-off spike
 
@@ -89,37 +89,53 @@ srun \
 
 Pin the image tag in the script. Re-deploying images mid-sweep would mean different tasks ran on different code — `:dirty` aside, that's exactly the thing tag-pinning fixes.
 
-## Hugging Face datasets + cache pre-warming
+## Word2vec: prep a dataset, then sweep
 
-`HF_HOME` is baked into the image at `/var/lib/mo-net/cache/huggingface` (see `flake.nix`), so anything `datasets.load_dataset` materialises lands under the persistent cache mount automatically — no `--container-env=HF_HOME` needed.
+Training is decoupled from corpus preprocessing — `mo-net-train ... word2vec train` requires `--prepared-dataset PATH` and does no tokenisation itself. Prep is its own sbatch (CPU-only, no GPU contention), training is many sbatches that consume the prep artifact.
 
-**One-time host prep** (cache directory must exist and be user-writable):
-
-```bash
-ssh herakles 'sudo mkdir -p /data/mo-net/cache && sudo chown $USER /data/mo-net/cache'
-```
-
-`/data/mo-net/cache` is on `/data` (persistent across reboots), unlike the legacy `/tmp/mo-net-stage/mo-net-cache` which tmpfs wipes — multi-GB HF dataset downloads would have to repeat every reboot otherwise.
-
-**Pre-warm before launching a sweep** (avoid burning a GPU node on downloads):
+**One-time host prep** (cache + datasets dirs must exist and be user-writable):
 
 ```bash
-# FineWeb sample-10BT — ~28 GB on disk, 10B tokens.
-ssh herakles 'nix develop -c mo-net-prewarm \
-  "hf://HuggingFaceFW/fineweb?config=sample-10BT&split=train&text_field=text"'
-
-# Cheap sanity-check it landed:
-ssh herakles 'du -sh /data/mo-net/cache/huggingface'
+ssh herakles 'mkdir -p /data/mo-net/cache /data/mo-net/datasets'
 ```
 
-**Pass an HF corpus to a training job** — `--corpus-url` accepts any scheme `mo_net.resources` knows:
+`HF_HOME` is baked into the image at `/var/lib/mo-net/cache/huggingface`, so `datasets.load_dataset` lands on the persistent cache mount automatically — no `--container-env=HF_HOME` needed.
+
+**Stage 1 — prep job** (parallel, CPU-bound, one per corpus):
 
 ```bash
-mo-net-train -m mo_net.samples.word2vec train \
-  --corpus-url 'hf://HuggingFaceFW/fineweb?config=sample-10BT&split=train&text_field=text' \
-  --model-type cbow --softmax-strategy negative-sampling \
-  --vocab-size 50000 --batch-size 4096 …
+ssh herakles 'sbatch --job-name=w2v-prep-fineweb \
+  --cpus-per-task=16 --mem=64G --time=120:00 \
+  --output=/data/mo-net/sweeps/w2v/logs/prep-%j.out \
+  --container-image=docker://localhost:5000#mo-net-cuda:<TAG> \
+  --container-mounts=/data/mo-net/cache:/var/lib/mo-net/cache:rw,/data/mo-net/datasets:/data/mo-net/datasets:rw \
+  --container-workdir=/workspace \
+  --wrap "mo-net-build-w2v-dataset \
+    --corpus-url \"hf://HuggingFaceFW/fineweb?config=sample-10BT&split=train&text_field=text\" \
+    --output-dir /data/mo-net/datasets/fineweb-10BT \
+    --workers 16"'
 ```
+
+Produces `/data/mo-net/datasets/fineweb-10BT/{data,full_vocab.msgpack,freq.npy,meta.json}` — hyperparameter-free; one artifact per `(corpus, limit)`.
+
+**Stage 2 — training sweep** (GPU, many per prep, `--dependency=afterok` chains them):
+
+```bash
+ssh herakles 'sbatch --dependency=afterok:<PREP_JOB_ID> \
+  --array=0-N%2 --gres=gpu:1 --cpus-per-task=4 --mem=24G --time=180:00 \
+  --container-image=docker://localhost:5000#mo-net-cuda:<TAG> \
+  --container-mounts=...,/data/mo-net/datasets:/data/mo-net/datasets:rw \
+  --container-workdir=/workspace \
+  --container-env=MO_NET_LOKI_URL,MO_NET_LOKI_LABELS,SLURM_JOB_ID,SLURM_ARRAY_JOB_ID,SLURM_ARRAY_TASK_ID \
+  --wrap "mo-net-train -m mo_net.samples.word2vec train \
+    --prepared-dataset /data/mo-net/datasets/fineweb-10BT \
+    --vocab-size 100000 --context-size 5 --subsample-t 1e-5 \
+    --model-type cbow --softmax-strategy negative-sampling --negative-samples 10 \
+    --embedding-dim 300 --batch-size 4096 --num-epochs 1 --learning-rate 1e-4 \
+    --run-name ... --logging-backend-connection-string ..."'
+```
+
+First task in a sweep with novel `(vocab_size, context_size, subsample_t)` pays the **derive cost** and writes `/data/mo-net/datasets/fineweb-10BT/derived/<args_hash>/`. Subsequent tasks with the same triple mmap-load the cached `(X, Y, vocab)` in seconds. Tasks varying only `lr` / `embedding_dim` / `model_type` are derive-cache hits.
 
 ## Inspecting the registry
 
