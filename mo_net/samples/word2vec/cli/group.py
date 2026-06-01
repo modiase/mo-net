@@ -56,6 +56,16 @@ def training_options(f: Callable[P, R]) -> Callable[P, R]:
         default=32,
     )
     @click.option(
+        "--eval-batch-size",
+        type=int,
+        default=1024,
+        help=(
+            "Chunk size for validation forward passes. The val pass materialises "
+            "a (batch, vocab) softmax buffer per chunk, so keep this well below "
+            "--batch-size on large-vocab runs to avoid OOM."
+        ),
+    )
+    @click.option(
         "--health-frequency",
         type=int,
         default=None,

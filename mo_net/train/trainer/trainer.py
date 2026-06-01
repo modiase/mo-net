@@ -439,7 +439,10 @@ class BasicTrainer:
         self._model.dump(open(self._model_checkpoint_path, "wb"))
 
         self._L_val_min = self._model.compute_loss(
-            X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+            X=self._X_val,
+            Y_true=self._Y_val,
+            loss_fn=self._loss_fn,
+            eval_batch_size=self._training_parameters.eval_batch_size,
         )
 
         # Heartbeat: land one metric row at step=0 so the dashboard surfaces
@@ -486,7 +489,10 @@ class BasicTrainer:
 
     def _training_loop(self) -> TrainingResult:
         L_val = self._model.compute_loss(
-            X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+            X=self._X_val,
+            Y_true=self._Y_val,
+            loss_fn=self._loss_fn,
+            eval_batch_size=self._training_parameters.eval_batch_size,
         )
         L_batch = 0.0
         for i in tqdm(
@@ -547,7 +553,10 @@ class BasicTrainer:
 
             if (i + 1) % self._training_parameters.batches_per_epoch == 0 and i > 0:
                 L_val = self._model.compute_loss(
-                    X=self._X_val, Y_true=self._Y_val, loss_fn=self._loss_fn
+                    X=self._X_val,
+                    Y_true=self._Y_val,
+                    loss_fn=self._loss_fn,
+                    eval_batch_size=self._training_parameters.eval_batch_size,
                 )
                 improved = L_val < self._L_val_min
                 if improved:

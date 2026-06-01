@@ -11,6 +11,7 @@ class TrainingParameters(BaseModel):
     batch_size: int
     checkpoint_strategy: CheckpointStrategy = "min-val"
     dropout_keep_probs: tuple[float, ...]
+    eval_batch_size: int = 4096
     history_max_len: int
     learning_rate_limits: tuple[float, float]
     log_level: str

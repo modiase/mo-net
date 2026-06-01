@@ -52,6 +52,7 @@ def train(
     checkpoint_strategy: Literal["min-val", "last", "both"],
     context_size: int,
     embedding_dim: int,
+    eval_batch_size: int,
     health_frequency: int | None,
     history_max_len: int,
     include_words: tuple[str, ...],
@@ -232,6 +233,7 @@ def train(
         batch_size=batch_size,
         checkpoint_strategy=checkpoint_strategy,
         dropout_keep_probs=(),
+        eval_batch_size=eval_batch_size,
         history_max_len=history_max_len,
         # Cosine schedule decays from learning_rate to learning_rate/100 over
         # num_epochs; matching the (decayed, peak) ordering the trainer wires
