@@ -15,7 +15,7 @@ from mo_net.samples.word2vec.prepared import (
     ARTIFACT_FREQ_FILE,
     ARTIFACT_META_FILE,
     ARTIFACT_VOCAB_FILE,
-    PREP_REV,
+    PREP_ARTIFACT_VERSION,
     PrepMeta,
 )
 from mo_net.scripts.build_w2v_dataset import main
@@ -65,7 +65,7 @@ def test_prep_produces_expected_layout(tmp_path: Path):
     assert meta.corpus_url == url
     assert meta.n_rows == 5
     assert meta.full_vocab_size >= 20  # plenty of distinct words
-    assert meta.prep_rev == PREP_REV
+    assert meta.version == PREP_ARTIFACT_VERSION
     assert len(meta.content_hash) == 32
 
 

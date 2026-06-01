@@ -24,7 +24,9 @@ from mo_net.model.model import Model
 from mo_net.model.module.base import Hidden, Output
 from mo_net.model.module.rnn import RNN
 from mo_net.protos import NormalisationType
-from mo_net.samples.word2vec.vocab import Vocab
+from mo_net.resources import get_resource
+from mo_net.samples.word2vec.vocab import Vocab, tokenize_line
+
 from mo_net.train import TrainingParameters
 from mo_net.train.backends.log import SqliteBackend
 from mo_net.train.run import TrainingRun
@@ -306,22 +308,22 @@ def info():
     logger.info("  python -m mo_net.samples.rnn_language demo --help")
 
 
-def load_word2vec_model(model_path: Path) -> tuple[jnp.ndarray, Vocab]:
-    """Load word2vec embeddings and vocabulary from a trained model."""
+def load_pretrained_embeddings(archive_path: Path) -> tuple[jnp.ndarray, Vocab]:
+    """Load embeddings + vocab from a trained word-embedding archive."""
     import mo_net.samples.word2vec.__main__  # noqa: F401 - needed for pickle
 
-    class Word2VecUnpickler(pickle.Unpickler):
-        """Resolves class names when word2vec was trained as __main__."""
+    class _ArchiveUnpickler(pickle.Unpickler):
+        """Resolves class names when the archive was trained as __main__."""
 
         def find_class(self, module: str, name: str):
             if module == "__main__" or "rnn_language" in module:
                 module = "mo_net.samples.word2vec.__main__"
             return super().find_class(module, name)
 
-    with zipfile.ZipFile(model_path, "r") as zf:
+    with zipfile.ZipFile(archive_path, "r") as zf:
         vocab = Vocab.from_bytes(zf.read("vocab.msgpack"))
         with zf.open("model.pkl") as mf:
-            serialized = Word2VecUnpickler(mf).load()
+            serialized = _ArchiveUnpickler(mf).load()
             embedding_layer = serialized.hidden_modules[0].layers[0]
             embeddings = embedding_layer.parameters.embeddings
 
@@ -331,12 +333,12 @@ def load_word2vec_model(model_path: Path) -> tuple[jnp.ndarray, Vocab]:
 def create_language_model_training_data(
     vocab: Vocab,
     sequence_length: int,
+    corpus_url: str,
     num_sentences: int = 10000,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Create sliding window training data from English sentences."""
-    from mo_net.samples.word2vec.vocab import get_english_sentences
-
-    sentences = get_english_sentences(limit=num_sentences)
+    """Create sliding window training data from a text corpus URL."""
+    texts: list[str] = get_resource(corpus_url)["text"][:num_sentences]
+    sentences = [tokenize_line(text) for text in texts]
 
     tokenized = [
         [vocab[word] for word in sentence]
@@ -357,13 +359,13 @@ def create_language_model_training_data(
     return jnp.array(X_list, dtype=jnp.int32), jnp.array(Y_list, dtype=jnp.int32)
 
 
-@cli.command("train-pretrained", help="Train with pre-trained word2vec embeddings")
+@cli.command("train-pretrained", help="Train with pre-trained word embeddings")
 @paths_options
 @click.option(
-    "--word2vec-model",
+    "--embeddings-archive",
     type=Path,
     required=True,
-    help="Path to trained word2vec model (zip file)",
+    help="Path to a trained word-embedding archive (zip).",
 )
 @click.option(
     "--sequence-length",
@@ -380,7 +382,7 @@ def create_language_model_training_data(
 @click.option(
     "--freeze-embeddings/--finetune-embeddings",
     default=True,
-    help="Whether to freeze word2vec embeddings during training",
+    help="Whether to freeze pre-trained embeddings during training",
 )
 @click.option(
     "--num-sentences",
@@ -388,13 +390,24 @@ def create_language_model_training_data(
     default=10000,
     help="Number of sentences to use for training",
 )
+@click.option(
+    "--corpus-url",
+    type=str,
+    required=True,
+    help=(
+        "Resource URL of the training corpus (any scheme "
+        "mo_net.resources understands: s3://, file://, hf://, ...)."
+    ),
+)
 @training_options
-def train_pretrained(
-    word2vec_model: Path,
+def train_using_pretrained_embeddings(
+    *,
+    embeddings_archive: Path,
     sequence_length: int,
     hidden_dim: int,
     freeze_embeddings: bool,
     num_sentences: int,
+    corpus_url: str,
     batch_size: int,
     num_epochs: int,
     learning_rate: float,
@@ -403,13 +416,13 @@ def train_pretrained(
     model_output_path: Path | None,
     log_level: LogLevel,
 ):
-    """Train RNN language model with pre-trained word2vec embeddings."""
+    """Train RNN language model with pre-trained word embeddings."""
     setup_logging(log_level)
     print_device_info()
 
-    logger.info("=== RNN Language Model with Pre-trained Word2Vec ===")
-    logger.info(f"Loading word2vec model from {word2vec_model}")
-    embeddings, vocab = load_word2vec_model(word2vec_model)
+    logger.info("=== RNN Language Model with Pre-trained Embeddings ===")
+    logger.info(f"Loading pre-trained embeddings from {embeddings_archive}")
+    embeddings, vocab = load_pretrained_embeddings(embeddings_archive)
 
     vocab_size = len(vocab)
     embedding_dim = embeddings.shape[1]
@@ -419,9 +432,11 @@ def train_pretrained(
     logger.info(f"Hidden dimension: {hidden_dim}")
     logger.info(f"Sequence length: {sequence_length}")
     logger.info(f"Freeze embeddings: {freeze_embeddings}")
-    logger.info(f"Creating training data from {num_sentences} sentences...")
+    logger.info(
+        f"Creating training data from {num_sentences} sentences of {corpus_url}..."
+    )
     X_train, Y_train = create_language_model_training_data(
-        vocab, sequence_length, num_sentences
+        vocab, sequence_length, corpus_url, num_sentences
     )
     logger.info(f"Training data: X={X_train.shape}, Y={Y_train.shape}")
 
@@ -519,10 +534,10 @@ def train_pretrained(
     help="Path to trained RNN language model",
 )
 @click.option(
-    "--word2vec-model",
+    "--embeddings-archive",
     type=Path,
     required=True,
-    help="Path to word2vec model (for vocabulary)",
+    help="Path to the pre-trained embeddings archive (for vocab).",
 )
 @click.option(
     "--prompt",
@@ -544,7 +559,7 @@ def train_pretrained(
 )
 def generate(
     model_path: Path,
-    word2vec_model: Path,
+    embeddings_archive: Path,
     prompt: str,
     num_words: int,
     temperature: float,
@@ -552,7 +567,7 @@ def generate(
     """Generate text using a trained RNN language model."""
     setup_logging(LogLevel.INFO)
 
-    _, vocab = load_word2vec_model(word2vec_model)
+    _, vocab = load_pretrained_embeddings(embeddings_archive)
     vocab_size = len(vocab)
     model = RNNLanguageModel.load(model_path, training=False)
     sequence_length = model.input_layer.input_dimensions[0]

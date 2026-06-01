@@ -39,11 +39,11 @@ from typing import Final
 import msgpack  # type: ignore[import-untyped]
 import numpy as np
 from loguru import logger
+from packaging.version import Version
 
 from mo_net.resources import file_lock
 from mo_net.samples.word2vec.vocab import Vocab
 
-# Filenames inside an artifact directory.
 ARTIFACT_DATA_DIR: Final[str] = "data"
 ARTIFACT_VOCAB_FILE: Final[str] = "full_vocab.msgpack"
 ARTIFACT_FREQ_FILE: Final[str] = "freq.npy"
@@ -55,9 +55,8 @@ DERIVED_Y_FILE: Final[str] = "Y.npy"
 DERIVED_VOCAB_FILE: Final[str] = "vocab.msgpack"
 DERIVED_META_FILE: Final[str] = "meta.json"
 
-# Bump when the on-disk format changes incompatibly.
-PREP_REV: Final[int] = 1
-DERIVED_REV: Final[int] = 1
+PREP_ARTIFACT_VERSION: Final[str] = "2.0.0"
+DERIVED_ARTIFACT_VERSION: Final[str] = "1.0.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +67,7 @@ class PrepMeta:
     n_tokens: int
     full_vocab_size: int
     tokeniser_hash: str
-    stopwords_hash: str
-    prep_rev: int
+    version: str
     prep_completed_at: str
     content_hash: str
 
@@ -82,8 +80,7 @@ class PrepMeta:
                 "n_tokens": self.n_tokens,
                 "full_vocab_size": self.full_vocab_size,
                 "tokeniser_hash": self.tokeniser_hash,
-                "stopwords_hash": self.stopwords_hash,
-                "prep_rev": self.prep_rev,
+                "version": self.version,
                 "prep_completed_at": self.prep_completed_at,
                 "content_hash": self.content_hash,
             },
@@ -93,7 +90,13 @@ class PrepMeta:
     @classmethod
     def from_json(cls, text: str) -> PrepMeta:
         d = json.loads(text)
-        return cls(**d)
+        try:
+            return cls(**d)
+        except TypeError as e:
+            raise ValueError(
+                f"Could not parse prep artifact metadata "
+                f"(likely from an older artifact version): {e}"
+            ) from e
 
 
 def args_hash(
@@ -137,10 +140,11 @@ class PreparedDataset:
                 f"Not a prepared dataset directory (no {ARTIFACT_META_FILE}): {path}"
             )
         self.meta = PrepMeta.from_json(meta_path.read_text())
-        if self.meta.prep_rev != PREP_REV:
+        if Version(self.meta.version).major != Version(PREP_ARTIFACT_VERSION).major:
             raise ValueError(
-                f"Prepared dataset at {path} has prep_rev={self.meta.prep_rev}; "
-                f"this build expects {PREP_REV}. Re-run the prep command."
+                f"Prepared dataset at {path} has version={self.meta.version!r}; "
+                f"this build reads {PREP_ARTIFACT_VERSION!r}. Re-run "
+                f"`mo-net-build-w2v-dataset`."
             )
 
     @property
@@ -381,7 +385,7 @@ class PreparedDataset:
             "subsample_seed": subsample_seed,
             "forced_words": sorted(forced_words),
             "content_hash": self.meta.content_hash,
-            "derived_rev": DERIVED_REV,
+            "version": DERIVED_ARTIFACT_VERSION,
             "derived_completed_at": datetime.now().isoformat(timespec="seconds"),
         }
         (tmp_path / DERIVED_META_FILE).write_text(json.dumps(derived_meta, indent=2))

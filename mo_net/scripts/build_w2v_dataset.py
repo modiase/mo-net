@@ -32,11 +32,11 @@ from mo_net.samples.word2vec.prepared import (
     ARTIFACT_FREQ_FILE,
     ARTIFACT_META_FILE,
     ARTIFACT_VOCAB_FILE,
-    PREP_REV,
+    PREP_ARTIFACT_VERSION,
     PrepMeta,
     compute_content_hash,
 )
-from mo_net.samples.word2vec.vocab import get_stop_words, tokenize_line
+from mo_net.samples.word2vec.vocab import tokenize_line
 
 
 def _tokeniser_hash() -> str:
@@ -46,19 +46,11 @@ def _tokeniser_hash() -> str:
     return hashlib.sha256(src.encode()).hexdigest()[:16]
 
 
-def _stopwords_hash(stopwords: frozenset[str]) -> str:
-    return hashlib.sha256(",".join(sorted(stopwords)).encode()).hexdigest()[:16]
-
-
-def _tokenise_batch(
-    batch: dict, *, text_column: str, stopwords: frozenset[str]
-) -> dict:
-    return {
-        "tokens": [
-            [t for t in tokenize_line(text) if t not in stopwords]
-            for text in batch[text_column]
-        ]
-    }
+def _tokenise_batch(batch: dict, *, text_column: str) -> dict:
+    """Tokenise each text row. No stopword filter — Mikolov subsampling at
+    training time handles common-word suppression while preserving the
+    window's syntactic frame."""
+    return {"tokens": [tokenize_line(text) for text in batch[text_column]]}
 
 
 def _to_ids_batch(batch: dict, *, full_vocab: dict[str, int]) -> dict:
@@ -127,8 +119,6 @@ def main(
         )
         sys.exit(1)
 
-    stopwords = frozenset(get_stop_words())
-
     # Stage 1: tokenise (parallel)
     logger.info(f"stage 1/3: tokenising with {workers} workers")
     tokenised = ds.map(
@@ -136,7 +126,7 @@ def main(
         batched=True,
         num_proc=workers,
         remove_columns=ds.column_names,
-        fn_kwargs={"text_column": text_column, "stopwords": stopwords},
+        fn_kwargs={"text_column": text_column},
         desc="tokenise",
     )
 
@@ -196,8 +186,7 @@ def main(
         n_tokens=n_tokens,
         full_vocab_size=len(full_vocab),
         tokeniser_hash=_tokeniser_hash(),
-        stopwords_hash=_stopwords_hash(stopwords),
-        prep_rev=PREP_REV,
+        version=PREP_ARTIFACT_VERSION,
         prep_completed_at=datetime.now().isoformat(timespec="seconds"),
         content_hash=content_hash,
     )
